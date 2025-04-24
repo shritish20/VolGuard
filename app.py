@@ -63,7 +63,7 @@ with col2:
 # Step 1: Load NIFTY Data from CSV
 with st.spinner("Loading NIFTY data from CSV..."):
     try:
-        nifty = pd.read_csv("nifty50.csv")
+        nifty = pd.read_csv("Nifty50.csv")
         nifty["Date"] = pd.to_datetime(nifty["Date"], errors="coerce")
         nifty = nifty.dropna(subset=["Date"])
         nifty = nifty.set_index("Date")
