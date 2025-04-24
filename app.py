@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
@@ -50,7 +49,7 @@ with st.sidebar:
     risk_tolerance = st.selectbox("Risk Tolerance", ["Conservative", "Moderate", "Aggressive"], index=1, help="Adjusts forecast weights and capital allocation.")
     journal_entry = st.text_area("Trade Journal", placeholder="Log your thoughts or trade rationale...", help="Record your decisions for behavioral tracking.")
     st.markdown("---")
-    st.info("**Data Sources**: NIFTY (Yahoo Finance or Mock), India VIX (CSV)")
+    st.info("**Data Sources**: NIFTY (CSV), India VIX (CSV)")
     st.markdown("Built by Shritish Shukla & AI Co-Founder")
 
 # Quick Action Bar
@@ -61,42 +60,34 @@ with col1:
 with col2:
     st.download_button("Download Report", data="VolGuard Report Placeholder", file_name="volguard_report.csv", help="Download full analysis (coming soon)")
 
-# Step 1: Fetch NIFTY Data
-with st.spinner("Fetching NIFTY data..."):
-    nifty_symbol = "^NSEI"
+# Step 1: Load NIFTY Data from CSV
+with st.spinner("Loading NIFTY data from CSV..."):
     try:
-        import yfinance as yf
-        from pandas_datareader import data as pdr
-        yf.pdr_override()
-        nifty = pdr.get_data_yahoo(nifty_symbol, period="1y", interval="1d", auto_adjust=True,
-                                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-        if nifty.empty or len(nifty) < 10:
-            raise ValueError("NIFTY data is empty or too short.")
-        st.info("✅ Successfully fetched NIFTY 50 data (^NSEI)")
+        nifty = pd.read_csv("nifty50.csv")
+        nifty["Date"] = pd.to_datetime(nifty["Date"], errors="coerce")
+        nifty = nifty.dropna(subset=["Date"])
+        nifty = nifty.set_index("Date")
+        nifty = nifty.sort_index()
+        # Ensure the data has enough entries
+        if len(nifty) < 10:
+            raise ValueError("NIFTY data from CSV is too short.")
+        st.info("✅ Successfully loaded NIFTY 50 data from CSV")
     except Exception as e:
-        st.warning(f"Error fetching NIFTY 50 data (^NSEI): {e}")
-        st.info("Trying alternative: NIFTYBEES ETF (NIFTYBEES.NS)")
-        try:
-            nifty = yf.download("NIFTYBEES.NS", period="1y", interval="1d", auto_adjust=True)
-            if nifty.empty or len(nifty) < 10:
-                raise ValueError("NIFTYBEES data is empty or too short.")
-            st.info("✅ Successfully fetched NIFTYBEES ETF data as a backup")
-        except Exception as ex:
-            st.error(f"Error fetching NIFTYBEES ETF data: {ex}")
-            st.warning("Falling back to mock NIFTY data for demonstration.")
-            import pandas as pd
-            import numpy as np
-            mock_dates = pd.date_range(start="2024-04-25", end="2025-04-24", freq="B")
-            mock_close = np.random.normal(loc=22000, scale=500, size=len(mock_dates))
-            nifty = pd.DataFrame({
-                "Open": mock_close,
-                "High": mock_close + np.random.uniform(0, 200, len(mock_dates)),
-                "Low": mock_close - np.random.uniform(0, 200, len(mock_dates)),
-                "Close": mock_close,
-                "Adj Close": mock_close,
-                "Volume": np.random.randint(1000000, 5000000, len(mock_dates))
-            }, index=mock_dates)
-            nifty = nifty[~nifty.index.duplicated(keep='first')]
+        st.error(f"Error loading NIFTY data from CSV: {e}")
+        st.warning("Falling back to mock NIFTY data for demonstration.")
+        import pandas as pd
+        import numpy as np
+        mock_dates = pd.date_range(start="2024-04-25", end="2025-04-24", freq="B")
+        mock_close = np.random.normal(loc=22000, scale=500, size=len(mock_dates))
+        nifty = pd.DataFrame({
+            "Open": mock_close,
+            "High": mock_close + np.random.uniform(0, 200, len(mock_dates)),
+            "Low": mock_close - np.random.uniform(0, 200, len(mock_dates)),
+            "Close": mock_close,
+            "Adj Close": mock_close,
+            "Volume": np.random.randint(1000000, 5000000, len(mock_dates))
+        }, index=mock_dates)
+        nifty = nifty[~nifty.index.duplicated(keep='first')]
 
 # Process NIFTY data
 nifty_close = nifty["Close"].to_numpy().flatten()
