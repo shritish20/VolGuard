@@ -156,7 +156,7 @@ def generate_features(df, n_days, dates):
     return df
 
 # Volatility forecasting
-def forecast_volatility(df, forecast_horizon, risk_t  capital):
+def forecast_volatility(df, forecast_horizon, risk_tolerance, capital):
     df['Log_Returns'] = np.log(df['NIFTY_Close'] / df['NIFTY_Close'].shift(1)).dropna()
     returns = df['Log_Returns'].dropna()
     
@@ -340,7 +340,7 @@ if run_button:
         
         st.success("✅ Data loaded successfully")
         df = generate_features(df, n_days, dates)
-        forecast_log, blended_vols, realized_vol, feature_importance, rmse = forecast_volatility(df, forecast_horizon, risk_tolerance)
+        forecast_log, blended_vols, realized_vol, feature_importance, rmse = forecast_volatility(df, forecast_horizon, risk_tolerance, capital)
         regime, strategy, reason, tags, confidence_score, risk_reward, deploy, max_loss, risk_flags, behavior_score, behavior_warnings = strategy_engine(df, blended_vols, capital)
         
         st.session_state.df = df
