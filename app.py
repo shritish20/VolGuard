@@ -15,32 +15,34 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS for improved visibility
+# Custom CSS for a sleek, modern look
 st.markdown("""
     <style>
-        .main {background-color: #f0f2f5; color: #2b3e50;}
-        .stButton>button {background-color: #2b3e50; color: white; border-radius: 5px; padding: 8px 16px;}
-        .stMetric {background-color: #ffffff; border-radius: 8px; padding: 12px;}
-        h1, h2, h3 {color: #2b3e50; font-family: 'Arial', sans-serif;}
-        .stDataFrame {background-color: #ffffff; border-radius: 8px; padding: 10px;}
+        .main {background-color: #1a1a2e; color: #e5e5e5; font-family: 'Arial', sans-serif;}
+        .stButton>button {background-color: #0f3460; color: white; border-radius: 10px; padding: 10px 20px; font-size: 16px;}
+        .stMetric {background-color: #16213e; border-radius: 15px; padding: 15px; text-align: center;}
+        h1 {color: #e94560; font-size: 32px; text-align: center;}
+        h2 {color: #00d4ff; font-size: 20px; margin-bottom: 10px;}
+        .stDataFrame {background-color: #16213e; border-radius: 10px; padding: 10px;}
+        .card {background-color: #16213e; border-radius: 15px; padding: 15px; margin: 10px 0; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);}
+        .gauge {width: 100px; height: 100px; border-radius: 50%; background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%); display: inline-block; text-align: center; line-height: 100px; color: white; font-weight: bold;}
+        .risk-flag {color: #e94560; font-size: 18px;}
     </style>
 """, unsafe_allow_html=True)
 
 # Header
 st.title("🛡️ VolGuard: AI-Powered Trading Copilot")
-st.markdown("Your disciplined partner for volatility-driven options trading.")
-st.write(f"Date: {datetime.now().strftime('%d-%b-%Y')}")
+st.markdown("**Protection First, Edge Always** | Built by Shritish & Salman")
 
 # Sidebar
 with st.sidebar:
-    st.header("⚙️ Parameters")
+    st.header("⚙️ Trading Parameters")
     forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7)
     capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
     risk_tolerance = st.selectbox("Risk Tolerance", ["Conservative", "Moderate", "Aggressive"], index=1)
-    st.header("Actions")
     run_button = st.button("Run VolGuard")
     st.markdown("---")
-    st.info("Built by Shritish Shukla & AI Co-Founder | Protection First, Edge Always")
+    st.markdown("**Philosophy:** Deploy edge, survive, compound, outlast.")
 
 # Function to load data from GitHub
 @st.cache_data
@@ -52,16 +54,13 @@ def load_data():
         nifty = pd.read_csv(nifty_url)
         nifty.columns = nifty.columns.str.strip()
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
-            st.error("Nifty50.csv is missing required columns: 'Date' or 'Close'.")
+            st.error("Nifty50.csv is missing required columns.")
             return None
 
         nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
         nifty = nifty.dropna(subset=["Date"])
         if nifty.empty:
-            st.error("NIFTY data is empty or invalid.")
-            return None
-        if not pd.api.types.is_numeric_dtype(nifty["Close"]):
-            st.error("NIFTY 'Close' column contains non-numeric values.")
+            st.error("NIFTY data is empty.")
             return None
         nifty = nifty[["Date", "Close"]].set_index("Date")
         nifty = nifty[~nifty.index.duplicated(keep='first')]
@@ -69,16 +68,13 @@ def load_data():
         vix = pd.read_csv(vix_url)
         vix.columns = vix.columns.str.strip()
         if "Date" not in vix.columns or "Close" not in vix.columns:
-            st.error("india_vix.csv is missing required columns: 'Date' or 'Close'.")
+            st.error("india_vix.csv is missing required columns.")
             return None
 
         vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
-            st.error("VIX data is empty or invalid.")
-            return None
-        if not pd.api.types.is_numeric_dtype(vix["Close"]):
-            st.error("VIX 'Close' column contains non-numeric values.")
+            st.error("VIX data is empty.")
             return None
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix = vix[~vix.index.duplicated(keep='first')]
@@ -91,10 +87,10 @@ def load_data():
         df.index = df.index.date
 
         if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
-            st.warning("Filling NaN values with forward-fill and back-fill.")
+            st.warning("Filling NaN values.")
             df = df.ffill().bfill()
         if df.empty:
-            st.error("DataFrame is empty after processing.")
+            st.error("DataFrame is empty.")
             return None
 
         return df
@@ -123,7 +119,6 @@ def generate_synthetic_features(df):
         except:
             return 0
 
-    # Synthetic Features
     event_spike = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5), 1.2, 1.0)
     df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
     df["ATM_IV"] = np.clip(df["ATM_IV"], 5, 50)
@@ -143,20 +138,9 @@ def generate_synthetic_features(df):
     df["Spot_MaxPain_Diff_Pct"] = np.clip(df["Spot_MaxPain_Diff_Pct"], 0.1, 1.0)
     df["Days_to_Expiry"] = np.random.choice([1, 3, 7, 14, 21, 28], n_days)
     df["Event_Flag"] = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5) | (df["Days_to_Expiry"] <= 3), 1, 0)
-    fii_trend = np.random.normal(0, 10000, n_days)
-    fii_trend[::30] *= -1
-    df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
-    df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
-    df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
     df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
     df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
     df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
-    df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
-    df["Capital_Pressure_Index"] = (df["FII_Index_Fut_Pos"] / 3e4 + df["FII_Option_Pos"] / 1e4 + df["PCR"]) / 3
-    df["Capital_Pressure_Index"] = np.clip(df["Capital_Pressure_Index"], -2, 2)
-    df["Gamma_Bias"] = np.clip(df["IV_Skew"] * (30 - df["Days_to_Expiry"]) / 30, -2, 2)
-    df["Total_Capital"] = capital
-    df["PnL_Day"] = np.random.normal(0, 5000, n_days) * (1 - df["Event_Flag"] * 0.5)
 
     straddle_prices = []
     call_prices = []
@@ -178,60 +162,8 @@ def generate_synthetic_features(df):
     df["Put_Price"] = put_prices
 
     if df.isna().sum().sum() > 0:
-        st.warning("Filling missing values...")
         df = df.interpolate().fillna(method='bfill')
     return df
-
-# Function to forecast volatility (historical for backtesting)
-def forecast_volatility_historical(df, horizon=1, start_idx=200):
-    forecasts = []
-    for i in range(start_idx, len(df)):
-        df_garch = df.iloc[:i]
-        df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
-        garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
-        garch_fit = garch_model.fit(disp="off", show_warning=False)
-        garch_forecast = garch_fit.forecast(horizon=horizon, reindex=False)
-        garch_vol = np.sqrt(garch_forecast.variance.iloc[-1].values[0]) * np.sqrt(252)
-        garch_vol = np.clip(garch_vol, 5, 50)
-        if df["Event_Flag"].iloc[i-1] == 1:
-            garch_vol *= 1.1
-
-        realized_vol = df["Realized_Vol"].iloc[i-5:i].mean()
-
-        df_xgb = df.iloc[:i]
-        df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
-        df_xgb = df_xgb.dropna()
-
-        feature_cols = ['VIX', 'ATM_IV', 'PCR', 'IV_Skew', 'Realized_Vol', 'Days_to_Expiry', 'VIX_Change_Pct']
-        X = df_xgb[feature_cols]
-        y = df_xgb['Target_Vol']
-
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        X_scaled = pd.DataFrame(X_scaled, columns=feature_cols, index=X.index)
-
-        split_index = int(len(X) * 0.8)
-        X_train, X_test = X_scaled.iloc[:split_index], X_scaled.iloc[split_index:]
-        y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
-
-        model = XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.05, random_state=42)
-        model.fit(X_train, y_train)
-
-        current_row = df_xgb[feature_cols].iloc[-1].copy()
-        current_row_scaled = scaler.transform([current_row])
-        xgb_vol = model.predict(current_row_scaled)[0]
-        xgb_vol = np.clip(xgb_vol, 5, 50)
-        if df["Event_Flag"].iloc[i-1] == 1:
-            xgb_vol *= 1.1
-
-        garch_diff = np.abs(garch_vol - realized_vol)
-        xgb_diff = np.abs(xgb_vol - realized_vol)
-        garch_weight = xgb_diff / (garch_diff + xgb_diff) if (garch_diff + xgb_diff) > 0 else 0.5
-        xgb_weight = 1 - garch_weight
-        blended_vol = (garch_weight * garch_vol) + (xgb_weight * xgb_vol)
-
-        forecasts.append(blended_vol)
-    return forecasts
 
 # Function to forecast volatility (future)
 def forecast_volatility_future(df, forecast_horizon):
@@ -265,7 +197,7 @@ def forecast_volatility_future(df, forecast_horizon):
     df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
     df_xgb = df_xgb.dropna()
 
-    feature_cols = ['VIX', 'ATM_IV', 'PCR', 'IV_Skew', 'Realized_Vol', 'Days_to_Expiry', 'VIX_Change_Pct']
+    feature_cols = ['VIX', 'ATM_IV', 'PCR', 'Realized_Vol', 'Days_to_Expiry', 'VIX_Change_Pct']
     X = df_xgb[feature_cols]
     y = df_xgb['Target_Vol']
 
@@ -302,73 +234,49 @@ def forecast_volatility_future(df, forecast_horizon):
     garch_weight = xgb_diff / (garch_diff + xgb_diff) if (garch_diff + xgb_diff) > 0 else 0.5
     xgb_weight = 1 - garch_weight
     blended_vols = [(garch_weight * g) + (xgb_weight * x) for g, x in zip(garch_vols, xgb_vols)]
+    confidence_score = min(100, max(50, 80 - abs(garch_diff - xgb_diff)))  # Simplified confidence
 
     forecast_log = pd.DataFrame({
         "Date": future_dates,
-        "GARCH_Vol": garch_vols,
-        "XGBoost_Vol": xgb_vols,
-        "Blended_Vol": blended_vols
+        "Blended_Vol": blended_vols,
+        "Confidence": [confidence_score] * forecast_horizon
     })
-    return forecast_log, blended_vols, realized_vol
+    return forecast_log, blended_vols, realized_vol, confidence_score
 
 # Function to generate trading signals
-def generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, historical=False):
+def generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
     signals = []
     position_size = {"Conservative": 0.1, "Moderate": 0.2, "Aggressive": 0.3}[risk_tolerance]
-    
-    if historical:
-        # Generate signals for historical data
-        blended_vols = forecast_volatility_historical(df)
-        for i in range(200, len(df)):
-            date = df.index[i]
-            blended_vol = blended_vols[i - 200]
-            realized_vol = df["Realized_Vol"].iloc[i-5:i].mean()
-            ivp = df["IVP"].iloc[i]
-            pcr = df["PCR"].iloc[i]
-            event_flag = df["Event_Flag"].iloc[i]
-            strike = round(df["NIFTY_Close"].iloc[i] / 100) * 100
-            signal = "Hold"
-            action = None
+    risk_flag = "🚩 High Risk" if confidence_score < 70 or df["Event_Flag"].iloc[-1] == 1 else "✅ Safe"
 
-            if blended_vol > realized_vol + 2 and ivp > 75:
-                signal = "Buy Call"
-                action = f"Buy Call at Strike {strike}, Premium ~{df['Call_Price'].iloc[i]:.2f}"
-            elif blended_vol < realized_vol - 2 and pcr < 0.8:
-                signal = "Buy Put"
-                action = f"Buy Put at Strike {strike}, Premium ~{df['Put_Price'].iloc[i]:.2f}"
-            elif event_flag == 1:
-                signal = "Buy Straddle"
-                action = f"Buy Straddle at Strike {strike}, Premium ~{df['Straddle_Price'].iloc[i]:.2f}"
+    for i, row in forecast_log.iterrows():
+        blended_vol = row["Blended_Vol"]
+        ivp = df["IVP"].iloc[-1]
+        pcr = df["PCR"].iloc[-1]
+        strike = round(df["NIFTY_Close"].iloc[-1] / 100) * 100
+        signal = "Hold"
+        action = None
 
-            signals.append({"Date": date, "Signal": signal, "Action": action,
-                           "Position Size": f"{position_size*100}% of Capital"})
-    else:
-        # Generate signals for future forecasts
-        for i, row in forecast_log.iterrows():
-            blended_vol = row["Blended_Vol"]
-            ivp = df["IVP"].iloc[-1]
-            pcr = df["PCR"].iloc[-1]
-            event_flag = df["Event_Flag"].iloc[-1]
-            strike = round(df["NIFTY_Close"].iloc[-1] / 100) * 100
-            signal = "Hold"
-            action = None
+        if blended_vol > realized_vol + 2 and ivp > 75 and confidence_score >= 70:
+            signal = "Buy Call"
+            action = f"Buy Call at {strike}, Premium ~{df['Call_Price'].iloc[-1]:.2f}"
+        elif blended_vol < realized_vol - 2 and pcr < 0.8 and confidence_score >= 70:
+            signal = "Buy Put"
+            action = f"Buy Put at {strike}, Premium ~{df['Put_Price'].iloc[-1]:.2f}"
+        elif df["Event_Flag"].iloc[-1] == 1 and confidence_score >= 70:
+            signal = "Buy Straddle"
+            action = f"Buy Straddle at {strike}, Premium ~{df['Straddle_Price'].iloc[-1]:.2f}"
 
-            if blended_vol > realized_vol + 2 and ivp > 75:
-                signal = "Buy Call"
-                action = f"Buy Call at Strike {strike}, Premium ~{df['Call_Price'].iloc[-1]:.2f}"
-            elif blended_vol < realized_vol - 2 and pcr < 0.8:
-                signal = "Buy Put"
-                action = f"Buy Put at Strike {strike}, Premium ~{df['Put_Price'].iloc[-1]:.2f}"
-            elif event_flag == 1:
-                signal = "Buy Straddle"
-                action = f"Buy Straddle at Strike {strike}, Premium ~{df['Straddle_Price'].iloc[-1]:.2f}"
-
-            signals.append({"Date": row["Date"].strftime("%d-%b-%Y"), "Signal": signal, "Action": action,
-                           "Position Size": f"{position_size*100}% of Capital"})
-    
+        signals.append({
+            "Date": row["Date"].strftime("%d-%b-%Y"),
+            "Signal": signal,
+            "Action": action,
+            "Position Size": f"{int(position_size * 100)}% of Capital",
+            "Risk Flag": risk_flag
+        })
     return pd.DataFrame(signals)
 
-# Function to backtest strategy
+# Function to backtest strategy (simplified historical simulation)
 def backtest_strategy(df, signals_df):
     df = df.copy()
     df['Signal'] = "Hold"
@@ -376,32 +284,26 @@ def backtest_strategy(df, signals_df):
     df['Trade_Cost'] = 0.0
     df['PnL'] = 0.0
 
-    # Align signals with historical data
     for _, signal in signals_df.iterrows():
-        date = signal["Date"]
-        if date in df.index:
-            df.loc[date, "Signal"] = signal["Signal"]
+        if signal["Date"] in df.index.astype(str):
+            df.loc[df.index[df.index.astype(str) == signal["Date"]].tolist()[0], "Signal"] = signal["Signal"]
             position_size = float(signal["Position Size"].replace("% of Capital", "")) / 100
-            df.loc[date, "Position"] = position_size
+            df.loc[df.index[df.index.astype(str) == signal["Date"]].tolist()[0], "Position"] = position_size
 
-    # Simulate returns based on signals
     for i in range(1, len(df)):
         if df["Signal"].iloc[i] == "Buy Call":
-            # Assume the call option gains value if NIFTY rises
             price_change = (df["NIFTY_Close"].iloc[i] - df["NIFTY_Close"].iloc[i-1]) / df["NIFTY_Close"].iloc[i-1]
-            option_return = price_change * 2  # Simplified: assume 2x leverage for options
+            option_return = price_change * 2
             cost = df["Call_Price"].iloc[i] * df["Position"].iloc[i]
             df.loc[df.index[i], "Trade_Cost"] = -cost
             df.loc[df.index[i], "PnL"] = (option_return * cost)
         elif df["Signal"].iloc[i] == "Buy Put":
-            # Assume the put option gains value if NIFTY falls
             price_change = (df["NIFTY_Close"].iloc[i-1] - df["NIFTY_Close"].iloc[i]) / df["NIFTY_Close"].iloc[i-1]
             option_return = price_change * 2
             cost = df["Put_Price"].iloc[i] * df["Position"].iloc[i]
             df.loc[df.index[i], "Trade_Cost"] = -cost
             df.loc[df.index[i], "PnL"] = (option_return * cost)
         elif df["Signal"].iloc[i] == "Buy Straddle":
-            # Straddle: gains from large moves in either direction
             price_change = abs(df["NIFTY_Close"].iloc[i] - df["NIFTY_Close"].iloc[i-1]) / df["NIFTY_Close"].iloc[i-1]
             option_return = price_change * 1.5
             cost = df["Straddle_Price"].iloc[i] * df["Position"].iloc[i]
@@ -413,93 +315,81 @@ def backtest_strategy(df, signals_df):
     returns = df['PnL'] / capital
     sharpe_ratio = returns.mean() / returns.std() * np.sqrt(252) if returns.std() != 0 else 0
     max_drawdown = (df['Cumulative_PnL'].cummax() - df['Cumulative_PnL']).max() / capital * 100
+    behavioral_score = min(10, max(1, 10 - (abs(max_drawdown) / 3)))  # Simplified score
 
     return {
         "Total_Return": df['Cumulative_Returns'].iloc[-1],
         "Sharpe_Ratio": sharpe_ratio,
         "Max_Drawdown": max_drawdown,
-        "PnL_Series": df['Cumulative_PnL']
+        "PnL_Series": df['Cumulative_PnL'],
+        "Behavioral_Score": behavioral_score
     }
 
 # Main execution
 if run_button:
-    with st.spinner("Loading data from GitHub..."):
+    with st.spinner("Analyzing market conditions..."):
         df = load_data()
         if df is not None:
-            st.success(f"✅ Data loaded successfully! ({len(df)} days)")
-            st.subheader("Sample Data")
-            st.dataframe(df.head())
-            st.subheader("Data Info")
-            st.write(df.info())
-            st.subheader("VIX Statistics")
-            st.write(f"Mean: {df['VIX'].mean():.2f}, Min: {df['VIX'].min():.2f}, Max: {df['VIX'].max():.2f}")
-
-            with st.spinner("Generating synthetic features..."):
-                df = generate_synthetic_features(df)
-                st.subheader("Synthetic Features (Last 5 Days)")
-                st.dataframe(df[["NIFTY_Close", "VIX", "ATM_IV", "IVP", "PCR", "Realized_Vol"]].tail())
-                st.subheader("Feature Statistics")
-                st.dataframe(df[["NIFTY_Close", "VIX", "ATM_IV", "IVP", "PCR", "Realized_Vol"]].describe())
+            df = generate_synthetic_features(df)
 
             with st.spinner("Forecasting volatility..."):
-                forecast_log, blended_vols, realized_vol = forecast_volatility_future(df, forecast_horizon)
-                if forecast_log is not None:
-                    st.subheader("📈 Volatility Forecast")
-                    forecast_df = pd.DataFrame({
-                        "Date": [d.strftime("%d-%b-%Y") for d in forecast_log["Date"]],
-                        "GARCH (%)": [f"{v:.2f}" for v in forecast_log["GARCH_Vol"]],
-                        "XGBoost (%)": [f"{v:.2f}" for v in forecast_log["XGBoost_Vol"]],
-                        "Blended (%)": [f"{v:.2f}" for v in forecast_log["Blended_Vol"]]
-                    })
-                    st.dataframe(forecast_df, use_container_width=True)
+                forecast_log, blended_vols, realized_vol, confidence_score = forecast_volatility_future(df, forecast_horizon)
 
-                    st.subheader("Volatility Chart")
-                    # Fix: Combine dates correctly
-                    historical_dates = pd.Index(df.index[-30:])
-                    forecast_dates = pd.Index(forecast_log["Date"])
-                    combined_dates = historical_dates.append(forecast_dates)
-                    chart_data = pd.DataFrame({
-                        "Date": combined_dates,
-                        "Realized_Vol": list(df["Realized_Vol"].iloc[-30:]) + [np.nan] * forecast_horizon,
-                        "Blended_Vol": [np.nan] * 30 + list(forecast_log["Blended_Vol"])
-                    })
-                    chart_data.set_index("Date", inplace=True)
-                    st.line_chart(chart_data)
+            if forecast_log is not None:
+                # Volatility Forecast Card
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("📈 Volatility Forecast")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Blended Volatility (Avg)", f"{np.mean(blended_vols):.2f}%")
+                with col2:
+                    st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%")
+                st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
+                st.markdown("**Confidence Score**", unsafe_allow_html=True)
+                st.line_chart(pd.DataFrame({
+                    "Date": forecast_log["Date"],
+                    "Blended_Vol": forecast_log["Blended_Vol"]
+                }).set_index("Date"))
+                st.markdown('</div>', unsafe_allow_html=True)
 
-                    st.subheader("Forecast Metrics")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Avg Forecasted Volatility", f"{np.mean(blended_vols):.2f}%")
-                    with col2:
-                        st.metric("Recent Realized Volatility (5-day)", f"{realized_vol:.2f}%")
+                # Trading Signals Card
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("🎯 Trading Signals (Future Forecast)")
+                signals_df = generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
+                st.dataframe(signals_df[["Date", "Signal", "Action", "Position Size", "Risk Flag"]], use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Strategy Engine (Future)
-                    st.subheader("🎯 Trading Signals (Future Forecast)")
-                    signals_df_future = generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, historical=False)
-                    st.dataframe(signals_df_future, use_container_width=True)
+                # Backtest Results Card
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("📊 Backtest Performance")
+                signals_df_historical = generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, historical=True)
+                backtest_results = backtest_strategy(df, signals_df_historical)
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Return", f"{backtest_results['Total_Return']:.2f}%")
+                with col2:
+                    st.metric("Sharpe Ratio", f"{backtest_results['Sharpe_Ratio']:.2f}")
+                with col3:
+                    st.metric("Max Drawdown", f"{backtest_results['Max_Drawdown']:.2f}%")
+                st.markdown(f'<div class="gauge">{int(backtest_results["Behavioral_Score"])}/10</div>', unsafe_allow_html=True)
+                st.markdown("**Behavioral Score**", unsafe_allow_html=True)
+                st.line_chart(pd.DataFrame({
+                    "Date": df.index,
+                    "Cumulative PnL": backtest_results["PnL_Series"]
+                }).set_index("Date"))
+                st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Strategy Engine and Backtesting (Historical)
-                    st.subheader("🎯 Trading Signals (Historical for Backtesting)")
-                    signals_df_historical = generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, historical=True)
-                    st.dataframe(signals_df_historical.tail(), use_container_width=True)
-
-                    st.subheader("📊 Backtest Results")
-                    backtest_results = backtest_strategy(df, signals_df_historical)
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total Return", f"{backtest_results['Total_Return']:.2f}%")
-                    with col2:
-                        st.metric("Sharpe Ratio", f"{backtest_results['Sharpe_Ratio']:.2f}")
-                    with col3:
-                        st.metric("Max Drawdown", f"{backtest_results['Max_Drawdown']:.2f}%")
-
-                    st.subheader("Backtest Performance Chart")
-                    backtest_chart = pd.DataFrame({
-                        "Date": df.index,
-                        "Cumulative PnL": backtest_results["PnL_Series"]
-                    })
-                    backtest_chart.set_index("Date", inplace=True)
-                    st.line_chart(backtest_chart)
+                # Journaling Prompt
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("📝 Journaling Prompt")
+                st.text_area("Reflect on your trading discipline today:", height=100)
+                st.button("Save Reflection")
+                st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.info("Set parameters in the sidebar and click 'Run VolGuard' to start.")
+    st.info("Set parameters and click 'Run VolGuard' to begin.")
+
+# Export Button
+st.markdown('<div style="text-align: center; margin-top: 20px;">', unsafe_allow_html=True)
+st.button("Export to PDF/CSV")
+st.markdown('</div>', unsafe_allow_html=True)
