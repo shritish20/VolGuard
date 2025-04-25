@@ -54,44 +54,54 @@ if 'forecast_log' not in st.session_state:
 if 'feature_stats' not in st.session_state:
     st.session_state.feature_stats = None
 
-# Function to fetch and process data
+# Function to fetch and process data with fallback
 def load_data():
+    # Default data for fallback (minimal viable dataset)
+    default_nifty = pd.DataFrame({
+        "Date": [pd.to_datetime("25-April-2025", format="%d-%B-%Y")],
+        "Close": [25000.50]
+    }).set_index("Date")
+    default_vix = pd.DataFrame({
+        "Date": [pd.to_datetime("25-April-2025", format="%d-%B-%Y")],
+        "Close": [15.75]
+    }).set_index("Date").rename(columns={"Close": "VIX"})
+    
     # Fetch NIFTY data
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
         if not all(col in nifty.columns for col in ["Date", "Close"]):
-            st.error("Nifty50.csv is missing required columns: 'Date' and 'Close'.")
-            return None
+            st.error("Nifty50.csv is missing required columns: 'Date' and 'Close'. Using default data.")
+            return default_nifty, 1, default_nifty.index
         nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%B-%Y", errors="coerce")
         nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-        if nifty.empty or len(nifty) < 10:
-            st.error("NIFTY data is empty or has fewer than 10 rows after parsing dates. Ensure dates are in 'DD-MMMM-YYYY' format (e.g., 25-April-2025).")
-            return None
+        if nifty.empty or len(nifty) < 1:  # Allow at least 1 row with fallback
+            st.error("NIFTY data is empty or invalid after parsing dates. Using default data.")
+            return default_nifty, 1, default_nifty.index
         if not pd.api.types.is_numeric_dtype(nifty["Close"]):
-            st.error("NIFTY 'Close' column contains non-numeric values.")
-            return None
+            st.error("NIFTY 'Close' column contains non-numeric values. Using default data.")
+            return default_nifty, 1, default_nifty.index
     except Exception as e:
-        st.error(f"Error fetching or parsing NIFTY data: {str(e)}. Expected date format: 'DD-MMMM-YYYY' (e.g., 25-April-2025).")
-        return None
+        st.error(f"Error fetching or parsing NIFTY data: {str(e)}. Using default data.")
+        return default_nifty, 1, default_nifty.index
     
     # Fetch VIX data
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
         if not all(col in vix_data.columns for col in ["Date", "Close"]):
-            st.error("india_vix.csv is missing required columns: 'Date' and 'Close'.")
-            return None
+            st.error("india_vix.csv is missing required columns: 'Date' and 'Close'. Using default data.")
+            return nifty, len(nifty), nifty.index
         vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%B-%Y", errors="coerce")
         vix_data = vix_data.dropna(subset=["Date"]).set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
         vix_data = vix_data.sort_index()
-        if vix_data.empty or len(vix_data) < 10:
-            st.error("VIX data is empty or has fewer than 10 rows after parsing dates. Ensure dates are in 'DD-MMMM-YYYY' format (e.g., 25-April-2025).")
-            return None
+        if vix_data.empty or len(vix_data) < 1:  # Allow at least 1 row with fallback
+            st.error("VIX data is empty or invalid after parsing dates. Using default data.")
+            return nifty, len(nifty), nifty.index
         if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
-            st.error("VIX 'Close' column contains non-numeric values.")
-            return None
+            st.error("VIX 'Close' column contains non-numeric values. Using default data.")
+            return nifty, len(nifty), nifty.index
     except Exception as e:
-        st.error(f"Error fetching or parsing VIX data: {str(e)}. Expected date format: 'DD-MMMM-YYYY' (e.g., 25-April-2025).")
-        return None
+        st.error(f"Error fetching or parsing VIX data: {str(e)}. Using partial data from NIFTY.")
+        return nifty, len(nifty), nifty.index
     
     nifty = nifty[~nifty.index.duplicated(keep='first')]
     vix_data = vix_data[~vix_data.index.duplicated(keep='first')]
@@ -352,6 +362,7 @@ if run_button:
     with st.spinner("Running VolGuard calculations..."):
         result = load_data()
         if result is None:
+            st.error("Failed to load data. Check logs for details or ensure CSVs are accessible and correctly formatted.")
             st.stop()
         
         df, n_days, dates = result
