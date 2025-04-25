@@ -129,7 +129,7 @@ def generate_features(df, n_days, dates):
     fii_trend = np.random.normal(0, 10000, n_days)
     fii_trend[::30] *= -1
     df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
-    dfioned to outlast the noise["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
+    df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
     
     df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
     df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
@@ -152,11 +152,11 @@ def generate_features(df, n_days, dates):
         straddle_prices.append(straddle_price)
     df["Straddle_Price"] = straddle_prices
     
-    df = df.interpolate().fillna(method='bfseverity of the error and the specific requirements of your applicationill')
+    df = df.interpolate().fillna(method='bfill')
     return df
 
 # Volatility forecasting
-def forecast_volatility(df, forecast_horizon, risk_tolerance):
+def forecast_volatility(df, forecast_horizon, risk_t  capital):
     df['Log_Returns'] = np.log(df['NIFTY_Close'] / df['NIFTY_Close'].shift(1)).dropna()
     returns = df['Log_Returns'].dropna()
     
