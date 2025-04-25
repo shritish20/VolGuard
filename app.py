@@ -229,8 +229,11 @@ def forecast_volatility(df, forecast_horizon):
     # Convert index to datetime if not already
     df.index = pd.to_datetime(df.index)
 
-    # Limit dataset for faster processing (last 100 days for testing)
-    df = df.tail(100)
+    # GARCH: Use last 252 days (1 year of trading days)
+    df_garch = df.tail(252)
+    if len(df_garch) != 252:
+        st.error(f"Expected 252 days of data for GARCH, but got {len(df_garch)} days.")
+        return None, None, None
 
     # Generate future dates for forecasts (business days)
     last_date = df.index[-1]
@@ -239,10 +242,13 @@ def forecast_volatility(df, forecast_horizon):
 
     # GARCH(1,1) Forecast
     start_time = time.time()
-    df['Log_Returns'] = np.log(df['NIFTY_Close'] / df['NIFTY_Close'].shift(1)).dropna()
-    returns = df['Log_Returns'].dropna() * 100  # Scale for GARCH stability
+    df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna()
+    returns = df_garch['Log_Returns'].dropna() * 100  # Scale for GARCH stability
+    if len(returns) < 200:  # Ensure enough data for GARCH
+        st.error(f"Insufficient log returns for GARCH: {len(returns)} returns available.")
+        return None, None, None
     garch_model = arch_model(returns, vol='Garch', p=1, q=1, rescale=False)
-    garch_fit = garch_model.fit(disp="off", max_iter=50)  # Reduced iterations
+    garch_fit = garch_model.fit(disp="off")
     garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
     garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)  # Annualize
     garch_vols = np.clip(garch_vols, 5, 50)  # Cap to realistic range
@@ -253,19 +259,18 @@ def forecast_volatility(df, forecast_horizon):
     # Realized Volatility Reference
     realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
 
-    # XGBoost Volatility Forecast
+    # XGBoost: Use last 252 days (same as GARCH, since we only have 1 year of data)
     start_time = time.time()
-    df['Target_Vol'] = df['Realized_Vol'].shift(-1)
-    df = df.dropna()
+    df_xgb = df.tail(252)
+    df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
+    df_xgb = df_xgb.dropna()
 
     feature_cols = [
-        'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-        'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
-    ]
+        'VIX', 'ATM_IV', 'PCR', 'IV_Skew', 'Realized_Vol', 'Days_to_Expiry'
+    ]  # Reduced features for efficiency
 
-    X = df[feature_cols]
-    y = df['Target_Vol']
+    X = df_xgb[feature_cols]
+    y = df_xgb['Target_Vol']
 
     # Scale features for XGBoost
     scaler = StandardScaler()
@@ -276,7 +281,7 @@ def forecast_volatility(df, forecast_horizon):
     X_train, X_test = X_scaled.iloc[:split_index], X_scaled.iloc[split_index:]
     y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
 
-    model = XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.03, random_state=42)  # Reduced parameters
+    model = XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.05, random_state=42)  # Optimized parameters
     model.fit(X_train, y_train)
     st.write(f"XGBoost fit time: {time.time() - start_time:.2f} seconds")
 
@@ -289,11 +294,10 @@ def forecast_volatility(df, forecast_horizon):
         xgb_vols.append(next_vol)
         current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
         current_row["VIX"] *= np.random.uniform(0.98, 1.02)
-        current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
         current_row_df = pd.DataFrame([current_row], columns=feature_cols)
         current_row_scaled = scaler.transform(current_row_df)
 
-    xgb_vols = np.clip(xgb_vols, 5, 50)  # Cap to realistic range
+    xgb_vols = np.clip(xgb_vols, 5, 50)
     if df["Event_Flag"].iloc[-1] == 1:
         xgb_vols = [v * 1.1 for v in xgb_vols]
 
@@ -347,7 +351,9 @@ if run_button:
                 start_time = time.time()
                 try:
                     forecast_log, blended_vols, realized_vol = forecast_volatility(df, forecast_horizon)
-                    if time.time() - start_time > max_wait:
+                    if forecast_log is None:
+                        st.error("Forecasting failed. Check error messages above.")
+                    elif time.time() - start_time > max_wait:
                         st.error("Forecasting took too long. Please reduce dataset or optimize parameters.")
                     else:
                         # Display forecast
