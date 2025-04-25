@@ -9,7 +9,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import warnings
 from datetime import datetime
-import yfinance as yf
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -53,21 +52,6 @@ if 'forecast_log' not in st.session_state:
 if 'feature_stats' not in st.session_state:
     st.session_state.feature_stats = None
 
-def fetch_yfinance_data():
-    try:
-        nifty = yf.download("^NSEI", period="1y", progress=False)[["Close"]]
-        vix = yf.download("^INDIAVIX", period="1y", progress=False)[["Close"]].rename(columns={"Close": "VIX"})
-        nifty.index = nifty.index.tz_localize(None)
-        vix.index = vix.index.tz_localize(None)
-        dates = nifty.index
-        n_days = len(nifty)
-        vix_aligned = vix.reindex(dates).ffill().bfill()
-        df = pd.DataFrame({"NIFTY_Close": nifty["Close"], "VIX": vix_aligned["VIX"]}, index=dates)
-        return df, n_days, dates
-    except Exception as e:
-        st.error(f"yfinance fetch failed: {str(e)}. Using default data.")
-        return None
-
 def load_data():
     default_dates = pd.date_range(start="2025-04-25", periods=10, freq='B')
     default_nifty = pd.DataFrame({
@@ -78,94 +62,47 @@ def load_data():
         "Date": default_dates.strftime('%d-%b-%y'),
         "Close": [15.75 + i * 0.1 for i in range(10)]
     }).set_index("Date").rename(columns={"Close": "VIX"})
-
-    # Try loading from CSV first
+    
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
         nifty.columns = nifty.columns.str.strip()
         st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
-        st.write(f"First 5 rows of Nifty50.csv:\n{nifty.head().to_markdown()}")
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
-            st.error("Nifty50.csv missing '的心Date' or 'Close'. Trying yfinance.")
-            result = fetch_yfinance_data()
-            if result is None:
-                return default_nifty, default_vix, len(default_nifty), default_nifty.index
-            df, n_days, dates = result
-            return df, n_days, dates
+            st.error("Nifty50.csv missing 'Date' or 'Close'. Using default data.")
+            nifty = default_nifty
         else:
             nifty = nifty[["Date", "Close"]].dropna()
-            # Try multiple date formats
-            date_formats = ["%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"]
-            nifty["Date"] = None
-            for fmt in date_formats:
-                try:
-                    nifty["Date"] = pd.to_datetime(nifty["Date"], format=fmt, errors="coerce")
-                    if nifty["Date"].notna().any():
-                        break
-                except:
-                    continue
-            invalid_dates = nifty[nifty["Date"].isna()]
-            if not invalid_dates.empty:
-                st.warning(f"Found {len(invalid_dates)} rows with invalid dates in Nifty50.csv: {invalid_dates['Date'].tolist()}")
+            nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-            if nifty.empty:
-                st.error("NIFTY data is empty after parsing dates. Trying yfinance.")
-                result = fetch_yfinance_data()
-                if result is None:
-                    return default_nifty, default_vix, len(default_nifty), default_nifty.index
-                df, n_days, dates = result
-                return df, n_days, dates
-            elif not pd.api.types.is_numeric_dtype(nifty["Close"]):
-                st.error("NIFTY 'Close' column contains non-numeric values. Trying yfinance.")
-                result = fetch_yfinance_data()
-                if result is None:
-                    return default_nifty, default_vix, len(default_nifty), default_nifty.index
-                df, n_days, dates = result
-                return df, n_days, dates
+            if nifty.empty or not pd.api.types.is_numeric_dtype(nifty["Close"]):
+                st.error("NIFTY data invalid after parsing. Using default data.")
+                nifty = default_nifty
     except Exception as e:
-        st.error(f"Error loading Nifty data: {str(e)}. Trying yfinance.")
-        result = fetch_yfinance_data()
-        if result is None:
-            return default_nifty, default_vix, len(default_nifty), default_nifty.index
-        df, n_days, dates = result
-        return df, n_days, dates
-
+        st.error(f"Error loading Nifty data: {str(e)}. Using default data.")
+        nifty = default_nifty
+    
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
         vix_data.columns = vix_data.columns.str.strip()
         st.write(f"india_vix.csv columns: {list(vix_data.columns)}")
-        st.write(f"First 5 rows of india_vix.csv:\n{vix_data.head().to_markdown()}")
         if "Date" not in vix_data.columns or "Close" not in vix_data.columns:
             st.error("india_vix.csv missing 'Date' or 'Close'. Using default VIX data.")
             vix_data = default_vix
         else:
             vix_data = vix_data[["Date", "Close"]].dropna()
-            date_formats = ["%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"]
-            vix_data["Date"] = None
-            for fmt in date_formats:
-                try:
-                    vix_data["Date"] = pd.to_datetime(vix_data["Date"], format=fmt, errors="coerce")
-                    if vix_data["Date"].notna().any():
-                        break
-                except:
-                    continue
-            invalid_dates = vix_data[vix_data["Date"].isna()]
-            if not invalid_dates.empty:
-                st.warning(f"Found {len(invalid_dates)} rows with invalid dates in india_vix.csv: {invalid_dates['Date'].tolist()}")
+            vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%y", errors="coerce")
             vix_data = vix_data.dropna(subset=["Date"]).set_index("Date").rename(columns={"Close": "VIX"})
-            if vix_data.empty:
-                st.error("VIX data is empty after parsing dates. Using default VIX data.")
-                vix_data = default_vix
-            elif not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
-                st.error("VIX 'Close' column contains non-numeric values. Using default VIX data.")
+            if vix_data.empty or not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+                st.error("VIX data invalid after parsing. Using default VIX data.")
                 vix_data = default_vix
     except Exception as e:
         st.error(f"Error loading VIX data: {str(e)}. Using default VIX data.")
         vix_data = default_vix
-
+    
     dates = nifty.index
     n_days = len(nifty)
     vix_aligned = vix_data.reindex(dates).ffill().bfill()
+    
     df = pd.DataFrame({"NIFTY_Close": nifty["Close"], "VIX": vix_aligned["VIX"]}, index=dates)
     return df, n_days, dates
 
