@@ -9,17 +9,22 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import warnings
 from datetime import datetime
+import yfinance as yf
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
+# Updated CSS for better text visibility
 st.markdown("""
 <style>
     .main {background-color: #f0f2f5; color: #2b3e50;}
     .stButton>button {background-color: #2b3e50; color: white; border-radius: 5px; padding: 8px 16px; margin: 5px 0;}
-    .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); color: #2b3e50;}
+    .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
+    .stMetric label {color: #2b3e50 !important; font-weight: bold; font-size: 16px;}
+    .stMetric div[data-testid="stMetricValue"] {color: #2b3e50 !important; font-size: 24px;}
+    .stMetric div[data-testid="stMetricDelta"] {color: #28a745 !important;}
     h1, h2, h3 {color: #2b3e50; font-family: 'Arial', sans-serif; margin-bottom: 10px;}
     .stSidebar {background-color: #e9ecef; padding: 10px;}
     .warning {color: #d32f2f; font-weight: bold;}
@@ -29,6 +34,7 @@ st.markdown("""
     table {border-collapse: collapse; width: 100%;}
     th, td {border: 1px solid #ddd; padding: 8px; text-align: left; color: #2b3e50;}
     th {background-color: #f2f2f2;}
+    p, div, span, label {color: #2b3e50 !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,57 +58,97 @@ if 'forecast_log' not in st.session_state:
 if 'feature_stats' not in st.session_state:
     st.session_state.feature_stats = None
 
+def fetch_yfinance_data(period="1y"):
+    try:
+        nifty = yf.download("^NSEI", period=period, progress=False)[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+        vix = yf.download("^INDIAVIX", period=period, progress=False)[["Close"]].rename(columns={"Close": "VIX"})
+        nifty.index = nifty.index.tz_localize(None)
+        vix.index = vix.index.tz_localize(None)
+        dates = nifty.index
+        n_days = len(nifty)
+        vix_aligned = vix.reindex(dates).ffill().bfill()
+        df = pd.DataFrame({"NIFTY_Close": nifty["NIFTY_Close"], "VIX": vix_aligned["VIX"]}, index=dates)
+        return df, n_days, dates
+    except Exception as e:
+        st.error(f"yfinance fetch failed: {str(e)}. Check internet or API status.")
+        return None
+
 def load_data():
-    default_dates = pd.date_range(start="2025-04-25", periods=10, freq='B')
-    default_nifty = pd.DataFrame({
-        "Date": default_dates.strftime('%d-%b-%y'),
-        "Close": [25000.50 + i * 50 for i in range(10)]
-    }).set_index("Date")
-    default_vix = pd.DataFrame({
-        "Date": default_dates.strftime('%d-%b-%y'),
-        "Close": [15.75 + i * 0.1 for i in range(10)]
-    }).set_index("Date").rename(columns={"Close": "VIX"})
-    
+    # Try loading from CSV first
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
         nifty.columns = nifty.columns.str.strip()
         st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
+        st.write(f"First 5 rows of Nifty50.csv:\n{nifty.head().to_markdown()}")
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
-            st.error("Nifty50.csv missing 'Date' or 'Close'. Using default data.")
-            nifty = default_nifty
-        else:
-            nifty = nifty[["Date", "Close"]].dropna()
-            nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
-            nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-            if nifty.empty or not pd.api.types.is_numeric_dtype(nifty["Close"]):
-                st.error("NIFTY data invalid after parsing. Using default data.")
-                nifty = default_nifty
+            raise ValueError("Nifty50.csv missing 'Date' or 'Close' columns.")
+        nifty = nifty[["Date", "Close"]].dropna()
+        # Try multiple date formats
+        date_formats = ["%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"]
+        nifty["Date"] = None
+        for fmt in date_formats:
+            try:
+                nifty["Date"] = pd.to_datetime(nifty["Date"], format=fmt, errors="coerce")
+                if nifty["Date"].notna().any():
+                    break
+            except:
+                continue
+        invalid_dates = nifty[nifty["Date"].isna()]
+        if not invalid_dates.empty:
+            st.warning(f"Found {len(invalid_dates)} rows with invalid dates in Nifty50.csv: {invalid_dates['Date'].tolist()}")
+            raise ValueError("Invalid dates in Nifty50.csv.")
+        nifty = nifty.dropna(subset=["Date"]).set_index("Date")
+        if nifty.empty:
+            raise ValueError("NIFTY data is empty after parsing dates.")
+        if not pd.api.types.is_numeric_dtype(nifty["Close"]):
+            raise ValueError("NIFTY 'Close' column contains non-numeric values.")
     except Exception as e:
-        st.error(f"Error loading Nifty data: {str(e)}. Using default data.")
-        nifty = default_nifty
-    
+        st.error(f"Error loading Nifty data: {str(e)}. Fetching from yfinance.")
+        result = fetch_yfinance_data()
+        if result is None:
+            st.error("Failed to fetch Nifty data from yfinance. Cannot proceed.")
+            st.stop()
+        df, n_days, dates = result
+        return df, n_days, dates
+
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
         vix_data.columns = vix_data.columns.str.strip()
         st.write(f"india_vix.csv columns: {list(vix_data.columns)}")
+        st.write(f"First 5 rows of india_vix.csv:\n{vix_data.head().to_markdown()}")
         if "Date" not in vix_data.columns or "Close" not in vix_data.columns:
-            st.error("india_vix.csv missing 'Date' or 'Close'. Using default VIX data.")
-            vix_data = default_vix
-        else:
-            vix_data = vix_data[["Date", "Close"]].dropna()
-            vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%y", errors="coerce")
-            vix_data = vix_data.dropna(subset=["Date"]).set_index("Date").rename(columns={"Close": "VIX"})
-            if vix_data.empty or not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
-                st.error("VIX data invalid after parsing. Using default VIX data.")
-                vix_data = default_vix
+            raise ValueError("india_vix.csv missing 'Date' or 'Close' columns.")
+        vix_data = vix_data[["Date", "Close"]].dropna()
+        date_formats = ["%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"]
+        vix_data["Date"] = None
+        for fmt in date_formats:
+            try:
+                vix_data["Date"] = pd.to_datetime(vix_data["Date"], format=fmt, errors="coerce")
+                if vix_data["Date"].notna().any():
+                    break
+            except:
+                continue
+        invalid_dates = vix_data[vix_data["Date"].isna()]
+        if not invalid_dates.empty:
+            st.warning(f"Found {len(invalid_dates)} rows with invalid dates in india_vix.csv: {invalid_dates['Date'].tolist()}")
+            raise ValueError("Invalid dates in india_vix.csv.")
+        vix_data = vix_data.dropna(subset=["Date"]).set_index("Date").rename(columns={"Close": "VIX"})
+        if vix_data.empty:
+            raise ValueError("VIX data is empty after parsing dates.")
+        if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+            raise ValueError("VIX 'Close' column contains non-numeric values.")
     except Exception as e:
-        st.error(f"Error loading VIX data: {str(e)}. Using default VIX data.")
-        vix_data = default_vix
-    
+        st.error(f"Error loading VIX data: {str(e)}. Fetching from yfinance.")
+        result = fetch_yfinance_data()
+        if result is None:
+            st.error("Failed to fetch VIX data from yfinance. Cannot proceed.")
+            st.stop()
+        df, n_days, dates = result
+        return df, n_days, dates
+
     dates = nifty.index
     n_days = len(nifty)
     vix_aligned = vix_data.reindex(dates).ffill().bfill()
-    
     df = pd.DataFrame({"NIFTY_Close": nifty["Close"], "VIX": vix_aligned["VIX"]}, index=dates)
     return df, n_days, dates
 
@@ -150,7 +196,7 @@ def generate_features(df, n_days, dates):
     df["Capital_Pressure_Index"] = np.clip((df["FII_Index_Fut_Pos"] / 3e4 + df["FII_Option_Pos"] / 1e4 + df["PCR"]) / 3, -2, 2)
     df["Gamma_Bias"] = np.clip(df["IV_Skew"] * (30 - df["Days_to_Expiry"]) / 30, -2, 2)
     df["Total_Capital"] = capital
-    df["PnL_Day"] = np.random.normal(0, 5000, n_days) * (1 - df["Event_Flag"] * 0.5)
+    df["PnL_Day"] = np.random.normal(0,  5000, n_days) * (1 - df["Event_Flag"] * 0.5)
     
     straddle_prices = []
     for i in range(n_days):
