@@ -229,10 +229,10 @@ def forecast_volatility(df, forecast_horizon):
     # Convert index to datetime if not already
     df.index = pd.to_datetime(df.index)
 
-    # GARCH: Use last 252 days (1 year of trading days)
-    df_garch = df.tail(252)
-    if len(df_garch) != 252:
-        st.error(f"Expected 252 days of data for GARCH, but got {len(df_garch)} days.")
+    # GARCH: Use all available days (248 days in this case)
+    df_garch = df.tail(len(df))  # Use all 248 days
+    if len(df_garch) < 200:  # Minimum data requirement for GARCH
+        st.error(f"Insufficient data for GARCH: Expected at least 200 days, got {len(df_garch)} days.")
         return None, None, None
 
     # Generate future dates for forecasts (business days)
@@ -244,7 +244,7 @@ def forecast_volatility(df, forecast_horizon):
     start_time = time.time()
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna()
     returns = df_garch['Log_Returns'].dropna() * 100  # Scale for GARCH stability
-    if len(returns) < 200:  # Ensure enough data for GARCH
+    if len(returns) < 200:
         st.error(f"Insufficient log returns for GARCH: {len(returns)} returns available.")
         return None, None, None
     garch_model = arch_model(returns, vol='Garch', p=1, q=1, rescale=False)
@@ -259,9 +259,9 @@ def forecast_volatility(df, forecast_horizon):
     # Realized Volatility Reference
     realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
 
-    # XGBoost: Use last 252 days (same as GARCH, since we only have 1 year of data)
+    # XGBoost: Use all available days (248 days)
     start_time = time.time()
-    df_xgb = df.tail(252)
+    df_xgb = df.tail(len(df))
     df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
     df_xgb = df_xgb.dropna()
 
