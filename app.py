@@ -72,10 +72,19 @@ def load_data():
             nifty = default_nifty
         else:
             nifty = nifty[["Date", "Close"]].dropna()
+            # Try parsing with expected format first
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
+            invalid_dates = nifty[nifty["Date"].isna()]
+            if not invalid_dates.empty:
+                st.warning(f"Found {len(invalid_dates)} rows with invalid dates in Nifty50.csv: {invalid_dates['Date'].tolist()}")
+                # Fall back to more flexible parsing
+                nifty["Date"] = pd.to_datetime(nifty["Date"], errors="coerce")
             nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-            if nifty.empty or not pd.api.types.is_numeric_dtype(nifty["Close"]):
-                st.error("NIFTY data invalid after parsing. Using default data.")
+            if nifty.empty:
+                st.error("NIFTY data is empty after parsing dates. Using default data.")
+                nifty = default_nifty
+            elif not pd.api.types.is_numeric_dtype(nifty["Close"]):
+                st.error("NIFTY 'Close' column contains non-numeric values. Using default data.")
                 nifty = default_nifty
     except Exception as e:
         st.error(f"Error loading Nifty data: {str(e)}. Using default data.")
@@ -91,9 +100,16 @@ def load_data():
         else:
             vix_data = vix_data[["Date", "Close"]].dropna()
             vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%y", errors="coerce")
+            invalid_dates = vix_data[vix_data["Date"].isna()]
+            if not invalid_dates.empty:
+                st.warning(f"Found {len(invalid_dates)} rows with invalid dates in india_vix.csv: {invalid_dates['Date'].tolist()}")
+                vix_data["Date"] = pd.to_datetime(vix_data["Date"], errors="coerce")
             vix_data = vix_data.dropna(subset=["Date"]).set_index("Date").rename(columns={"Close": "VIX"})
-            if vix_data.empty or not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
-                st.error("VIX data invalid after parsing. Using default VIX data.")
+            if vix_data.empty:
+                st.error("VIX data is empty after parsing dates. Using default VIX data.")
+                vix_data = default_vix
+            elif not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+                st.error("VIX 'Close' column contains non-numeric values. Using default VIX data.")
                 vix_data = default_vix
     except Exception as e:
         st.error(f"Error loading VIX data: {str(e)}. Using default VIX data.")
