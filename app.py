@@ -57,51 +57,58 @@ if 'feature_stats' not in st.session_state:
 # Function to fetch and process data with fallback
 def load_data():
     # Default data for fallback (minimal viable dataset)
+    default_dates = pd.date_range(start="2025-04-25", periods=10, freq='B')
     default_nifty = pd.DataFrame({
-        "Date": [pd.to_datetime("25-April-2025", format="%d-%B-%Y")],
-        "Close": [25000.50]
+        "Date": default_dates.strftime('%d-%b-%Y'),
+        "Close": [25000.50 + i * 50 for i in range(10)]
     }).set_index("Date")
     default_vix = pd.DataFrame({
-        "Date": [pd.to_datetime("25-April-2025", format="%d-%B-%Y")],
-        "Close": [15.75]
+        "Date": default_dates.strftime('%d-%b-%Y'),
+        "Close": [15.75 + i * 0.1 for i in range(10)]
     }).set_index("Date").rename(columns={"Close": "VIX"})
     
     # Fetch NIFTY data
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
-        if not all(col in nifty.columns for col in ["Date", "Close"]):
-            st.error("Nifty50.csv is missing required columns: 'Date' and 'Close'. Using default data.")
-            return default_nifty, 1, default_nifty.index
-        nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%B-%Y", errors="coerce")
-        nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-        if nifty.empty or len(nifty) < 1:  # Allow at least 1 row with fallback
-            st.error("NIFTY data is empty or invalid after parsing dates. Using default data.")
-            return default_nifty, 1, default_nifty.index
-        if not pd.api.types.is_numeric_dtype(nifty["Close"]):
-            st.error("NIFTY 'Close' column contains non-numeric values. Using default data.")
-            return default_nifty, 1, default_nifty.index
+        st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
+        if "Date" not in nifty.columns or "Close" not in nifty.columns:
+            st.error("Nifty50.csv is missing required columns: 'Date' or 'Close'. Using default data.")
+            nifty = default_nifty
+        else:
+            nifty = nifty[["Date", "Close"]]  # Select only required columns
+            nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
+            nifty = nifty.dropna(subset=["Date"]).set_index("Date")
+            if nifty.empty or len(nifty) < 1:
+                st.error("NIFTY data is empty or invalid after parsing dates. Using default data.")
+                nifty = default_nifty
+            if not pd.api.types.is_numeric_dtype(nifty["Close"]):
+                st.error("NIFTY 'Close' column contains non-numeric values. Using default data.")
+                nifty = default_nifty
     except Exception as e:
         st.error(f"Error fetching or parsing NIFTY data: {str(e)}. Using default data.")
-        return default_nifty, 1, default_nifty.index
+        nifty = default_nifty
     
     # Fetch VIX data
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
-        if not all(col in vix_data.columns for col in ["Date", "Close"]):
-            st.error("india_vix.csv is missing required columns: 'Date' and 'Close'. Using default data.")
-            return nifty, len(nifty), nifty.index
-        vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%B-%Y", errors="coerce")
-        vix_data = vix_data.dropna(subset=["Date"]).set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
-        vix_data = vix_data.sort_index()
-        if vix_data.empty or len(vix_data) < 1:  # Allow at least 1 row with fallback
-            st.error("VIX data is empty or invalid after parsing dates. Using default data.")
-            return nifty, len(nifty), nifty.index
-        if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
-            st.error("VIX 'Close' column contains non-numeric values. Using default data.")
-            return nifty, len(nifty), nifty.index
+        st.write(f"india_vix.csv columns: {list(vix_data.columns)}")
+        if "Date" not in vix_data.columns or "Close" not in vix_data.columns:
+            st.error("india_vix.csv is missing required columns: 'Date' or 'Close'. Using default VIX data.")
+            vix_data = default_vix
+        else:
+            vix_data = vix_data[["Date", "Close"]]  # Select only required columns
+            vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%y", errors="coerce")
+            vix_data = vix_data.dropna(subset=["Date"]).set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
+            vix_data = vix_data.sort_index()
+            if vix_data.empty or len(vix_data) < 1:
+                st.error("VIX data is empty or invalid after parsing dates. Using default VIX data.")
+                vix_data = default_vix
+            if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+                st.error("VIX 'Close' column contains non-numeric values. Using default VIX data.")
+                vix_data = default_vix
     except Exception as e:
-        st.error(f"Error fetching or parsing VIX data: {str(e)}. Using partial data from NIFTY.")
-        return nifty, len(nifty), nifty.index
+        st.error(f"Error fetching or parsing VIX data: {str(e)}. Using default VIX data.")
+        vix_data = default_vix
     
     nifty = nifty[~nifty.index.duplicated(keep='first')]
     vix_data = vix_data[~vix_data.index.duplicated(keep='first')]
