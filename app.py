@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
+from arch import arch_model
+from xgboost import XGBRegressor
+from sklearn.preprocessing import StandardScaler
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -220,6 +223,93 @@ def generate_synthetic_features(df):
 
     return df
 
+# Function to forecast volatility
+def forecast_volatility(df, forecast_horizon):
+    # Convert index to datetime if not already
+    df.index = pd.to_datetime(df.index)
+
+    # Generate future dates for forecasts (business days)
+    last_date = df.index[-1]
+    future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
+    future_dates_str = [d.strftime('%d-%b-%Y') for d in future_dates]
+
+    # GARCH(1,1) Forecast
+    df['Log_Returns'] = np.log(df['NIFTY_Close'] / df['NIFTY_Close'].shift(1)).dropna()
+    returns = df['Log_Returns'].dropna() * 100  # Scale for GARCH stability
+    garch_model = arch_model(returns, vol='Garch', p=1, q=1, rescale=False)
+    garch_fit = garch_model.fit(disp="off")
+    garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
+    garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)  # Annualize
+    # Cap GARCH vols to realistic range
+    garch_vols = np.clip(garch_vols, 5, 50)
+    # Boost for events
+    if df["Event_Flag"].iloc[-1] == 1:
+        garch_vols *= 1.1
+
+    # Realized Volatility Reference
+    realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
+
+    # XGBoost Volatility Forecast
+    df['Target_Vol'] = df['Realized_Vol'].shift(-1)
+    df = df.dropna()
+
+    feature_cols = [
+        'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+        'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
+    ]
+
+    X = df[feature_cols]
+    y = df['Target_Vol']
+
+    # Scale features for XGBoost
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    X_scaled = pd.DataFrame(X_scaled, columns=feature_cols, index=X.index)
+
+    split_index = int(len(X) * 0.8)
+    X_train, X_test = X_scaled.iloc[:split_index], X_scaled.iloc[split_index:]
+    y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
+
+    model = XGBRegressor(n_estimators=300, max_depth=6, learning_rate=0.03, random_state=42)
+    model.fit(X_train, y_train)
+
+    xgb_vols = []
+    current_row = X.iloc[-1].copy()
+    current_row_df = pd.DataFrame([current_row], columns=feature_cols)
+    current_row_scaled = scaler.transform(current_row_df)
+    for _ in range(forecast_horizon):
+        next_vol = model.predict(current_row_scaled)[0]
+        xgb_vols.append(next_vol)
+        current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
+        current_row["VIX"] *= np.random.uniform(0.98, 1.02)
+        current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
+        current_row_df = pd.DataFrame([current_row], columns=feature_cols)
+        current_row_scaled = scaler.transform(current_row_df)
+
+    # Cap XGBoost vols to realistic range
+    xgb_vols = np.clip(xgb_vols, 5, 50)
+    # Boost for events
+    if df["Event_Flag"].iloc[-1] == 1:
+        xgb_vols = [v * 1.1 for v in xgb_vols]
+
+    # Blend Forecasts
+    garch_diff = np.abs(garch_vols[0] - realized_vol)
+    xgb_diff = np.abs(xgb_vols[0] - realized_vol)
+    garch_weight = xgb_diff / (garch_diff + xgb_diff) if (garch_diff + xgb_diff) > 0 else 0.5
+    xgb_weight = 1 - garch_weight
+    blended_vols = [(garch_weight * g) + (xgb_weight * x) for g, x in zip(garch_vols, xgb_vols)]
+
+    # Create forecast log
+    forecast_log = pd.DataFrame({
+        "Date": future_dates,
+        "GARCH_Vol": garch_vols,
+        "XGBoost_Vol": xgb_vols,
+        "Blended_Vol": blended_vols
+    })
+
+    return forecast_log, blended_vols, realized_vol
+
 # Main execution
 if run_button:
     with st.spinner("Loading data from GitHub..."):
@@ -246,3 +336,24 @@ if run_button:
                 st.dataframe(df[feature_cols].tail())
                 st.write("Feature Statistics:")
                 st.dataframe(df[feature_cols].describe())
+
+            # Forecast volatility
+            with st.spinner("Forecasting volatility..."):
+                forecast_log, blended_vols, realized_vol = forecast_volatility(df, forecast_horizon)
+                
+                # Display forecast
+                st.subheader("📈 Volatility Forecast")
+                forecast_df = pd.DataFrame({
+                    "Date": [d.strftime("%d-%b-%Y") for d in forecast_log["Date"]],
+                    "GARCH (%)": [f"{v:.2f}" for v in forecast_log["GARCH_Vol"]],
+                    "XGBoost (%)": [f"{v:.2f}" for v in forecast_log["XGBoost_Vol"]],
+                    "Blended (%)": [f"{v:.2f}" for v in forecast_log["Blended_Vol"]]
+                })
+                st.dataframe(forecast_df, use_container_width=True)
+
+                # Display metrics
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Avg Forecasted Volatility", f"{np.mean(blended_vols):.2f}%")
+                with col2:
+                    st.metric("Recent Realized Volatility (5-day)", f"{realized_vol:.2f}%")
