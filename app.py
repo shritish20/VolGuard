@@ -17,15 +17,21 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS
+# Custom CSS for improved visibility and layout
 st.markdown("""
 <style>
-    .main {background-color: #f8f9fa;}
-    .stButton>button {background-color: #2b3e50; color: white; border-radius: 5px; padding: 8px 16px;}
-    .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
-    h1, h2, h3 {color: #2b3e50; font-family: 'Arial', sans-serif;}
-    .stSidebar {background-color: #e9ecef;}
+    .main {background-color: #f0f2f5; color: #2b3e50;}
+    .stButton>button {background-color: #2b3e50; color: white; border-radius: 5px; padding: 8px 16px; margin: 5px 0;}
+    .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin: 10px 0;}
+    h1, h2, h3 {color: #2b3e50; font-family: 'Arial', sans-serif; margin-bottom: 10px;}
+    .stSidebar {background-color: #e9ecef; padding: 10px;}
     .warning {color: #d32f2f; font-weight: bold;}
+    .stDataFrame {margin: 10px 0;}
+    .css-1aumxhk {padding: 20px;}
+    .element-container {margin-bottom: 15px;}
+    table {border-collapse: collapse; width: 100%;}
+    th, td {border: 1px solid #ddd; padding: 8px; text-align: left;}
+    th {background-color: #f2f2f2;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -56,36 +62,37 @@ if 'feature_stats' not in st.session_state:
 
 # Function to fetch and process data with fallback
 def load_data():
-    # Default data for fallback (minimal viable dataset)
+    # Default data for fallback
     default_dates = pd.date_range(start="2025-04-25", periods=10, freq='B')
     default_nifty = pd.DataFrame({
-        "Date": default_dates,
+        "Date": default_dates.strftime('%d-%b-%y'),
         "Close": [25000.50 + i * 50 for i in range(10)]
     }).set_index("Date")
     default_vix = pd.DataFrame({
-        "Date": default_dates,
+        "Date": default_dates.strftime('%d-%b-%y'),
         "Close": [15.75 + i * 0.1 for i in range(10)]
     }).set_index("Date").rename(columns={"Close": "VIX"})
     
     # Fetch NIFTY data
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
-        # Strip whitespace from column names
         nifty.columns = nifty.columns.str.strip()
         st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
             st.error("Nifty50.csv is missing required columns: 'Date' or 'Close'. Using default data.")
             nifty = default_nifty
         else:
-            nifty = nifty[["Date", "Close"]]  # Select only required columns
+            nifty = nifty[["Date", "Close"]]
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
-            nifty = nifty.dropna(subset=["Date"]).set_index("Date")
-            if nifty.empty or len(nifty) < 1:
+            nifty = nifty.dropna(subset=["Date"])
+            if nifty.empty:
                 st.error("NIFTY data is empty or invalid after parsing dates. Using default data.")
                 nifty = default_nifty
-            if not pd.api.types.is_numeric_dtype(nifty["Close"]):
+            elif not pd.api.types.is_numeric_dtype(nifty["Close"]):
                 st.error("NIFTY 'Close' column contains non-numeric values. Using default data.")
                 nifty = default_nifty
+            else:
+                nifty = nifty.set_index("Date")
     except Exception as e:
         st.error(f"Error fetching or parsing NIFTY data: {str(e)}. Using default data.")
         nifty = default_nifty
@@ -93,23 +100,23 @@ def load_data():
     # Fetch VIX data
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
-        # Strip whitespace from column names
         vix_data.columns = vix_data.columns.str.strip()
         st.write(f"india_vix.csv columns: {list(vix_data.columns)}")
         if "Date" not in vix_data.columns or "Close" not in vix_data.columns:
             st.error("india_vix.csv is missing required columns: 'Date' or 'Close'. Using default VIX data.")
             vix_data = default_vix
         else:
-            vix_data = vix_data[["Date", "Close"]]  # Select only required columns
+            vix_data = vix_data[["Date", "Close"]]
             vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%y", errors="coerce")
-            vix_data = vix_data.dropna(subset=["Date"]).set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
-            vix_data = vix_data.sort_index()
-            if vix_data.empty or len(vix_data) < 1:
+            vix_data = vix_data.dropna(subset=["Date"])
+            if vix_data.empty:
                 st.error("VIX data is empty or invalid after parsing dates. Using default VIX data.")
                 vix_data = default_vix
-            if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+            elif not pd.api.types.is_numeric_dtype(vix_data["Close"]):
                 st.error("VIX 'Close' column contains non-numeric values. Using default VIX data.")
                 vix_data = default_vix
+            else:
+                vix_data = vix_data.set_index("Date").rename(columns={"Close": "VIX"})
     except Exception as e:
         st.error(f"Error fetching or parsing VIX data: {str(e)}. Using default VIX data.")
         vix_data = default_vix
@@ -143,12 +150,11 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
 
 # Generate synthetic features
 def generate_features(df, n_days, dates):
-    risk_free_rate = 0.06
-    strike_step = 100
-    
-    # Ensure df.index is a DatetimeIndex
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index, errors="coerce")
+    
+    risk_free_rate = 0.06
+    strike_step = 100
     
     event_spike = np.where((df.index.month % 3 == 0) & (df.index.day < 5), 1.2, 1.0)
     df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
@@ -201,7 +207,6 @@ def forecast_volatility(df, forecast_horizon, risk_tolerance, capital):
     df['Log_Returns'] = np.log(df['NIFTY_Close'] / df['NIFTY_Close'].shift(1)).dropna()
     returns = df['Log_Returns'].dropna()
     
-    # GARCH
     garch_model = arch_model(returns * 100, vol='Garch', p=1, q=1, rescale=False)
     garch_fit = garch_model.fit(disp="off")
     garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
@@ -209,7 +214,6 @@ def forecast_volatility(df, forecast_horizon, risk_tolerance, capital):
     if df["Event_Flag"].iloc[-1] == 1:
         garch_vols *= 1.1
     
-    # XGBoost
     df['Target_Vol'] = df['Realized_Vol'].shift(-1)
     df = df.dropna()
     feature_cols = [
@@ -248,7 +252,6 @@ def forecast_volatility(df, forecast_horizon, risk_tolerance, capital):
     if df["Event_Flag"].iloc[-1] == 1:
         xgb_vols = [v * 1.1 for v in xgb_vols]
     
-    # Blend forecasts
     realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
     garch_diff = np.abs(garch_vols[0] - realized_vol)
     xgb_diff = np.abs(xgb_vols[0] - realized_vol)
@@ -289,7 +292,6 @@ def strategy_engine(df, blended_vols, capital):
     dte = latest["Days_to_Expiry"]
     event_flag = latest["Event_Flag"]
     
-    # Regime Classification
     if event_flag == 1:
         regime = "EVENT-DRIVEN"
     elif avg_vol < 15:
@@ -299,11 +301,10 @@ def strategy_engine(df, blended_vols, capital):
     else:
         regime = "HIGH"
     
-    # Strategy Selector
     strategy = "Undefined"
     reason = "N/A"
     tags = []
-    confidence_score = 0.5  # Simplified
+    confidence_score = 0.5
     risk_reward = 1.5 if iv_hv_gap > 5 else 1.0
     
     if regime == "LOW":
@@ -351,13 +352,11 @@ def strategy_engine(df, blended_vols, capital):
             tags = ["High Gamma", "Event", "Directional Bias"]
             risk_reward = 1.3
     
-    # Capital Allocation
     capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
     deploy = capital * capital_alloc.get(regime, 0.2)
     max_loss = deploy * 0.2
     total_exposure = deploy / capital
     
-    # Risk Filters
     risk_flags = []
     if regime in ["HIGH", "EVENT-DRIVEN"] and strategy in ["Short Strangle", "Iron Fly"]:
         risk_flags.append("⚠️ No naked legs allowed in HIGH/EVENT-DRIVEN regimes")
@@ -366,7 +365,6 @@ def strategy_engine(df, blended_vols, capital):
     if latest["VIX_Change_Pct"] > 10:
         risk_flags.append("⚠️ High VIX spike detected")
     
-    # Behavioral Monitoring
     behavior_score = 8 if deploy < 0.5 * capital else 6
     behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
     
@@ -397,91 +395,102 @@ if run_button:
         
         # Volatility Forecast Panel
         st.subheader("📈 Volatility Forecast")
-        forecast_df = pd.DataFrame({
-            "Date": forecast_log["Date"].dt.strftime("%d-%b-%Y"),
-            "GARCH (%)": [f"{v:.2f}" for v in forecast_log["GARCH_Vol"]],
-            "XGBoost (%)": [f"{v:.2f}" for v in forecast_log["XGBoost_Vol"]],
-            "Blended (%)": [f"{v:.2f}" for v in forecast_log["Blended_Vol"]]
-        })
-        st.dataframe(forecast_df, use_container_width=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Avg Forecasted Volatility", f"{np.mean(blended_vols):.2f}%")
-        with col2:
-            st.metric("Recent Realized Volatility (5-day)", f"{realized_vol:.2f}%")
-        
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(forecast_log["Date"], forecast_log["GARCH_Vol"], marker='o', linestyle='--', label="GARCH")
-        ax.plot(forecast_log["Date"], forecast_log["XGBoost_Vol"], marker='o', linestyle='--', label="XGBoost")
-        ax.plot(forecast_log["Date"], forecast_log["Blended_Vol"], marker='o', linestyle='-', label="Blended")
-        ax.set_title("Volatility Forecast")
-        ax.set_ylabel("Volatility (%)")
-        ax.legend()
-        ax.grid(True)
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        with st.container():
+            forecast_df = pd.DataFrame({
+                "Date": forecast_log["Date"].dt.strftime("%d-%b-%Y"),
+                "GARCH (%)": [f"{v:.2f}" for v in forecast_log["GARCH_Vol"]],
+                "XGBoost (%)": [f"{v:.2f}" for v in forecast_log["XGBoost_Vol"]],
+                "Blended (%)": [f"{v:.2f}" for v in forecast_log["Blended_Vol"]]
+            })
+            st.dataframe(forecast_df, use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Avg Forecasted Volatility", f"{np.mean(blended_vols):.2f}%")
+            with col2:
+                st.metric("Recent Realized Volatility (5-day)", f"{realized_vol:.2f}%")
+            
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.plot(forecast_log["Date"], forecast_log["GARCH_Vol"], marker='o', linestyle='--', label="GARCH")
+            ax.plot(forecast_log["Date"], forecast_log["XGBoost_Vol"], marker='o', linestyle='--', label="XGBoost")
+            ax.plot(forecast_log["Date"], forecast_log["Blended_Vol"], marker='o', linestyle='-', label="Blended")
+            ax.set_title("Volatility Forecast")
+            ax.set_ylabel("Volatility (%)")
+            ax.legend()
+            ax.grid(True)
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
         
         # Regime & Strategy Panel
         st.subheader("🎯 Regime & Strategy")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Volatility Regime", regime, f"Avg Vol: {np.mean(blended_vols):.2f}%")
-        with col2:
-            st.metric("Suggested Strategy", strategy)
-        
-        st.write(f"**Reason**: {reason}")
-        st.write(f"**Tags**: {', '.join(tags)}")
-        st.write(f"**Confidence Score**: {confidence_score:.2f}")
-        st.write(f"**Risk-Reward Expectation**: {risk_reward:.2f}:1")
-        st.write(f"**Capital to Deploy**: ₹{deploy:,.0f}")
-        st.write(f"**Max Risk Allowed**: ₹{max_loss:,.0f}")
+        with st.container():
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Volatility Regime", regime, f"Avg Vol: {np.mean(blended_vols):.2f}%")
+            with col2:
+                st.metric("Suggested Strategy", strategy)
+            
+            st.write(f"**Reason**: {reason}")
+            st.write(f"**Tags**: {', '.join(tags)}")
+            col3, col4 = st.columns(2)
+            with col3:
+                st.write(f"**Confidence Score**: {confidence_score:.2f}")
+                st.write(f"**Risk-Reward Expectation**: {risk_reward:.2f}:1")
+            with col4:
+                st.write(f"**Capital to Deploy**: ₹{deploy:,.0f}")
+                st.write(f"**Max Risk Allowed**: ₹{max_loss:,.0f}")
         
         # Risk & Behavioral Panel
         st.subheader("⚠️ Risk & Behavioral Monitoring")
-        if risk_flags:
-            st.markdown("**Risk Flags**:")
-            for flag in risk_flags:
-                st.markdown(f"<p class='warning'>{flag}</p>", unsafe_allow_html=True)
-        else:
-            st.write("No risk flags detected.")
+        with st.container():
+            if risk_flags:
+                st.markdown("**Risk Flags**:")
+                for flag in risk_flags:
+                    st.markdown(f"<p class='warning'>{flag}</p>", unsafe_allow_html=True)
+            else:
+                st.write("No risk flags detected.")
+            
+            col5, col6 = st.columns(2)
+            with col5:
+                st.metric("Behavior Score", f"{behavior_score}/10")
+            with col6:
+                if behavior_warnings:
+                    st.markdown("**Behavioral Warnings**:")
+                    for warning in behavior_warnings:
+                        st.markdown(f"<p class='warning'>{warning}</p>", unsafe_allow_html=True)
         
-        st.metric("Behavior Score", f"{behavior_score}/10")
-        if behavior_warnings:
-            st.markdown("**Behavioral Warnings**:")
-            for warning in behavior_warnings:
-                st.markdown(f"<p class='warning'>{warning}</p>", unsafe_allow_html=True)
-        
-        st.text_area("Journaling Prompt", "Log your trade rationale here...", height=100)
+        st.text_area("Journaling Prompt", "Log your trade rationale here...", height=100, key="journal")
         
         # Feature Statistics Panel
         with st.expander("📊 Feature Statistics"):
-            st.dataframe(st.session_state.feature_stats, use_container_width=True)
-            
-            fig, ax = plt.subplots(figsize=(10, 4))
-            ax.plot(df.index, df["VIX"], label="VIX", color="blue")
-            ax.plot(df.index, df["ATM_IV"], label="ATM IV", color="green")
-            ax.plot(df.index, df["IVP"], label="IVP", color="red")
-            ax.plot(df.index, df["Straddle_Price"] / 10, label="Straddle Price (scaled)", color="orange")
-            ax.set_title("Key Feature Trends")
-            ax.set_ylabel("Value")
-            ax.legend()
-            ax.grid(True)
-            st.pyplot(fig)
+            with st.container():
+                st.dataframe(st.session_state.feature_stats, use_container_width=True)
+                
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(df.index, df["VIX"], label="VIX", color="blue")
+                ax.plot(df.index, df["ATM_IV"], label="ATM IV", color="green")
+                ax.plot(df.index, df["IVP"], label="IVP", color="red")
+                ax.plot(df.index, df["Straddle_Price"] / 10, label="Straddle Price (scaled)", color="orange")
+                ax.set_title("Key Feature Trends")
+                ax.set_ylabel("Value")
+                ax.legend()
+                ax.grid(True)
+                st.pyplot(fig)
         
         # XGBoost Feature Importance
         st.subheader("🔍 XGBoost Feature Importance")
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.bar(feature_importance["Feature"], feature_importance["Importance"])
-        ax.set_title("Feature Importance")
-        ax.set_ylabel("Importance")
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-        st.write(f"XGBoost Test RMSE: {rmse:.2f}%")
+        with st.container():
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.bar(feature_importance["Feature"], feature_importance["Importance"])
+            ax.set_title("Feature Importance")
+            ax.set_ylabel("Importance")
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+            st.write(f"XGBoost Test RMSE: {rmse:.2f}%")
         
         # Download buttons
-        csv = st.session_state.forecast_log.to_csv(index=False)
-        st.download_button("Download Forecast Log", csv, "volguard_forecast_log.csv", "text/csv")
-        
-        options_csv = st.session_state.df.to_csv()
-        st.download_button("Download Options Data", options_csv, "volguard_options_data.csv", "text/csv")
+        with st.container():
+            csv = st.session_state.forecast_log.to_csv(index=False)
+            st.download_button("Download Forecast Log", csv, "volguard_forecast_log.csv", "text/csv")
+            options_csv = st.session_state.df.to_csv()
+            st.download_button("Download Options Data", options_csv, "volguard_options_data.csv", "text/csv")
