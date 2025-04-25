@@ -1,133 +1,62 @@
-# app.py
-import streamlit as st
-import pandas as pd
-import numpy as np
-import yfinance as yf
-from arch import arch_model
-from xgboost import XGBRegressor
-from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
-from datetime import timedelta
-import warnings
+import streamlit as st import pandas as pd import numpy as np from scipy.stats import norm import matplotlib.pyplot as plt from arch import arch_model from xgboost import XGBRegressor from sklearn.preprocessing import StandardScaler import warnings
+
+Suppress warnings
 
 warnings.filterwarnings("ignore")
-np.random.seed(42)
 
-# Page setup
-st.set_page_config(page_title="VolGuard", layout="wide")
+Page config
 
-# Sidebar
-with st.sidebar:
-    st.title("⚙️ VolGuard Controls")
-    forecast_horizon = st.slider("Forecast Horizon (days)", 1, 14, 7)
-    capital = st.number_input("Capital (₹)", 100000, 1_00_00_000, 10_00_000, step=100000)
-    risk_mode = st.radio("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
-    st.info("India VIX is loaded from your GitHub repo.\nNIFTY from Yahoo Finance.")
-    st.markdown("Made by Shritish Shukla")
+st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Fetch NIFTY Data
-st.title("🛡️ VolGuard: AI Copilot for Options")
-st.markdown("Your volatility-driven strategy assistant")
+UI Styling
 
-with st.spinner("Fetching NIFTY..."):
-    nifty = yf.download("^NSEI", period="1y", interval="1d", auto_adjust=True)
-    if nifty.empty:
-        st.error("Could not fetch NIFTY data.")
-        st.stop()
+st.markdown("""
 
-# VIX from GitHub CSV
-with st.spinner("Loading India VIX from GitHub..."):
-    vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
-    try:
-        vix_df = pd.read_csv(vix_url)
-        vix_df["Date"] = pd.to_datetime(vix_df["Date"], format="%d-%b-%Y", errors="coerce")
-        vix_df = vix_df.dropna(subset=["Date"])
-        vix_df = vix_df.set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
-    except Exception as e:
-        st.error(f"VIX file failed to load: {e}")
-        st.stop()
+<style>
+    .main {background-color: #f8f9fa;}
+    .stButton>button {background-color: #2b3e50; color: white; border-radius: 5px; padding: 8px 16px;}
+    .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
+    h1, h2, h3 {color: #2b3e50; font-family: 'Arial', sans-serif;}
+    .stSidebar {background-color: #e9ecef;}
+</style>""", unsafe_allow_html=True)
 
-# Align and clean
-nifty = nifty[~nifty.index.duplicated()]
-vix_df = vix_df[~vix_df.index.duplicated()]
-df = pd.DataFrame(index=nifty.index)
-df["NIFTY"] = nifty["Close"]
-df["VIX"] = vix_df["VIX"].reindex(df.index).ffill().bfill()
-df.dropna(inplace=True)
+Title
 
-# Basic features
-df["IV"] = df["VIX"] * (1 + np.random.normal(0, 0.05, len(df)))
-df["RV"] = df["NIFTY"].pct_change().rolling(5).std() * np.sqrt(252) * 100
-df["IVRV_Gap"] = df["IV"] - df["RV"]
-df["PCR"] = np.clip(1.1 + np.random.normal(0, 0.1, len(df)), 0.8, 1.8)
-df["IV_Skew"] = np.random.normal(0, 0.5, len(df))
-df["DTE"] = np.random.choice([3, 7, 14, 21, 28], len(df))
-df["Event"] = np.where((df.index.day < 3) | (df["DTE"] <= 3), 1, 0)
+st.title("🛡️ VolGuard: AI-Powered Trading Copilot") st.markdown("Your disciplined partner for volatility-driven strategy insights.")
 
-# GARCH Forecast
-returns = np.log(df["NIFTY"] / df["NIFTY"].shift(1)).dropna()
-model = arch_model(returns, vol="Garch", p=1, q=1)
-fit = model.fit(disp="off")
-garch_vol = np.sqrt(fit.forecast(horizon=forecast_horizon).variance.iloc[-1]) * np.sqrt(252) * 100
+Sidebar Inputs
 
-# XGBoost Forecast
-df["Target"] = df["RV"].shift(-1)
-features = ["VIX", "IV", "PCR", "IVRV_Gap", "IV_Skew", "DTE"]
-df.dropna(inplace=True)
-X = df[features]
-y = df["Target"]
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-xgb = XGBRegressor(n_estimators=200, max_depth=4, learning_rate=0.05)
-xgb.fit(X_scaled[:-forecast_horizon], y[:-forecast_horizon])
-last_input = X_scaled[-1]
-xgb_preds = [xgb.predict([last_input])[0] for _ in range(forecast_horizon)]
+with st.sidebar: st.header("⚙️ Parameters") forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7) capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000) risk_tolerance = st.selectbox("Risk Tolerance", ["Conservative", "Moderate", "Aggressive"], index=1) st.markdown("---") st.info("India VIX & NIFTY from GitHub | Built by Shritish")
 
-# Blend
-w_garch = 0.6 if risk_mode == "Conservative" else 0.5 if risk_mode == "Moderate" else 0.4
-w_xgb = 1 - w_garch
-blended = [w_garch * g + w_xgb * x for g, x in zip(garch_vol, xgb_preds)]
+Load NIFTY from CSV
 
-# Output Forecast
-future_dates = [df.index[-1] + timedelta(days=i+1) for i in range(forecast_horizon)]
-vol_df = pd.DataFrame({
-    "Date": future_dates,
-    "GARCH": garch_vol,
-    "XGBoost": xgb_preds,
-    "Blended": blended
-})
+try: nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/Nifty50.csv") nifty["Date"] = pd.to_datetime(nifty["Date"]) nifty = nifty.set_index("Date") st.success("✅ Successfully loaded NIFTY data") except Exception as e: st.error(f"Error loading NIFTY data: {e}") st.stop()
 
-st.subheader("📈 Volatility Forecast (Annualized %)")
-st.dataframe(vol_df.set_index("Date").round(2))
+Load India VIX
 
-# Plot
-fig, ax = plt.subplots()
-ax.plot(future_dates, blended, label="Blended", color="blue", marker='o')
-ax.plot(future_dates, garch_vol, label="GARCH", linestyle='--', alpha=0.6)
-ax.plot(future_dates, xgb_preds, label="XGBoost", linestyle='--', alpha=0.6)
-ax.set_title("Next 7-Day Volatility Forecast")
-ax.set_ylabel("Volatility (%)")
-ax.legend()
-st.pyplot(fig)
+try: vix = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv") vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce") vix = vix.dropna(subset=["Date"]) vix = vix.set_index("Date") vix = vix[["Close"]].rename(columns={"Close": "VIX"}) vix = vix.sort_index() st.success("✅ Successfully loaded India VIX") except Exception as e: st.error(f"Error loading India VIX: {e}") st.stop()
 
-# Regime Detection & Strategy
-avg_vol = np.mean(blended)
-iv_hv = df["IVRV_Gap"].iloc[-1]
-event = df["Event"].iloc[-1]
+Align data
 
-if event:
-    strategy = "Straddle Buy" if df["IV"].iloc[-1] > 25 else "Calendar Spread"
-    reason = "Event-driven uncertainty"
-elif avg_vol < 15:
-    strategy = "Iron Fly" if iv_hv > 3 else "Butterfly"
-    reason = "Low volatility environment"
-elif avg_vol < 20:
-    strategy = "Short Strangle"
-    reason = "Moderate vol, favorable for neutral selling"
-else:
-    strategy = "Jade Lizard" if iv_hv > 5 else "Debit Spread"
-    reason = "High vol — protect risk"
+nifty = nifty[~nifty.index.duplicated()] vix = vix[~vix.index.duplicated()] df = pd.DataFrame(index=nifty.index) df["NIFTY_Close"] = nifty["Close"] df["VIX"] = vix.reindex(nifty.index).ffill().bfill()["VIX"] df["Log_Returns"] = np.log(df["NIFTY_Close"] / df["NIFTY_Close"].shift(1)) df = df.dropna()
 
-st.subheader("📊 Strategy Recommendation")
-st.markdown(f"**Regime**: {'EVENT' if event else 'NORMAL'} | **Avg Forecast Vol**: `{avg_vol:.2f}%`")
-st.markdown(f"**Suggested Strategy**: `{strategy}` — _{reason}_")
+GARCH Model
+
+with st.spinner("Running GARCH model..."): garch_model = arch_model(df["Log_Returns"] * 100, vol='Garch', p=1, q=1, rescale=False) garch_fit = garch_model.fit(disp="off") forecast = garch_fit.forecast(horizon=forecast_horizon) garch_vol = np.sqrt(forecast.variance.iloc[-1]) * np.sqrt(252)
+
+XGBoost Forecast
+
+with st.spinner("Running XGBoost forecast..."): df['Target_Vol'] = df['Log_Returns'].rolling(5).std().shift(-1) * np.sqrt(252) * 100 df = df.dropna() features = ["VIX", "NIFTY_Close"] X = df[features] y = df['Target_Vol'] scaler = StandardScaler() X_scaled = scaler.fit_transform(X) model = XGBRegressor(n_estimators=100) model.fit(X_scaled, y) last_row = scaler.transform([X.iloc[-1]]) xgb_vol = [] for _ in range(forecast_horizon): pred = model.predict(last_row)[0] xgb_vol.append(pred)
+
+Blend Forecasts
+
+garch_wt = 0.6 if risk_tolerance == "Conservative" else 0.5 if risk_tolerance == "Moderate" else 0.4 xgb_wt = 1 - garch_wt blended_vol = [(g * garch_wt + x * xgb_wt) for g, x in zip(garch_vol, xgb_vol)] future_dates = pd.date_range(df.index[-1] + pd.Timedelta(days=1), periods=forecast_horizon, freq='B')
+
+Display Forecasts
+
+st.subheader("Forecasted Volatility") forecast_df = pd.DataFrame({ "Date": future_dates.strftime("%d-%b-%Y"), "GARCH (%)": [f"{v:.2f}" for v in garch_vol], "XGBoost (%)": [f"{v:.2f}" for v in xgb_vol], "Blended (%)": [f"{v:.2f}" for v in blended_vol] }) st.dataframe(forecast_df, use_container_width=True)
+
+Plot Forecasts
+
+fig, ax = plt.subplots(figsize=(10, 4)) ax.plot(future_dates, blended_vol, label="Blended Volatility", marker='o') ax.set_title("Next 7-Day Volatility Forecast") ax.set_ylabel("Volatility (%)") ax.grid(True) ax.legend() st.pyplot(fig)
+
