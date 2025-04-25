@@ -59,22 +59,38 @@ def load_data():
     # Fetch NIFTY data
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
-        nifty["Date"] = pd.to_datetime(nifty["Date"], format="%Y-%m-%d", errors="coerce")
+        if not all(col in nifty.columns for col in ["Date", "Close"]):
+            st.error("Nifty50.csv is missing required columns: 'Date' and 'Close'.")
+            return None
+        nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%B-%Y", errors="coerce")
         nifty = nifty.dropna(subset=["Date"]).set_index("Date")
         if nifty.empty or len(nifty) < 10:
-            raise ValueError("NIFTY data is empty or too short.")
+            st.error("NIFTY data is empty or has fewer than 10 rows after parsing dates. Ensure dates are in 'DD-MMMM-YYYY' format (e.g., 25-April-2025).")
+            return None
+        if not pd.api.types.is_numeric_dtype(nifty["Close"]):
+            st.error("NIFTY 'Close' column contains non-numeric values.")
+            return None
     except Exception as e:
-        st.error(f"Error fetching NIFTY data: {e}")
+        st.error(f"Error fetching or parsing NIFTY data: {str(e)}. Expected date format: 'DD-MMMM-YYYY' (e.g., 25-April-2025).")
         return None
     
     # Fetch VIX data
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
-        vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%b-%Y", errors="coerce")
+        if not all(col in vix_data.columns for col in ["Date", "Close"]):
+            st.error("india_vix.csv is missing required columns: 'Date' and 'Close'.")
+            return None
+        vix_data["Date"] = pd.to_datetime(vix_data["Date"], format="%d-%B-%Y", errors="coerce")
         vix_data = vix_data.dropna(subset=["Date"]).set_index("Date")[["Close"]].rename(columns={"Close": "VIX"})
         vix_data = vix_data.sort_index()
+        if vix_data.empty or len(vix_data) < 10:
+            st.error("VIX data is empty or has fewer than 10 rows after parsing dates. Ensure dates are in 'DD-MMMM-YYYY' format (e.g., 25-April-2025).")
+            return None
+        if not pd.api.types.is_numeric_dtype(vix_data["VIX"]):
+            st.error("VIX 'Close' column contains non-numeric values.")
+            return None
     except Exception as e:
-        st.error(f"Error fetching VIX data: {e}")
+        st.error(f"Error fetching or parsing VIX data: {str(e)}. Expected date format: 'DD-MMMM-YYYY' (e.g., 25-April-2025).")
         return None
     
     nifty = nifty[~nifty.index.duplicated(keep='first')]
@@ -334,10 +350,11 @@ def strategy_engine(df, blended_vols, capital):
 # Main dashboard
 if run_button:
     with st.spinner("Running VolGuard calculations..."):
-        df, n_days, dates = load_data()
-        if df is None:
+        result = load_data()
+        if result is None:
             st.stop()
         
+        df, n_days, dates = result
         st.success("✅ Data loaded successfully")
         df = generate_features(df, n_days, dates)
         forecast_log, blended_vols, realized_vol, feature_importance, rmse = forecast_volatility(df, forecast_horizon, risk_tolerance, capital)
