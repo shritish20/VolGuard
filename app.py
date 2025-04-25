@@ -59,17 +59,19 @@ def load_data():
     # Default data for fallback (minimal viable dataset)
     default_dates = pd.date_range(start="2025-04-25", periods=10, freq='B')
     default_nifty = pd.DataFrame({
-        "Date": default_dates.strftime('%d-%b-%Y'),
+        "Date": default_dates,
         "Close": [25000.50 + i * 50 for i in range(10)]
     }).set_index("Date")
     default_vix = pd.DataFrame({
-        "Date": default_dates.strftime('%d-%b-%Y'),
+        "Date": default_dates,
         "Close": [15.75 + i * 0.1 for i in range(10)]
     }).set_index("Date").rename(columns={"Close": "VIX"})
     
     # Fetch NIFTY data
     try:
         nifty = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv")
+        # Strip whitespace from column names
+        nifty.columns = nifty.columns.str.strip()
         st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
             st.error("Nifty50.csv is missing required columns: 'Date' or 'Close'. Using default data.")
@@ -91,6 +93,8 @@ def load_data():
     # Fetch VIX data
     try:
         vix_data = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv")
+        # Strip whitespace from column names
+        vix_data.columns = vix_data.columns.str.strip()
         st.write(f"india_vix.csv columns: {list(vix_data.columns)}")
         if "Date" not in vix_data.columns or "Close" not in vix_data.columns:
             st.error("india_vix.csv is missing required columns: 'Date' or 'Close'. Using default VIX data.")
@@ -141,6 +145,10 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
 def generate_features(df, n_days, dates):
     risk_free_rate = 0.06
     strike_step = 100
+    
+    # Ensure df.index is a DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index, errors="coerce")
     
     event_spike = np.where((df.index.month % 3 == 0) & (df.index.day < 5), 1.2, 1.0)
     df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
