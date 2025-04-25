@@ -6,4 +6,3 @@ arch
 xgboost
 scikit-learn
 matplotlib
-yfinance
