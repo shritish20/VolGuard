@@ -49,12 +49,32 @@ def load_data():
         # Load NIFTY data
         nifty = pd.read_csv(nifty_url)
         nifty.columns = nifty.columns.str.strip()
-        st.write(f"Nifty50.csv columns: {list(nifty.columns)}")  # Debug: Show column names
+        st.write(f"Nifty50.csv columns: {list(nifty.columns)}")
         if "Date" not in nifty.columns or "Close" not in nifty.columns:
             st.error("Nifty50.csv is missing required columns: 'Date' or 'Close'. Check the file.")
             return None
-        nifty = nifty[["Date", "Close"]]
-        nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%y", errors="coerce")
+
+        # Debug: Show raw date data
+        st.write("Raw NIFTY Date Sample (first 5 rows):")
+        st.write(nifty["Date"].head())
+
+        # Try different date formats
+        date_formats = ["%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"]
+        nifty_dates = None
+        for fmt in date_formats:
+            try:
+                nifty_dates = pd.to_datetime(nifty["Date"], format=fmt, errors="coerce")
+                if nifty_dates.notna().sum() > 0:  # If at least one date parsed successfully
+                    st.write(f"Successfully parsed NIFTY dates with format: {fmt}")
+                    break
+            except Exception as e:
+                continue
+
+        if nifty_dates is None or nifty_dates.notna().sum() == 0:
+            st.error("Failed to parse NIFTY dates with any known format. Please check the date format in Nifty50.csv.")
+            return None
+
+        nifty["Date"] = nifty_dates
         nifty = nifty.dropna(subset=["Date"])
         if nifty.empty:
             st.error("NIFTY data is empty or invalid after parsing dates.")
@@ -62,18 +82,38 @@ def load_data():
         if not pd.api.types.is_numeric_dtype(nifty["Close"]):
             st.error("NIFTY 'Close' column contains non-numeric values.")
             return None
+        nifty = nifty[["Date", "Close"]]
         nifty = nifty.set_index("Date")
-        nifty = nifty[~nifty.index.duplicated(keep='first')]  # Remove duplicate dates
+        nifty = nifty[~nifty.index.duplicated(keep='first')]
 
         # Load VIX data
         vix = pd.read_csv(vix_url)
         vix.columns = vix.columns.str.strip()
-        st.write(f"india_vix.csv columns: {list(vix.columns)}")  # Debug: Show column names
+        st.write(f"india_vix.csv columns: {list(vix.columns)}")
         if "Date" not in vix.columns or "Close" not in vix.columns:
             st.error("india_vix.csv is missing required columns: 'Date' or 'Close'. Check the file.")
             return None
-        vix = vix[["Date", "Close"]]
-        vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")
+
+        # Debug: Show raw date data
+        st.write("Raw VIX Date Sample (first 5 rows):")
+        st.write(vix["Date"].head())
+
+        # Try different date formats
+        vix_dates = None
+        for fmt in date_formats:
+            try:
+                vix_dates = pd.to_datetime(vix["Date"], format=fmt, errors="coerce")
+                if vix_dates.notna().sum() > 0:
+                    st.write(f"Successfully parsed VIX dates with format: {fmt}")
+                    break
+            except Exception as e:
+                continue
+
+        if vix_dates is None or vix_dates.notna().sum() == 0:
+            st.error("Failed to parse VIX dates with any known format. Please check the date format in india_vix.csv.")
+            return None
+
+        vix["Date"] = vix_dates
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
             st.error("VIX data is empty or invalid after parsing dates.")
@@ -81,8 +121,9 @@ def load_data():
         if not pd.api.types.is_numeric_dtype(vix["Close"]):
             st.error("VIX 'Close' column contains non-numeric values.")
             return None
+        vix = vix[["Date", "Close"]]
         vix = vix.set_index("Date").rename(columns={"Close": "VIX"})
-        vix = vix[~vix.index.duplicated(keep='first')]  # Remove duplicate dates
+        vix = vix[~vix.index.duplicated(keep='first')]
 
         # Align dates between NIFTY and VIX
         common_dates = nifty.index.intersection(vix.index)
@@ -121,7 +162,7 @@ if run_button:
             st.write("Sample Data:")
             st.dataframe(df.head())
             st.write("Data Info:")
-            st.write(df.info())  # Additional debug: Show data types and non-null counts
+            st.write(df.info())
             st.write("VIX Statistics:")
             st.write(f"Mean: {df['VIX'].mean():.2f}, Min: {df['VIX'].min():.2f}, Max: {df['VIX'].max():.2f}")
         else:
