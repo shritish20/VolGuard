@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 import time
 import logging
+from pytz import timezone
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -186,21 +187,76 @@ if "logged_in" not in st.session_state:
 if "data_source" not in st.session_state:
     st.session_state.data_source = "Public Data"
 if "totp_code" not in st.session_state:
-    st.session_state.totp_code = ""  # Default to empty string to avoid NoneType
+    st.session_state.totp_code = ""
+if "last_data" not in st.session_state:
+    st.session_state.last_data = None
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
 st.markdown("**Protection First, Edge Always** | Made by Shritish & Salman")
+
+# Helper Functions
+def is_market_open():
+    """Check if Indian stock market is open (9:15 AM - 3:30 PM IST, Mon-Fri)"""
+    now_ist = datetime.now(timezone('Asia/Kolkata'))
+    if now_ist.weekday() >= 5:  # Saturday/Sunday
+        return False
+    return time(9, 15) <= now_ist.time() <= time(15, 30)
+
+def save_last_data(df):
+    """Cache the last successfully fetched data"""
+    st.session_state.last_data = df
+    if not os.path.exists('data_cache'):
+        os.makedirs('data_cache')
+    df.to_csv('data_cache/last_saved_data.csv')
+
+def load_cached_data():
+    """Load cached data if available"""
+    try:
+        if st.session_state.last_data is not None:
+            return st.session_state.last_data
+        elif os.path.exists('data_cache/last_saved_data.csv'):
+            df = pd.read_csv('data_cache/last_saved_data.csv', index_col=0)
+            df.index = pd.to_datetime(df.index).date
+            return df
+    except Exception as e:
+        logger.warning(f"Failed to load cached data: {str(e)}")
+    return None
+
+def fetch_market_data_with_retry(client, symbol="NIFTY 50", max_retries=3, delay=2):
+    """Fetch market data with retries and exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            market_feed = client.fetch_market_feed([{
+                "Exch": "N",
+                "ExchType": "C",
+                "Symbol": symbol,
+                "Expiry": "",
+                "StrikePrice": "0",
+                "OptionType": ""
+            }])
+            logger.debug(f"Market feed response for {symbol} (attempt {attempt + 1}): {market_feed}")
+            if market_feed and "Success" in market_feed and market_feed["Success"] and len(market_feed["Success"]) > 0:
+                return float(market_feed["Success"][0]["LastRate"])
+            else:
+                raise ValueError("Invalid market feed response")
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1}/{max_retries} failed for {symbol}: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (2 ** attempt))  # Exponential backoff
+            else:
+                return None
+    return None
 
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Trading Controls")
     page = st.selectbox("Navigate", ["Login", "Dashboard"])
     if page == "Dashboard":
-        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
-        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
-        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
-        run_button = st.button("Activate VolGuard", key="run_button")
+        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7)
+        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
+        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
+        run_button = st.button("Activate VolGuard")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
@@ -209,17 +265,23 @@ if page == "Login":
     st.subheader("🛡️ VolGuard: Login")
     st.markdown("Connect to 5paisa for live data or use public data.")
     
+    if not is_market_open():
+        st.warning("⚠️ NSE market is currently closed (Trading Hours: Mon-Fri, 9:15 AM to 3:30 PM IST). Live data may not be available.")
+    
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("5paisa API Login")
-        st.session_state.totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password", value=st.session_state.totp_code, key="totp_input")
+        st.session_state.totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", 
+                                                 type="password", value=st.session_state.totp_code)
+        
         if st.button("Login with 5paisa"):
             try:
                 # Validate environment variables
-                required_keys = ["APP_NAME", "APP_SOURCE", "USER_ID", "PASSWORD", "USER_KEY", "ENCRYPTION_KEY", "CLIENT_CODE", "PIN"]
+                required_keys = ["APP_NAME", "APP_SOURCE", "USER_ID", "PASSWORD", 
+                               "USER_KEY", "ENCRYPTION_KEY", "CLIENT_CODE", "PIN"]
                 missing_keys = [key for key in required_keys if not os.getenv(key)]
                 if missing_keys:
-                    st.error(f"Missing environment variables: {', '.join(missing_keys)}. Check your .env file.")
+                    st.error(f"Missing environment variables: {', '.join(missing_keys)}")
                     st.stop()
 
                 cred = {
@@ -230,47 +292,44 @@ if page == "Login":
                     "USER_KEY": os.getenv("USER_KEY"),
                     "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY")
                 }
+                
                 client = FivePaisaClient(cred=cred)
                 client_code = os.getenv("CLIENT_CODE")
                 pin = os.getenv("PIN")
                 
-                logger.debug(f"Credentials: {cred}, Client Code: {client_code}, PIN: {pin}, TOTP: {st.session_state.totp_code}")
-                
-                # Attempt TOTP authentication
-                if not st.session_state.totp_code or not st.session_state.totp_code.strip():
-                    st.error("TOTP code is required.")
-                    st.stop()
-                
-                logger.debug("Attempting to get TOTP session...")
-                client.get_totp_session(client_code, st.session_state.totp_code, pin)
-                logger.debug("TOTP session established. Retrieving access token...")
-                
-                # Fetch access token
-                access_token = client.get_access_token()
-                if access_token:
-                    client.set_access_token(access_token, client_code)
-                    st.session_state.client = client
-                    st.session_state.logged_in = True
-                    st.success("✅ Successfully logged in to 5paisa!")
-                else:
-                    raise ValueError("Failed to retrieve access token")
-                
-                if st.session_state.logged_in:
-                    st.session_state.data_source = "Live 5paisa Data"
-                    # Verify connection
-                    try:
-                        market_feed = client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
-                        if market_feed and "Success" in market_feed and market_feed["Success"] and len(market_feed["Success"]) > 0:
+                # Attempt login with force option
+                force_login = st.checkbox("Force login (off-market hours)")
+                if is_market_open() or force_login:
+                    if not st.session_state.totp_code or not st.session_state.totp_code.strip():
+                        st.error("TOTP code is required.")
+                        st.stop()
+                    
+                    client.get_totp_session(client_code, st.session_state.totp_code, pin)
+                    access_token = client.get_access_token()
+                    
+                    if access_token:
+                        client.set_access_token(access_token, client_code)
+                        st.session_state.client = client
+                        st.session_state.logged_in = True
+                        st.session_state.data_source = "Live 5paisa Data"
+                        st.success("✅ Successfully logged in to 5paisa!")
+                        
+                        # Verify connection
+                        nifty_price = fetch_market_data_with_retry(client)
+                        if nifty_price is not None:
                             st.write("✅ Market data connection verified")
+                            time.sleep(1)
+                            st.rerun()
                         else:
-                            st.warning("⚠️ Login successful but market feed failed. Check API limits or market hours.")
-                    except Exception as e:
-                        st.warning(f"⚠️ Login successful but market feed failed: {str(e)}")
-                    time.sleep(1)
-                    st.rerun()
+                            st.warning("⚠️ Login successful but market feed failed. Falling back to cached/public data.")
+                    else:
+                        raise ValueError("Failed to retrieve access token")
+                else:
+                    st.warning("Market is closed. Use cached data or check 'Force login'")
             except Exception as e:
-                logger.error(f"Exception during login: {str(e)}")
-                st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
+                logger.error(f"Login error: {str(e)}")
+                st.error(f"Login failed: {str(e)}. Check TOTP/credentials.")
+    
     with col2:
         st.subheader("No API?")
         if st.button("Use Public Data"):
@@ -280,87 +339,79 @@ if page == "Login":
             st.success("Using public data.")
             st.rerun()
 
-# Function to load data
-@st.cache_data
-def load_data():
+# Smart Data Loading Function
+def load_smart_data():
+    """Intelligently fetch data based on market hours and availability"""
     try:
-        # Load NIFTY data
-        if st.session_state.client:
+        # Load historical data for volatility modeling
+        historical_df = None
+        if os.path.exists('data_cache/historical_data.csv'):
+            historical_df = pd.read_csv('data_cache/historical_data.csv', index_col=0)
+            historical_df.index = pd.to_datetime(historical_df.index).date
+        else:
+            # Fetch historical data from Yahoo Finance
+            nifty = yf.download("^NSEI", period="2y", interval="1d")
+            vix = yf.download("^INDIAVIX", period="2y", interval="1d")
+            if len(nifty) < 252 or len(vix) < 252:
+                raise ValueError("Insufficient historical data")
+            historical_df = pd.DataFrame({
+                "NIFTY_Close": nifty["Close"],
+                "VIX": vix["Close"]
+            }).dropna()
+            if not os.path.exists('data_cache'):
+                os.makedirs('data_cache')
+            historical_df.to_csv('data_cache/historical_data.csv')
+        
+        # If market is open and we're logged in, attempt live fetch
+        if is_market_open() and st.session_state.logged_in and st.session_state.client:
             try:
-                market_feed = st.session_state.client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
-                if market_feed and "Success" in market_feed and market_feed["Success"] and len(market_feed["Success"]) > 0:
-                    nifty_price = float(market_feed["Success"][0]["LastRate"])
-                    nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
+                nifty_price = fetch_market_data_with_retry(st.session_state.client, symbol="NIFTY 50")
+                if nifty_price is not None:
+                    # Note: 5paisa API doesn't directly provide VIX; fetch from Yahoo Finance
+                    vix = yf.download("^INDIAVIX", period="1d", interval="1d")["Close"].iloc[-1]
+                    today_df = pd.DataFrame({
+                        "NIFTY_Close": [nifty_price],
+                        "VIX": [vix]
+                    }, index=[datetime.now(timezone('Asia/Kolkata')).date()])
+                    save_last_data(today_df)
+                    
+                    # Update historical data with today's data
+                    historical_df = pd.concat([historical_df, today_df]).tail(252)
+                    historical_df.to_csv('data_cache/historical_data.csv')
+                    return historical_df
                 else:
-                    st.error("Failed to fetch 5paisa NIFTY price. Falling back to public data.")
-                    raise Exception("No valid 5paisa data")
+                    st.warning("Live fetch failed. Using cached data.")
             except Exception as e:
-                st.error(f"5paisa data fetch failed: {str(e)}. Falling back to public data.")
-                nifty = yf.download("^NSEI", period="1y", interval="1d")
-                if nifty.empty or len(nifty) < 200:
-                    st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
-                    return None
-                nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
-                nifty.index = pd.to_datetime(nifty.index).date
-                nifty = nifty[~nifty.index.duplicated(keep='first')]
-                nifty_series = nifty["NIFTY_Close"]
-        else:
-            nifty = yf.download("^NSEI", period="1y", interval="1d")
-            if nifty.empty or len(nifty) < 200:
-                st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
-                return None
-            nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
-            nifty.index = pd.to_datetime(nifty.index).date
-            nifty = nifty[~nifty.index.duplicated(keep='first')]
-            nifty_series = nifty["NIFTY_Close"]
-
-        # Load India VIX data from GitHub
-        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
-        vix = pd.read_csv(vix_url)
-        vix.columns = vix.columns.str.strip().str.lower()
-        if "date" not in vix.columns or "close" not in vix.columns:
-            st.error(f"india_vix.csv is missing required columns. Found columns: {vix.columns.tolist()}")
-            return None
-        vix["date"] = pd.to_datetime(vix["date"], format="%d-%b-%Y", errors="coerce")
-        vix = vix.dropna(subset=["date"])
-        if vix.empty:
-            st.error("VIX data is empty.")
-            return None
-        vix = vix[["date", "close"]].set_index("date").rename(columns={"close": "VIX"})
-        vix.index = pd.to_datetime(vix.index).date
-        vix = vix[~vix.index.duplicated(keep='first')]
-        vix_series = vix["VIX"]
-
-        # Align data
-        if not st.session_state.client:
-            common_dates = nifty_series.index.intersection(vix_series.index)
-            if len(common_dates) < 200:
-                st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
-                return None
-            
-            nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
-            vix_data = vix_series.loc[common_dates].to_numpy().flatten()
-            df = pd.DataFrame({
-                "NIFTY_Close": nifty_data,
-                "VIX": vix_data
-            }, index=common_dates)
-        else:
-            df = pd.DataFrame({
-                "NIFTY_Close": nifty_data["NIFTY_Close"].iloc[0],
-                "VIX": vix_series.iloc[-1]
-            }, index=[datetime.now().date()])
-
-        # Handle missing data
-        if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
-            df = df.ffill().bfill()
-        if df.empty:
-            st.error("DataFrame is empty after processing.")
-            return None
-
-        return df
-
+                st.warning(f"Live fetch failed: {str(e)}. Using cached data.")
+        
+        # Fall back to cached data if available
+        cached_data = load_cached_data()
+        if cached_data is not None:
+            # Update historical data with the latest cached point
+            historical_df = pd.concat([historical_df, cached_data]).tail(252)
+            historical_df.to_csv('data_cache/historical_data.csv')
+            return historical_df
+        
+        # Final fallback to Yahoo Finance for the latest data
+        st.warning("Using Yahoo Finance as fallback")
+        nifty = yf.download("^NSEI", period="1d", interval="1d")
+        vix = yf.download("^INDIAVIX", period="1d", interval="1d")
+        if len(nifty) == 0 or len(vix) == 0:
+            raise ValueError("Insufficient real-time data from Yahoo Finance")
+        
+        today_df = pd.DataFrame({
+            "NIFTY_Close": [nifty["Close"].iloc[-1]],
+            "VIX": [vix["Close"].iloc[-1]]
+        }, index=[datetime.now(timezone('Asia/Kolkata')).date()])
+        save_last_data(today_df)
+        
+        # Update historical data
+        historical_df = pd.concat([historical_df, today_df]).tail(252)
+        historical_df.to_csv('data_cache/historical_data.csv')
+        return historical_df
+        
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
+        st.error(f"Data loading failed: {str(e)}")
         return None
 
 # Function to generate synthetic options features
@@ -679,9 +730,10 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
 # Main execution
 if page == "Dashboard" and run_button:
     with st.spinner("Initializing AI Copilot..."):
-        df = load_data()
+        df = load_smart_data()
         if df is not None:
-            st.markdown(f"<span style='color: #00d4ff; font-size: 14px;'>Data Source: {st.session_state.data_source}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color: #00d4ff; font-size: 14px;'>Data Source: {st.session_state.data_source}</span>", 
+                        unsafe_allow_html=True)
             df = generate_synthetic_features(df)
 
             with st.spinner("Predicting market volatility..."):
@@ -762,8 +814,8 @@ if page == "Dashboard" and run_button:
                 # Journaling Prompt Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📝 Journaling Prompt")
-                journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
-                if st.button("Save Reflection", key="save_button"):
+                journal = st.text_area("Reflect on your discipline today:", height=120)
+                if st.button("Save Reflection"):
                     st.success("Reflection saved!")
                 st.markdown('</div>', unsafe_allow_html=True)
 
