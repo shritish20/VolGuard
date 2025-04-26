@@ -242,26 +242,22 @@ if page == "Login":
                 response = client.get_totp_session(client_code, totp_code, pin)
                 logger.debug(f"Raw response from get_totp_session: {response}")
                 
+                # Check if response is a string (likely JWT)
                 if isinstance(response, str):
                     try:
-                        logger.debug("Trying to parse response as JSON...")
-                        response = json.loads(response)
-                        logger.debug(f"Parsed JSON response: {response}")
-                    except json.JSONDecodeError:
-                        logger.debug("JSON parsing failed, attempting JWT decode...")
-                        try:
-                            # Attempt to decode JWT (assuming no secret key is needed for initial decode)
-                            decoded = jwt.decode(response, options={"verify_signature": False})
-                            logger.debug(f"Decoded JWT: {decoded}")
-                            if "Message" in decoded and decoded["Message"] == "SUCCESS" and "UserId" in decoded:
-                                response = decoded
-                            else:
-                                raise ValueError("Invalid JWT content")
-                        except Exception as e:
-                            logger.error(f"JWT decode failed: {e}")
-                            st.error(f"Login failed: Unexpected string response - {response[:50]}... Check TOTP code, credentials, or API status.")
-                            st.stop()
+                        # Directly decode the JWT (skip JSON parsing attempt)
+                        decoded = jwt.decode(response, options={"verify_signature": False})
+                        if decoded.get("Message") == "SUCCESS" and "UserId" in decoded:
+                            response = decoded  # Use decoded JWT as the response
+                            logger.info("Login successful via JWT decode")
+                        else:
+                            raise ValueError("JWT missing required fields")
+                    except Exception as e:
+                        logger.error(f"JWT processing failed: {str(e)}")
+                        st.error("Login failed: Invalid API response format. Check TOTP code, credentials, or API status.")
+                        st.stop()
                 
+                # Validate the response
                 if isinstance(response, dict) and response.get("Message") == "SUCCESS" and "UserId" in response:
                     st.session_state.client = client
                     st.session_state.logged_in = True
