@@ -129,6 +129,7 @@ def load_data():
                 return None
             nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
             nifty.index = pd.to_datetime(nifty.index).date
+            st.write("NIFTY data shape:", nifty.shape)  # Debug: Show NIFTY shape
         
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
@@ -169,6 +170,7 @@ def load_data():
                 raise KeyError("Missing 'close' column in VIX CSV.")
             
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
+            st.write("VIX data shape:", vix.shape)  # Debug: Show VIX shape
         except Exception as e:
             st.error(f"Failed to fetch VIX data: {str(e)}.")
             return None
@@ -180,14 +182,21 @@ def load_data():
                 return None
             vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill")
             nifty_data = nifty.loc[common_dates]
+            st.write("vix_data shape before DataFrame:", vix_data.shape)  # Debug: Show shape
+            st.write("nifty_data shape before DataFrame:", nifty_data.shape)  # Debug: Show shape
             df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data}, index=common_dates)
         else:
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1]}, index=[datetime.now().date()])
+            latest_vix = vix["VIX"].iloc[-1]  # Scalar value
+            df = pd.DataFrame({
+                "NIFTY_Close": nifty_data["NIFTY_Close"].iloc[0],  # Scalar value
+                "VIX": latest_vix
+            }, index=[datetime.now().date()])
 
         df = df.ffill().bfill()
         if df.empty:
             st.error("DataFrame is empty.")
             return None
+        st.write("Final DataFrame shape:", df.shape)  # Debug: Show final shape
         return df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
