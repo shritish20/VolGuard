@@ -2,45 +2,132 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
-import warnings
+import yfinance as yf
 from datetime import datetime, timedelta
 from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
-import time
+from sklearn.metrics import mean_squared_error
+import warnings
+import io
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS for a stunning, modern look with animations
+# Custom CSS for a stunning, modern UI
 st.markdown("""
     <style>
-        .main {background: linear-gradient(135deg, #1a1a2e, #0f1c2e); color: #e5e5e5; font-family: 'Arial', sans-serif;}
-        .stButton>button {background: linear-gradient(90deg, #0f3460, #16213e); color: white; border-radius: 20px; padding: 12px 25px; font-size: 18px; transition: transform 0.3s; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);}
-        .stButton>button:hover {transform: scale(1.05); background: #16213e;}
-        .stMetric {background: rgba(22, 33, 62, 0.9); border-radius: 20px; padding: 20px; text-align: center; backdrop-filter: blur(5px);}
-        h1 {color: #e94560; font-size: 40px; text-align: center; text-shadow: 0 0 10px rgba(233, 69, 96, 0.5); animation: fadeIn 1s;}
-        h2 {color: #00d4ff; font-size: 24px; margin-bottom: 15px; text-shadow: 0 0 5px rgba(0, 212, 255, 0.5); animation: slideIn 0.8s;}
-        .card {background: rgba(22, 33, 62, 0.85); border-radius: 20px; padding: 20px; margin: 15px 0; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); animation: popIn 0.6s; backdrop-filter: blur(5px);}
-        .gauge {width: 120px; height: 120px; border-radius: 50%; background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%); display: inline-block; text-align: center; line-height: 120px; color: white; font-weight: bold; font-size: 20px; box-shadow: 0 0 10px rgba(233, 69, 96, 0.5); animation: rotateIn 1s;}
-        .signal-box {background: rgba(15, 52, 96, 0.9); border-radius: 15px; padding: 15px; margin: 10px 0; transition: transform 0.3s; animation: fadeInUp 0.8s;}
-        .signal-box:hover {transform: translateY(-5px);}
-        .risk-flag {color: #e94560; font-size: 20px; animation: pulse 1.5s infinite;}
-        @keyframes fadeIn {from {opacity: 0;} to {opacity: 1;}}
-        @keyframes slideIn {from {transform: translateX(-100%);} to {transform: translateX(0);}}
-        @keyframes popIn {from {transform: scale(0); opacity: 0;} to {transform: scale(1); opacity: 1;}}
-        @keyframes rotateIn {from {transform: rotate(-180deg); opacity: 0;} to {transform: rotate(0); opacity: 1;}}
-        @keyframes fadeInUp {from {opacity: 0; transform: translateY(20px);} to {opacity: 1; transform: translateY(0);}}
-        @keyframes pulse {0% {transform: scale(1);} 50% {transform: scale(1.1);} 100% {transform: scale(1);}}
+        .main {
+            background: linear-gradient(135deg, #1a1a2e, #0f1c2e);
+            color: #e5e5e5;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .stButton>button {
+            background: linear-gradient(90deg, #0f3460, #16213e);
+            color: white;
+            border-radius: 20px;
+            padding: 12px 25px;
+            font-size: 18px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        .stButton>button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+        }
+        .stMetric {
+            background: rgba(22, 33, 62, 0.9);
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #e94560;
+            font-size: 42px;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+            animation: fadeIn 1s;
+        }
+        h2 {
+            color: #00d4ff;
+            font-size: 26px;
+            margin-bottom: 15px;
+            text-shadow: 0 0 5px rgba(0, 212, 255, 0.5);
+            animation: slideIn 0.8s;
+        }
+        .card {
+            background: rgba(22, 33, 62, 0.85);
+            border-radius: 20px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+            animation: popIn 0.6s;
+            backdrop-filter: blur(5px);
+        }
+        .gauge {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%);
+            display: inline-block;
+            text-align: center;
+            line-height: 120px;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+            box-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+            animation: rotateIn 1s;
+        }
+        .signal-box {
+            background: rgba(15, 52, 96, 0.9);
+            border-radius: 15px;
+            padding: 15px;
+            margin: 10px 0;
+            transition: transform 0.3s;
+            animation: fadeInUp 0.8s;
+        }
+        .signal-box:hover {
+            transform: translateY(-5px);
+        }
+        .risk-flag {
+            color: #e94560;
+            font-size: 20px;
+            animation: pulse 1.5s infinite;
+        }
+        .sidebar .stButton>button {
+            width: 100%;
+            margin-top: 10px;
+        }
+        @keyframes fadeIn {
+            from {opacity: 0;} to {opacity: 1;}
+        }
+        @keyframes slideIn {
+            from {transform: translateX(-100%);} to {transform: translateX(0);}
+        }
+        @keyframes popIn {
+            from {transform: scale(0); opacity: 0;} to {transform: scale(1); opacity: 1;}
+        }
+        @keyframes rotateIn {
+            from {transform: rotate(-180deg); opacity: 0;} to {transform: rotate(0); opacity: 1;}
+        }
+        @keyframes fadeInUp {
+            from {opacity: 0; transform: translateY(20px);} to {opacity: 1; transform: translateY(0);}
+        }
+        @keyframes pulse {
+            0% {transform: scale(1);} 50% {transform: scale(1.1);} 100% {transform: scale(1);}
+        }
     </style>
 """, unsafe_allow_html=True)
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** | Crafted by Shritish Shukla & AI")
+st.markdown("**Protection First, Edge Always** | Powered by xAI")
 
 # Sidebar
 with st.sidebar:
@@ -52,52 +139,47 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
-# Function to load data from GitHub
+# Function to load data
 @st.cache_data
 def load_data():
     try:
-        nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty50.csv"
+        # Fetch NIFTY 50 data from Yahoo Finance
+        nifty = yf.download("^NSEI", period="1y", interval="1d")
+        if nifty.empty or len(nifty) < 200:
+            st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
+            return None
+        nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+        nifty.index = pd.to_datetime(nifty.index).date
+
+        # Fetch India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
-
-        nifty = pd.read_csv(nifty_url)
-        nifty.columns = nifty.columns.str.strip()
-        if "Date" not in nifty.columns or "Close" not in nifty.columns:
-            st.error("Nifty50.csv is missing required columns.")
-            return None
-
-        nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
-        nifty = nifty.dropna(subset=["Date"])
-        if nifty.empty:
-            st.error("NIFTY data is empty.")
-            return None
-        nifty = nifty[["Date", "Close"]].set_index("Date")
-        nifty = nifty[~nifty.index.duplicated(keep='first')]
-
         vix = pd.read_csv(vix_url)
         vix.columns = vix.columns.str.strip()
         if "Date" not in vix.columns or "Close" not in vix.columns:
             st.error("india_vix.csv is missing required columns.")
             return None
-
         vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
             st.error("VIX data is empty.")
             return None
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
+        vix.index = pd.to_datetime(vix.index).date
         vix = vix[~vix.index.duplicated(keep='first')]
 
+        # Align data
         common_dates = nifty.index.intersection(vix.index)
-        if len(common_dates) < 10:
+        if len(common_dates) < 200:
             st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
             return None
-        df = pd.DataFrame({"NIFTY_Close": nifty["Close"], "VIX": vix["VIX"]}, index=common_dates)
-        df.index = df.index.date
-
+        df = pd.DataFrame({"NIFTY_Close": nifty.loc[common_dates, "NIFTY_Close"], 
+                          "VIX": vix.loc[common_dates, "VIX"]}, index=common_dates)
+        
+        # Handle missing data
         if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
             df = df.ffill().bfill()
         if df.empty:
-            st.error("DataFrame is empty.")
+            st.error("DataFrame is empty after processing.")
             return None
 
         return df
@@ -110,7 +192,6 @@ def load_data():
 def generate_synthetic_features(df):
     n_days = len(df)
     np.random.seed(42)
-
     risk_free_rate = 0.06
     strike_step = 100
 
@@ -126,29 +207,65 @@ def generate_synthetic_features(df):
         except:
             return 0
 
+    # ATM Implied Volatility with event spikes
     event_spike = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5), 1.2, 1.0)
     df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
     df["ATM_IV"] = np.clip(df["ATM_IV"], 5, 50)
 
+    # Implied Volatility Percentile
     def dynamic_ivp(x):
         if len(x) >= 5:
             return (np.sum(x.iloc[:-1] <= x.iloc[-1]) / (len(x) - 1)) * 100
         return 50.0
-
-    df["IVP"] = df["ATM_IV"].rolling(len(df), min_periods=5).apply(dynamic_ivp)
+    df["IVP"] = df["ATM_IV"].rolling(252, min_periods=5).apply(dynamic_ivp)
     df["IVP"] = df["IVP"].interpolate().fillna(50.0)
 
+    # Put-Call Ratio
     market_trend = df["NIFTY_Close"].pct_change().rolling(5).mean().fillna(0)
     df["PCR"] = np.clip(1.0 + np.random.normal(0, 0.1, n_days) + market_trend * -10, 0.7, 2.0)
+    
+    # VIX Change
     df["VIX_Change_Pct"] = df["VIX"].pct_change().fillna(0) * 100
+    
+    # Max Pain Difference
     df["Spot_MaxPain_Diff_Pct"] = np.abs(np.random.lognormal(-2, 0.5, n_days))
     df["Spot_MaxPain_Diff_Pct"] = np.clip(df["Spot_MaxPain_Diff_Pct"], 0.1, 1.0)
+    
+    # Days to Expiry
     df["Days_to_Expiry"] = np.random.choice([1, 3, 7, 14, 21, 28], n_days)
+    
+    # Event Flag
     df["Event_Flag"] = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5) | (df["Days_to_Expiry"] <= 3), 1, 0)
+    
+    # FII Positions
+    fii_trend = np.random.normal(0, 10000, n_days)
+    fii_trend[::30] *= -1
+    df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
+    df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
+    
+    # IV Skew
+    df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
+    
+    # Realized Volatility
     df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
     df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
     df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
-
+    
+    # Advance/Decline Ratio
+    df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
+    
+    # Capital Pressure Index
+    df["Capital_Pressure_Index"] = (df["FII_Index_Fut_Pos"] / 3e4 + df["FII_Option_Pos"] / 1e4 + df["PCR"]) / 3
+    df["Capital_Pressure_Index"] = np.clip(df["Capital_Pressure_Index"], -2, 2)
+    
+    # Gamma Bias
+    df["Gamma_Bias"] = np.clip(df["IV_Skew"] * (30 - df["Days_to_Expiry"]) / 30, -2, 2)
+    
+    # Capital and PnL
+    df["Total_Capital"] = capital
+    df["PnL_Day"] = np.random.normal(0, 5000, n_days) * (1 - df["Event_Flag"] * 0.5)
+    
+    # Options Prices
     straddle_prices = []
     call_prices = []
     put_prices = []
@@ -159,45 +276,53 @@ def generate_synthetic_features(df):
         sigma = df["ATM_IV"].iloc[i] / 100
         call_price = black_scholes(S, K, T, risk_free_rate, sigma, "call")
         put_price = black_scholes(S, K, T, risk_free_rate, sigma, "put")
-        straddle_price = (call_price + put_price) * (S / 1000)
+        straddle_price = (call_price + put_price)
         straddle_price = np.clip(straddle_price, 50, 400)
         straddle_prices.append(straddle_price)
-        call_prices.append(call_price * (S / 1000))
-        put_prices.append(put_price * (S / 1000))
+        call_prices.append(call_price)
+        put_prices.append(put_price)
     df["Straddle_Price"] = straddle_prices
     df["Call_Price"] = call_prices
     df["Put_Price"] = put_prices
 
+    # Handle any remaining NaNs
     if df.isna().sum().sum() > 0:
         df = df.interpolate().fillna(method='bfill')
+    
     return df
 
-# Function to forecast volatility (future)
+# Function to forecast volatility
 def forecast_volatility_future(df, forecast_horizon):
     df.index = pd.to_datetime(df.index)
     df_garch = df.tail(len(df))
     if len(df_garch) < 200:
         st.error(f"Insufficient data for GARCH: {len(df_garch)} days.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     last_date = df.index[-1]
     future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
 
+    # GARCH Model (purely statistical, no event adjustment)
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
     garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
     garch_fit = garch_model.fit(disp="off")
-    garch_vols = np.sqrt(garch_fit.forecast(horizon=forecast_horizon, reindex=False).variance.iloc[-1].values) * np.sqrt(252)
+    garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
+    garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)
     garch_vols = np.clip(garch_vols, 5, 50)
-    if df["Event_Flag"].iloc[-1] == 1:
-        garch_vols *= 1.1
 
+    # Realized Volatility
     realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
 
+    # XGBoost Model
     df_xgb = df.tail(len(df))
     df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
     df_xgb = df_xgb.dropna()
 
-    feature_cols = ['VIX', 'ATM_IV', 'PCR', 'Realized_Vol', 'Days_to_Expiry', 'VIX_Change_Pct']
+    feature_cols = [
+        'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+        'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
+    ]
     X = df_xgb[feature_cols]
     y = df_xgb['Target_Vol']
 
@@ -209,8 +334,11 @@ def forecast_volatility_future(df, forecast_horizon):
     X_train, X_test = X_scaled.iloc[:split_index], X_scaled.iloc[split_index:]
     y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
 
-    model = XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.05, random_state=42)
+    model = XGBRegressor(n_estimators=300, max_depth=6, learning_rate=0.03, random_state=42)
     model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
     xgb_vols = []
     current_row = df_xgb[feature_cols].iloc[-1].copy()
@@ -220,14 +348,16 @@ def forecast_volatility_future(df, forecast_horizon):
         xgb_vols.append(next_vol)
         current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
         current_row["VIX"] *= np.random.uniform(0.98, 1.02)
+        current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
         current_row["VIX_Change_Pct"] = (current_row["VIX"] / df_xgb["VIX"].iloc[-1] - 1) * 100
         current_row["ATM_IV"] = current_row["VIX"] * (1 + np.random.normal(0, 0.1))
-        current_row["Realized_Vol"] = np.clip(current_row["Realized_Vol"] * np.random.uniform(0.95, 1.05), 5, 50)
+        current_row["Realized_Vol"] = np.clip(next_vol * np.random.uniform(0.95, 1.05), 5, 50)
 
     xgb_vols = np.clip(xgb_vols, 5, 50)
     if df["Event_Flag"].iloc[-1] == 1:
         xgb_vols = [v * 1.1 for v in xgb_vols]
 
+    # Blended Forecast
     garch_diff = np.abs(garch_vols[0] - realized_vol)
     xgb_diff = np.abs(xgb_vols[0] - realized_vol)
     garch_weight = xgb_diff / (garch_diff + xgb_diff) if (garch_diff + xgb_diff) > 0 else 0.5
@@ -242,40 +372,117 @@ def forecast_volatility_future(df, forecast_horizon):
         "Blended_Vol": blended_vols,
         "Confidence": [confidence_score] * forecast_horizon
     })
-    return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score
+    return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, model.feature_importances_
 
-# Function to generate trading signals
-def generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
-    signals = []
-    position_size = {"Conservative": 0.1, "Moderate": 0.2, "Aggressive": 0.3}[risk_tolerance]
-    risk_flag = "🚩 High Risk" if confidence_score < 70 or df["Event_Flag"].iloc[-1] == 1 else "✅ Safe"
+# Function to generate trading strategy
+def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
+    latest = df.iloc[-1]
+    avg_vol = np.mean(forecast_log["Blended_Vol"])
+    iv = latest["ATM_IV"]
+    hv = latest["Realized_Vol"]
+    iv_hv_gap = iv - hv
+    iv_skew = latest["IV_Skew"]
+    pcr = latest["PCR"]
+    dte = latest["Days_to_Expiry"]
+    event_flag = latest["Event_Flag"]
+    capital = latest["Total_Capital"]
 
-    for i, row in forecast_log.iterrows():
-        blended_vol = row["Blended_Vol"]
-        ivp = df["IVP"].iloc[-1]
-        pcr = df["PCR"].iloc[-1]
-        strike = round(df["NIFTY_Close"].iloc[-1] / 100) * 100
-        signal = "Hold"
-        action = "None"
+    # Regime Classification
+    if event_flag == 1:
+        regime = "EVENT-DRIVEN"
+    elif avg_vol < 15:
+        regime = "LOW"
+    elif avg_vol < 20:
+        regime = "MEDIUM"
+    else:
+        regime = "HIGH"
 
-        if blended_vol > realized_vol + 1.5 and ivp > 60 and confidence_score >= 60:
-            signal = "Buy Call"
-            action = f"Buy Call at {strike}, Premium ~{df['Call_Price'].iloc[-1]:.2f}"
-        elif blended_vol < realized_vol - 1.5 and pcr < 0.9 and confidence_score >= 60:
-            signal = "Buy Put"
-            action = f"Buy Put at {strike}, Premium ~{df['Put_Price'].iloc[-1]:.2f}"
-        elif df["Event_Flag"].iloc[-1] == 1:
-            signal = "Buy Straddle"
-            action = f"Buy Straddle at {strike}, Premium ~{df['Straddle_Price'].iloc[-1]:.2f}"
+    # Strategy Selector
+    strategy = "Undefined"
+    reason = "N/A"
+    tags = []
+    risk_reward = 1.0
+    confidence = 0.5 + 0.5 * (1 - np.abs(forecast_log["GARCH_Vol"].iloc[0] - forecast_log["XGBoost_Vol"].iloc[0]) / max(forecast_log["GARCH_Vol"].iloc[0], forecast_log["XGBoost_Vol"].iloc[0]))
 
-        signals.append({
-            "Date": row["Date"].strftime("%d-%b-%Y"),
-            "Signal": signal,
-            "Action": action,
-            "Position Size": f"{int(position_size * 100)}% of Capital",
-            "Risk Flag": risk_flag
-        })
-    return signals
+    if regime == "LOW":
+        if iv_hv_gap > 5 and dte < 10:
+            strategy = "Butterfly Spread"
+            reason = "Low vol & short expiry favors pinning strategies."
+            tags = ["Neutral", "Theta", "Expiry Play"]
+            risk_reward = 2.0
+        else:
+            strategy = "Iron Fly"
+            reason = "Low volatility and time decay favors delta-neutral Iron Fly."
+            tags = ["Neutral", "Theta", "Range Bound"]
+
+    elif regime == "MEDIUM":
+        if iv_hv_gap > 3 and iv_skew > 2:
+            strategy = "Calendar Spread"
+            reason = "IV skew and medium vol suggest potential vol expansion."
+            tags = ["Volatility Play", "Directional", "Skew"]
+            risk_reward = 1.8
+        else:
+            strategy = "Short Strangle"
+            reason = "Balanced vol, no events, and premium-rich environment."
+            tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
+
+    elif regime == "HIGH":
+        if iv_hv_gap > 10:
+            strategy = "Jade Lizard"
+            reason = "High IV + call skew = Jade Lizard for defined upside risk."
+            tags = ["Skewed", "Volatility", "Defined Risk"]
+            risk_reward = 1.2
+        else:
+            strategy = "Debit Spread"
+            reason = "High vol implies limited premium edge. Go directional."
+            tags = ["Directional", "Volatility Hedge", "Defined Risk"]
+
+    elif regime == "EVENT-DRIVEN":
+        if iv > 30 and dte < 5:
+            strategy = "Calendar Spread"
+            reason = "Event + near expiry + IV spike → term structure opportunity."
+            tags = ["Volatility", "Event", "Calendar"]
+            risk_reward = 1.5
+        else:
+            strategy = "Straddle Buy"
+            reason = "Event-based uncertainty. Straddle captures large moves."
+            tags = ["High Gamma", "Event", "Directional Bias"]
+            risk_reward = 1.3
+
+    # Capital Allocation
+    capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
+    position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
+    deploy = capital * capital_alloc.get(regime, 0.2) * position_size
+    max_loss = deploy * 0.2
+    total_exposure = deploy / capital
+
+    # Risk Filters
+    risk_flags = []
+    if regime in ["HIGH", "EVENT-DRIVEN"] and strategy in ["Short Strangle", "Iron Fly"]:
+        risk_flags.append("No naked legs allowed in HIGH/EVENT-DRIVEN regimes")
+    if latest["PnL_Day"] < -0.03 * capital:
+        risk_flags.append("Daily drawdown exceeds 3%")
+    if latest["VIX_Change_Pct"] > 10:
+        risk_flags.append("High VIX spike detected")
+
+    # Behavioral Monitoring
+    behavior_score = 8 if deploy < 0.5 * capital else 6
+    behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
+
+    return {
+        "Regime": regime,
+        "Strategy": strategy,
+        "Reason": reason,
+        "Tags": tags,
+        "Confidence": confidence,
+        "Risk_Reward": risk_reward,
+        "Deploy": deploy,
+        "Max_Loss": max_loss,
+        "Exposure": total_exposure,
+        "Risk_Flags": risk_flags,
+        "Behavior_Score": behavior_score,
+        "Behavior_Warnings": behavior_warnings
+    }
 
 # Main execution
 if run_button:
@@ -285,21 +492,23 @@ if run_button:
             df = generate_synthetic_features(df)
 
             with st.spinner("Predicting market volatility..."):
-                forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score = forecast_volatility_future(df, forecast_horizon)
+                forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
 
             if forecast_log is not None:
-                # Volatility Forecast Card with 7-Day Predictions
+                # Volatility Forecast Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📈 7-Day Volatility Forecast")
-                col1, col2 = st.columns(2)
+                st.subheader("📈 Volatility Forecast")
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
                 with col2:
                     st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%")
-                st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
-                st.markdown("**Confidence Score**", unsafe_allow_html=True)
+                with col3:
+                    st.metric("XGBoost RMSE", f"{rmse:.2f}%")
+                    st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
+                    st.markdown("**Confidence Score**", unsafe_allow_html=True)
 
-                # 7-Day Forecast Chart with All Methods
+                # Forecast Chart
                 chart_data = pd.DataFrame({
                     "Date": forecast_log["Date"],
                     "GARCH": garch_vols,
@@ -308,32 +517,77 @@ if run_button:
                 }).set_index("Date")
                 st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"])
 
-                # Display 7-Day Predictions
+                # Daily Breakdown
                 st.markdown("### Daily Breakdown")
                 for i in range(forecast_horizon):
                     date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
                     st.markdown(f'<div style="background: rgba(15, 52, 96, 0.7); padding: 10px; border-radius: 10px; margin: 5px 0;">📅 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                # Trading Signals Card
+                # Feature Importance
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("🎯 Trading Signals")
-                signals = generate_trading_signals(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
-                for signal in signals:
-                    st.markdown(f'<div class="signal-box">📅 {signal["Date"]} | <b>{signal["Signal"]}</b> | {signal["Action"]} | {signal["Position Size"]} | {signal["Risk Flag"]}</div>', unsafe_allow_html=True)
+                st.subheader("🔍 Feature Importance")
+                feature_importance = pd.DataFrame({
+                    'Feature': [
+                        'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+                        'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+                        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
+                    ],
+                    'Importance': feature_importances
+                }).sort_values(by='Importance', ascending=False)
+                st.dataframe(feature_importance)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Trading Strategy Card
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("🎯 Trading Strategy")
+                strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
+                st.markdown(f"""
+                    **Volatility Regime**: {strategy["Regime"]} (Avg Vol: {np.mean(blended_vols):.2f}%)  
+                    **Suggested Strategy**: {strategy["Strategy"]}  
+                    **Reason**: {strategy["Reason"]}  
+                    **Tags**: {', '.join(strategy["Tags"])}  
+                    **Confidence Score**: {strategy["Confidence"]:.2f}  
+                    **Risk-Reward Expectation**: {strategy["Risk_Reward"]:.2f}:1  
+                    **Capital to Deploy**: ₹{strategy["Deploy"]:,.0f}  
+                    **Max Risk Allowed**: ₹{strategy["Max_Loss"]:,.0f}  
+                    **Exposure**: {strategy["Exposure"]*100:.2f}%  
+                    **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
+                    **Behavior Score**: {strategy["Behavior_Score"]}/10  
+                    **Behavioral Warnings**: {', '.join(strategy["Behavior_Warnings"]) if strategy["Behavior_Warnings"] else "None"}
+                """)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # Journaling Prompt Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📝 Journaling Prompt")
-                st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
-                st.button("Save Reflection", key="save_button")
+                journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
+                if st.button("Save Reflection", key="save_button"):
+                    st.success("Reflection saved!")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Export Functionality
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("📤 Export Insights")
+                col1, col2 = st.columns(2)
+                with col1:
+                    csv = forecast_log.to_csv(index=False)
+                    st.download_button(
+                        label="Download Forecast (CSV)",
+                        data=csv,
+                        file_name="volguard_forecast.csv",
+                        mime="text/csv"
+                    )
+                with col2:
+                    strategy_df = pd.DataFrame([strategy])
+                    strategy_csv = strategy_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Strategy (CSV)",
+                        data=strategy_csv,
+                        file_name="volguard_strategy.csv",
+                        mime="text/csv"
+                    )
                 st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     st.info("Set parameters and activate VolGuard to begin your journey.")
-
-# Export Button
-st.markdown('<div style="text-align: center; margin-top: 20px;">', unsafe_allow_html=True)
-st.button("Export Insights (PDF/CSV)", key="export_button")
-st.markdown('</div>', unsafe_allow_html=True)
