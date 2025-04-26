@@ -77,3 +77,25 @@ Ensure you have the following installed:
 Install the required dependencies:
 ```bash
 pip install streamlit pandas numpy scipy yfinance arch xgboost scikit-learn
+InstallationClone the repository:git clone https://github.com/shritish20/VolGuard.git
+cd VolGuardEnsure the app.py file (provided in the repository) is in the project directory.Run the Streamlit app:streamlit run app.pyOpen your browser and navigate to:http://localhost:8501
+📖 UsageConfigure SettingsAdjust the Forecast Horizon (default: 6 days).Enter your Capital (e.g., ₹1,000,000).Select your Risk Profile (Conservative, Moderate, Aggressive).Activate VolGuardClick the "Activate VolGuard" button to generate forecasts and strategies.Explore InsightsVolatility Forecast: View GARCH predictions (e.g., 14.43% to 15.10% over 6 days).Regime & Strategy: Analyze the market regime and recommended trading strategy.Risk Flags: Check for warnings (e.g., high VIX spikes).Export: Download forecasts and strategies as CSV files.Journal: Reflect on your trading discipline.Example OutputVolatility Forecast (6-day horizon):28-Apr-2025: 14.43%29-Apr-2025: 14.78%30-Apr-2025: 14.95%01-May-2025: 15.04%02-May-2025: 15.08%05-May-2025: 15.10%Regime: LOW (Avg Vol: 14.90%)Strategy: Butterfly SpreadReason: Low volatility and short expiry favor pinning strategies.Capital to Deploy: ₹350,000 (for a ₹1M portfolio, Moderate risk)
+.🔍 MethodologyVolatility Forecasting:Uses a GARCH(1,1) model on NIFTY 50 log returns, with default rescaling to match industry benchmarks (validated against a Colab implementation).Annualized using √252 for trading days.Regime Classification:LOW: <15% volatilityMEDIUM: 15–20% volatilityHIGH: >20% volatilityEVENT-DRIVEN: Triggered by event flags (e.g., policy days, expiries).Strategy Engine:Maps regimes to strategies using market signals (e.g., IV-HV gaps, skew, expiry dynamics).Balances risk and reward with confidence scores.Risk Filters:Monitors VIX spikes, drawdowns, and exposure to ensure capital protection.
+📈 Future EnhancementsTelegram Alerts: Real-time notifications for high-risk conditions.PDF Export: Generate professional PDF reports of insights.Visual Risk Dashboard: Interactive visualizations for risk and portfolio metrics.XGBoost Integration: Reintroduce XGBoost for blended volatility forecasts.
+🤝 ContributingWe welcome contributions! To get started:Fork the repository.Create a feature branch:git checkout -b feature/YourFeatureCommit your changes:git commit -m "Add YourFeature"Push to the branch:git push origin feature/YourFeatureOpen a pull request.
+📜 LicenseThis project is licensed under the MIT License. See the LICENSE file for details.
+📧 ContactFor questions or feedback, reach out to Shritish Shukla at shritish@amityonline.com
+🙌 AcknowledgmentsDevelopers: Shritish Shukla & Salman
+Inspiration: Built to address the need for disciplined, edge-driven trading in volatile markets.VolGuard: Deploy with edge, survive, outlast.---
+
+### How to Use
+1. **Copy the Text**: Copy the entire block above.
+2. **Create `README.md`**:
+   - In your GitHub repository, go to the root directory.
+   - Click "Add file" > "Create new file".
+   - Name the file `README.md`.
+3. **Paste the Content**: Paste the copied text into the editor.
+4. **Commit the File**:
+   - Add a commit message like "Add README.md".
+   - Click "Commit new file".
+5. **Verify**: The README will render automatically on your repository’s main page.
