@@ -13,6 +13,7 @@ from py5paisa import FivePaisaClient
 import os
 from dotenv import load_dotenv
 import time
+import json
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -227,9 +228,16 @@ if page == "Login":
                 client_code = os.getenv("CLIENT_CODE")
                 pin = os.getenv("PIN")
                 
-                # Attempt to get TOTP session
+                # Attempt to get TOTP session with error handling
                 response = client.get_totp_session(client_code, totp_code, pin)
-                if response and response.get("Message") == "SUCCESS" and "UserId" in response:
+                if isinstance(response, str):
+                    try:
+                        response = json.loads(response)  # Attempt to parse string as JSON
+                    except json.JSONDecodeError:
+                        st.error(f"Login failed: Unexpected string response - {response}. Check TOTP code, credentials, or API status.")
+                        st.stop()
+                
+                if isinstance(response, dict) and response.get("Message") == "SUCCESS" and "UserId" in response:
                     st.session_state.client = client
                     st.session_state.logged_in = True
                     st.session_state.data_source = "Live 5paisa Data"
@@ -243,7 +251,8 @@ if page == "Login":
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error(f"Login failed: {response.get('Message', 'Invalid response')}. Check TOTP code, credentials, or API status.")
+                    error_msg = response.get("Message", "Invalid response") if isinstance(response, dict) else "Invalid response format"
+                    st.error(f"Login failed: {error_msg}. Check TOTP code, credentials, or API status.")
             except Exception as e:
                 st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
     with col2:
