@@ -169,7 +169,7 @@ st.markdown("""
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** |Made by Shritish & Salman")
+st.markdown("**Protection First, Edge Always**")
 
 # Sidebar
 with st.sidebar:
@@ -673,7 +673,7 @@ if run_button:
                 # Footer
                 st.markdown("""
                     <div class="footer">
-                        VolGuard: Protection First, Edge Always | Built by Shritish Shukla & AI Co-Founder<br>
+                        VolGuard: Protection First, Edge Always | Built by Shritish Shukla & Salman Azimuddin<br>
                         "We don't predict direction - we predict conditions. We deploy edge, survive, and outlast."
                     </div>
                 """, unsafe_allow_html=True)
