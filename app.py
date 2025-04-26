@@ -9,14 +9,20 @@ from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import warnings
-import io
+from py5paisa import FivePaisaClient
+import os
+from dotenv import load_dotenv
+import time
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Load environment variables
+load_dotenv()
+
 # Page config
-st.set_page_config(page_title="VolGuard", page_icon="ðŸ›¡ï¸", layout="wide")
+st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
 # Custom CSS for an enhanced, modern UI
 st.markdown("""
@@ -167,67 +173,135 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Initialize session state
+if "client" not in st.session_state:
+    st.session_state.client = None
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "data_source" not in st.session_state:
+    st.session_state.data_source = "Public Data"
+
 # Header
-st.title("ðŸ›¡ï¸ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** |Made by Shritish & Salman")
+st.title("🛡️ VolGuard: Your AI Trading Copilot")
+st.markdown("**Protection First, Edge Always** | Made by Shritish & Salman")
 
 # Sidebar
 with st.sidebar:
-    st.header("âš™ï¸ Trading Controls")
-    forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
-    capital = st.number_input("Capital (â‚¹)", min_value=100000, value=1000000, step=100000, key="capital_input")
-    risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
-    run_button = st.button("Activate VolGuard", key="run_button")
+    st.header("⚙️ Trading Controls")
+    page = st.selectbox("Navigate", ["Login", "Dashboard"])
+    if page == "Dashboard":
+        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
+        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
+        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
+        run_button = st.button("Activate VolGuard", key="run_button")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
+
+# Login Page
+if page == "Login":
+    st.subheader("🛡️ VolGuard: Login")
+    st.markdown("Connect to 5paisa for live data or use public data.")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("5paisa API Login")
+        totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password")
+        if st.button("Login with 5paisa"):
+            try:
+                cred = {
+                    "APP_NAME": os.getenv("APP_NAME"),
+                    "APP_SOURCE": os.getenv("APP_SOURCE"),
+                    "USER_ID": os.getenv("USER_ID"),
+                    "PASSWORD": os.getenv("PASSWORD"),
+                    "USER_KEY": os.getenv("USER_KEY"),
+                    "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY")
+                }
+                client = FivePaisaClient(cred=cred)
+                client_code = os.getenv("CLIENT_CODE")
+                pin = os.getenv("PIN")
+                
+                client.get_totp_session(client_code, totp_code, pin)
+                
+                st.session_state.client = client
+                st.session_state.logged_in = True
+                st.session_state.data_source = "Live 5paisa Data"
+                st.success("✅ Successfully Logged In!")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {str(e)}. Check TOTP code or credentials.")
+    with col2:
+        st.subheader("No API?")
+        if st.button("Use Public Data"):
+            st.session_state.logged_in = False
+            st.session_state.client = None
+            st.session_state.data_source = "Public Data"
+            st.success("Using public data.")
+            st.rerun()
 
 # Function to load data
 @st.cache_data
 def load_data():
     try:
-        # Fetch NIFTY 50 data from Yahoo Finance
-        nifty = yf.download("^NSEI", period="1y", interval="1d")
-        if nifty.empty or len(nifty) < 200:
-            st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
-            return None
-        nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
-        nifty.index = pd.to_datetime(nifty.index).date
-        nifty = nifty[~nifty.index.duplicated(keep='first')]
-        nifty_series = nifty["NIFTY_Close"]
+        # Load NIFTY data
+        if st.session_state.client:
+            try:
+                market_feed = st.session_state.client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
+                if market_feed and "Data" in market_feed and len(market_feed["Data"]) > 0:
+                    nifty_price = float(market_feed["Data"][0]["LastRate"])
+                else:
+                    st.error("Failed to fetch 5paisa NIFTY price.")
+                    return None
+            except Exception as e:
+                st.error(f"5paisa data fetch failed: {str(e)}.")
+                return None
+            nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
+        else:
+            nifty = yf.download("^NSEI", period="1y", interval="1d")
+            if nifty.empty or len(nifty) < 200:
+                st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
+                return None
+            nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+            nifty.index = pd.to_datetime(nifty.index).date
+            nifty = nifty[~nifty.index.duplicated(keep='first')]
+            nifty_series = nifty["NIFTY_Close"]
 
-        # Fetch India VIX data from GitHub
+        # Load India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
         vix = pd.read_csv(vix_url)
-        vix.columns = vix.columns.str.strip()
-        if "Date" not in vix.columns or "Close" not in vix.columns:
-            st.error("india_vix.csv is missing required columns.")
+        vix.columns = vix.columns.str.strip().str.lower()
+        if "date" not in vix.columns or "close" not in vix.columns:
+            st.error(f"india_vix.csv is missing required columns. Found columns: {vix.columns.tolist()}")
             return None
-        vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
-        vix = vix.dropna(subset=["Date"])
+        vix["date"] = pd.to_datetime(vix["date"], format="%d-%b-%Y", errors="coerce")
+        vix = vix.dropna(subset=["date"])
         if vix.empty:
             st.error("VIX data is empty.")
             return None
-        vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
+        vix = vix[["date", "close"]].set_index("date").rename(columns={"close": "VIX"})
         vix.index = pd.to_datetime(vix.index).date
         vix = vix[~vix.index.duplicated(keep='first')]
         vix_series = vix["VIX"]
 
         # Align data
-        common_dates = nifty_series.index.intersection(vix_series.index)
-        if len(common_dates) < 200:
-            st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
-            return None
-        
-        # Extract 1D arrays
-        nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
-        vix_data = vix_series.loc[common_dates].to_numpy().flatten()
+        if not st.session_state.client:
+            common_dates = nifty_series.index.intersection(vix_series.index)
+            if len(common_dates) < 200:
+                st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
+                return None
+            
+            nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
+            vix_data = vix_series.loc[common_dates].to_numpy().flatten()
+            df = pd.DataFrame({
+                "NIFTY_Close": nifty_data,
+                "VIX": vix_data
+            }, index=common_dates)
+        else:
+            df = pd.DataFrame({
+                "NIFTY_Close": nifty_data["NIFTY_Close"].iloc[0],
+                "VIX": vix_series.iloc[-1]
+            }, index=[datetime.now().date()])
 
-        # Create DataFrame
-        df = pd.DataFrame({
-            "NIFTY_Close": nifty_data,
-            "VIX": vix_data
-        }, index=common_dates)
-        
         # Handle missing data
         if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
             df = df.ffill().bfill()
@@ -355,7 +429,7 @@ def forecast_volatility_future(df, forecast_horizon):
     last_date = df.index[-1]
     future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
 
-    # GARCH Model (purely statistical, no event adjustment)
+    # GARCH Model
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
     garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
     garch_fit = garch_model.fit(disp="off")
@@ -397,20 +471,17 @@ def forecast_volatility_future(df, forecast_horizon):
     current_row = df_xgb[feature_cols].iloc[-1].copy()
     try:
         for i in range(forecast_horizon):
-            # Ensure current_row is a DataFrame with correct columns
             current_row_df = pd.DataFrame([current_row], columns=feature_cols)
             current_row_scaled = scaler.transform(current_row_df)
             next_vol = model.predict(current_row_scaled)[0]
             xgb_vols.append(next_vol)
 
-            # Update features for next iteration
             current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
             current_row["VIX"] *= np.random.uniform(0.98, 1.02)
             current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
             current_row["VIX_Change_Pct"] = (current_row["VIX"] / df_xgb["VIX"].iloc[-1] - 1) * 100
             current_row["ATM_IV"] = current_row["VIX"] * (1 + np.random.normal(0, 0.1))
             current_row["Realized_Vol"] = np.clip(next_vol * np.random.uniform(0.95, 1.05), 5, 50)
-            # Update remaining features to maintain consistency
             current_row["IVP"] = current_row["IVP"] * np.random.uniform(0.99, 1.01)
             current_row["PCR"] = np.clip(current_row["PCR"] + np.random.normal(0, 0.05), 0.7, 2.0)
             current_row["Spot_MaxPain_Diff_Pct"] = np.clip(current_row["Spot_MaxPain_Diff_Pct"] * np.random.uniform(0.95, 1.05), 0.1, 1.0)
@@ -513,7 +584,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
     elif regime == "EVENT-DRIVEN":
         if iv > 30 and dte < 5:
             strategy = "Calendar Spread"
-            reason = "Event + near expiry + IV spike â†’ term structure opportunity."
+            reason = "Event + near expiry + IV spike → term structure opportunity."
             tags = ["Volatility", "Event", "Calendar"]
             risk_reward = 1.5
         else:
@@ -558,7 +629,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
     }
 
 # Main execution
-if run_button:
+if page == "Dashboard" and run_button:
     with st.spinner("Initializing AI Copilot..."):
         df = load_data()
         if df is not None:
@@ -570,7 +641,7 @@ if run_button:
             if forecast_log is not None:
                 # Volatility Forecast Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("ðŸ“ˆ Volatility Forecast")
+                st.subheader("📈 Volatility Forecast")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
@@ -596,12 +667,12 @@ if run_button:
                 st.markdown("### Daily Volatility Breakdown")
                 for i in range(forecast_horizon):
                     date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
-                    st.markdown(f'<div class="signal-box">ðŸ“… {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="signal-box">📡 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # Feature Importance
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("ðŸ” Feature Importance")
+                st.subheader("🔍 Feature Importance")
                 feature_importance = pd.DataFrame({
                     'Feature': [
                         'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
@@ -615,7 +686,7 @@ if run_button:
 
                 # Trading Strategy Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("ðŸŽ¯ Trading Strategy")
+                st.subheader("🎯 Trading Strategy")
                 strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
                 regime_class = {
                     "LOW": "regime-low",
@@ -630,8 +701,8 @@ if run_button:
                     **Tags**: {', '.join(strategy["Tags"])}  
                     **Confidence Score**: {strategy["Confidence"]:.2f}  
                     **Risk-Reward Expectation**: {strategy["Risk_Reward"]:.2f}:1  
-                    **Capital to Deploy**: â‚¹{strategy["Deploy"]:,.0f}  
-                    **Max Risk Allowed**: â‚¹{strategy["Max_Loss"]:,.0f}  
+                    **Capital to Deploy**: ₹{strategy["Deploy"]:,.0f}  
+                    **Max Risk Allowed**: ₹{strategy["Max_Loss"]:,.0f}  
                     **Exposure**: {strategy["Exposure"]*100:.2f}%  
                     **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
                     **Behavior Score**: {strategy["Behavior_Score"]}/10  
@@ -641,7 +712,7 @@ if run_button:
 
                 # Journaling Prompt Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("ðŸ“ Journaling Prompt")
+                st.subheader("📝 Journaling Prompt")
                 journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
                 if st.button("Save Reflection", key="save_button"):
                     st.success("Reflection saved!")
@@ -649,7 +720,7 @@ if run_button:
 
                 # Export Functionality
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("ðŸ“¤ Export Insights")
+                st.subheader("📤 Export Insights")
                 col1, col2 = st.columns(2)
                 with col1:
                     csv = forecast_log.to_csv(index=False)
