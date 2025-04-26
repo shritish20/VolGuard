@@ -116,11 +116,11 @@ def load_data():
                 if market_feed and "Data" in market_feed and len(market_feed["Data"]) > 0:
                     nifty_price = float(market_feed["Data"][0]["LastRate"])
                 else:
-                    nifty_price = 24039.35
-                    st.warning("Failed to fetch 5paisa NIFTY price. Using fallback.")
-            except Exception:
-                nifty_price = 24039.35
-                st.warning("5paisa data fetch failed. Using fallback price.")
+                    st.error("Failed to fetch 5paisa NIFTY price.")
+                    return None
+            except Exception as e:
+                st.error(f"5paisa data fetch failed: {str(e)}.")
+                return None
             nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
         else:
             nifty = yf.download("^NSEI", period="1y", interval="1d", progress=False)
@@ -132,46 +132,57 @@ def load_data():
         
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
+            # Read raw content for debugging
+            raw_content = pd.read_csv(vix_url, nrows=5).to_string()
+            st.write("Raw VIX CSV content (first 5 rows):", raw_content)
             vix = pd.read_csv(vix_url)
-            # Clean column names: strip whitespace and convert to title case
-            vix.columns = vix.columns.str.strip().str.title()
-            st.write("VIX CSV loaded. Raw columns:", vix.columns.tolist())  # Debug: Show raw columns
+            # Clean column names: strip whitespace and make case-insensitive
+            vix.columns = vix.columns.str.strip().str.lower()
+            st.write("VIX CSV loaded. Raw columns (lowercase):", vix.columns.tolist())  # Debug: Show raw columns
             st.write("First few rows:", vix.head())  # Debug: Show data
-            if "Date" in vix.columns:
-                vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
-                if vix["Date"].isna().any():
-                    vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")
-                if vix["Date"].isna().all():
+            
+            # Check for 'date' column (case-insensitive)
+            date_col = next((col for col in vix.columns if "date" in col.lower()), None)
+            if date_col:
+                vix[date_col] = pd.to_datetime(vix[date_col], format="%d-%b-%Y", errors="coerce")
+                if vix[date_col].isna().any():
+                    vix[date_col] = pd.to_datetime(vix[date_col], format="%d-%b-%y", errors="coerce")
+                if vix[date_col].isna().all():
                     st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
                     raise ValueError("Invalid date format in VIX CSV.")
-                vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
+                vix = vix.set_index(date_col)
                 vix.index = pd.to_datetime(vix.index).date
             else:
-                st.warning("No 'Date' column found in VIX CSV. Assuming index as sequential dates starting from 2024-04-26.")
-                vix.index = pd.date_range(start="2024-04-26", periods=len(vix), freq="B")
-                vix.index = vix.index.date
-                if "Close" in vix.columns:
-                    vix = vix[["Close"]].rename(columns={"Close": "VIX"})
-                else:
-                    st.error("No 'Close' column found in VIX CSV. Available columns: " + ", ".join(vix.columns))
-                    raise KeyError("Missing 'Close' column in VIX CSV.")
+                st.warning("No 'date' column found in VIX CSV. Aligning with NIFTY dates.")
+                if len(vix) > len(nifty):
+                    vix = vix.iloc[-len(nifty):]  # Trim VIX to match NIFTY length
+                elif len(vix) < len(nifty):
+                    nifty = nifty.iloc[-len(vix):]  # Trim NIFTY to match VIX length
+                vix.index = nifty.index  # Align indices
+
+            # Check for 'close' column (case-insensitive)
+            close_col = next((col for col in vix.columns if "close" in col.lower()), None)
+            if close_col:
+                vix = vix[[close_col]].rename(columns={close_col: "VIX"})
+            else:
+                st.error("No 'close' column found in VIX CSV. Available columns: " + ", ".join(vix.columns))
+                raise KeyError("Missing 'close' column in VIX CSV.")
+            
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
         except Exception as e:
-            st.warning(f"Failed to fetch VIX data: {str(e)}. Using fallback.")
-            vix = pd.Series(np.full(len(nifty), 15.2), index=nifty.index, name="VIX")
+            st.error(f"Failed to fetch VIX data: {str(e)}.")
+            return None
 
         if not st.session_state.client:
             common_dates = nifty.index.intersection(vix.index)
             if len(common_dates) < 1:
-                st.warning(f"Insufficient overlapping dates: {len(common_dates)}. Using NIFTY dates with fallback VIX.")
-                common_dates = nifty.index[-10:]  # Use last 10 days
-                vix_data = pd.Series(np.full(10, 15.2), index=common_dates)
-            else:
-                vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill").fillna(15.2)
+                st.error("No overlapping dates between NIFTY and VIX data.")
+                return None
+            vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill")
             nifty_data = nifty.loc[common_dates]
             df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data}, index=common_dates)
         else:
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1] if not vix.empty else 15.2}, index=[datetime.now().date()])
+            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1]}, index=[datetime.now().date()])
 
         df = df.ffill().bfill()
         if df.empty:
@@ -201,7 +212,7 @@ def forecast_volatility_future(df, horizon=7):
     try:
         returns = df["NIFTY_Close"].pct_change().dropna()
         if len(returns) < 5:
-            st.warning("Insufficient data for volatility forecast. Using minimal data.")
+            st.warning("Insufficient data for volatility forecast.")
             return None, None, None, None, None
         
         garch_model = arch_model(returns * 100, vol="Garch", p=1, q=1, dist="Normal")
@@ -214,7 +225,7 @@ def forecast_volatility_future(df, horizon=7):
         X = scaler.fit_transform(features)
         y = returns[features.index]
         if len(X) < 3:
-            st.warning("Insufficient feature data for XGBoost. Using minimal data.")
+            st.warning("Insufficient feature data for XGBoost.")
             return None, None, None, None, None
         xgb_model = XGBRegressor(n_estimators=50, random_state=42)
         xgb_model.fit(X[:-1], y[1:])
