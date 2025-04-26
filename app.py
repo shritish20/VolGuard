@@ -135,9 +135,9 @@ def load_data():
             vix = pd.read_csv(vix_url)
             st.write("VIX CSV loaded. Columns:", vix.columns.tolist())  # Debug: Show columns
             st.write("First few rows:", vix.head())  # Debug: Show data
-            vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")  # Adjusted to %d-%b-%y
+            vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")  # Ensure correct format
             if vix["Date"].isna().all():
-                st.error("All dates in VIX CSV are invalid. Check date format (DD-MMM-YY).")
+                st.error("All dates in VIX CSV are invalid. Check date format (DD-MMM-YYYY).")
                 raise ValueError("Invalid date format in VIX CSV.")
             vix = vix.dropna(subset=["Date"])
             if "Close" not in vix.columns:
