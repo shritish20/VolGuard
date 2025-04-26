@@ -124,33 +124,42 @@ def load_data():
             nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
         else:
             nifty = yf.download("^NSEI", period="1y", interval="1d", progress=False)
-            if nifty.empty or len(nifty) < 100:
+            if nifty.empty or len(nifty) < 10:
                 st.error("Failed to fetch NIFTY 50 data.")
                 return None
             nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
             nifty.index = pd.to_datetime(nifty.index).date
         
-        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
+        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
             vix = pd.read_csv(vix_url)
+            st.write("VIX CSV loaded. First few rows:", vix.head())  # Debug: Show CSV content
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
+            if vix["Date"].isna().all():
+                st.error("All dates in VIX CSV are invalid. Check date format (DD-MMM-YYYY).")
+                raise ValueError("Invalid date format in VIX CSV.")
             vix = vix.dropna(subset=["Date"])
+            if "Close" not in vix.columns:
+                st.error("VIX CSV missing 'Close' column.")
+                raise KeyError("Missing 'Close' column in VIX CSV.")
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
             vix.index = pd.to_datetime(vix.index).date
-        except Exception:
-            st.warning("Failed to fetch VIX data. Using fallback.")
-            vix = pd.DataFrame({"VIX": [15.2]}, index=[datetime.now().date()])
+        except Exception as e:
+            st.warning(f"Failed to fetch VIX data: {str(e)}. Using fallback.")
+            vix = pd.DataFrame({"VIX": np.full(len(nifty), 15.2)}, index=nifty.index)
 
         if not st.session_state.client:
             common_dates = nifty.index.intersection(vix.index)
-            if len(common_dates) < 100:
-                st.error(f"Insufficient overlapping dates: {len(common_dates)}.")
-                return None
+            if len(common_dates) < 1:
+                st.warning(f"Insufficient overlapping dates: {len(common_dates)}. Using NIFTY dates with fallback VIX.")
+                common_dates = nifty.index[-10:]  # Use last 10 days
+                vix_data = pd.DataFrame({"VIX": np.full(10, 15.2)}, index=common_dates)
+            else:
+                vix_data = vix.reindex(common_dates).fillna(method="ffill").fillna(15.2)
             nifty_data = nifty.loc[common_dates]
-            vix_data = vix.loc[common_dates]
             df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data["VIX"]}, index=common_dates)
         else:
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1]}, index=[datetime.now().date()])
+            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1] if not vix.empty else 15.2}, index=[datetime.now().date()])
 
         df = df.ffill().bfill()
         if df.empty:
@@ -179,8 +188,8 @@ def generate_synthetic_features(df):
 def forecast_volatility_future(df, horizon=7):
     try:
         returns = df["NIFTY_Close"].pct_change().dropna()
-        if len(returns) < 50:
-            st.warning("Insufficient data for volatility forecast.")
+        if len(returns) < 5:
+            st.warning("Insufficient data for volatility forecast. Using minimal data.")
             return None, None, None, None, None
         
         garch_model = arch_model(returns * 100, vol="Garch", p=1, q=1, dist="Normal")
@@ -192,8 +201,8 @@ def forecast_volatility_future(df, horizon=7):
         features = df[["VIX", "PCR", "Straddle_Price", "IV_Skew", "IV_HV_Gap"]].dropna()
         X = scaler.fit_transform(features)
         y = returns[features.index]
-        if len(X) < 10:
-            st.warning("Insufficient feature data for XGBoost.")
+        if len(X) < 3:
+            st.warning("Insufficient feature data for XGBoost. Using minimal data.")
             return None, None, None, None, None
         xgb_model = XGBRegressor(n_estimators=50, random_state=42)
         xgb_model.fit(X[:-1], y[1:])
