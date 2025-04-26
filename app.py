@@ -183,8 +183,15 @@ def load_data():
             vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill")
             nifty_data = nifty.loc[common_dates]
             st.write("vix_data shape before DataFrame:", vix_data.shape)  # Debug: Show shape
+            st.write("vix_data type:", type(vix_data))  # Debug: Show type
             st.write("nifty_data shape before DataFrame:", nifty_data.shape)  # Debug: Show shape
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data}, index=common_dates)
+            st.write("nifty_data['NIFTY_Close'] shape:", nifty_data["NIFTY_Close"].shape)  # Debug: Show shape
+            st.write("nifty_data['NIFTY_Close'] type:", type(nifty_data["NIFTY_Close"]))  # Debug: Show type
+            # Ensure 1D arrays for DataFrame construction
+            df = pd.DataFrame({
+                "NIFTY_Close": nifty_data["NIFTY_Close"].to_numpy(),  # Convert to 1D array
+                "VIX": vix_data.to_numpy()  # Convert to 1D array
+            }, index=common_dates)
         else:
             latest_vix = vix["VIX"].iloc[-1]  # Scalar value
             df = pd.DataFrame({
@@ -197,6 +204,7 @@ def load_data():
             st.error("DataFrame is empty.")
             return None
         st.write("Final DataFrame shape:", df.shape)  # Debug: Show final shape
+        st.write("Final DataFrame:", df.head())  # Debug: Show final DataFrame
         return df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
