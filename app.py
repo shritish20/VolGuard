@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS for a stunning, modern UI
+# Custom CSS for an enhanced, modern UI
 st.markdown("""
     <style>
         .main {
@@ -40,12 +40,16 @@ st.markdown("""
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
         }
         .stMetric {
-            background: rgba(22, 33, 62, 0.9);
+            background: linear-gradient(135deg, rgba(22, 33, 62, 0.9), rgba(15, 52, 96, 0.7));
             border-radius: 20px;
             padding: 20px;
             text-align: center;
             backdrop-filter: blur(5px);
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s;
+        }
+        .stMetric:hover {
+            transform: translateY(-5px);
         }
         h1 {
             color: #e94560;
@@ -62,13 +66,17 @@ st.markdown("""
             animation: slideIn 0.8s;
         }
         .card {
-            background: rgba(22, 33, 62, 0.85);
+            background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9));
             border-radius: 20px;
-            padding: 20px;
-            margin: 15px 0;
+            padding: 25px;
+            margin: 20px 0;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
             animation: popIn 0.6s;
             backdrop-filter: blur(5px);
+            transition: transform 0.3s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
         }
         .gauge {
             width: 120px;
@@ -81,9 +89,35 @@ st.markdown("""
             color: white;
             font-weight: bold;
             font-size: 20px;
-            box-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+            box-shadow: 0 0 15px rgba(233, 69, 96, 0.5);
             animation: rotateIn 1s;
         }
+        .progress-bar {
+            background: #16213e;
+            border-radius: 10px;
+            height: 20px;
+            width: 100%;
+            overflow: hidden;
+            box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #ffcc00);
+            transition: width 1s ease-in-out;
+        }
+        .regime-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+        .regime-low { background: #28a745; color: white; }
+        .regime-medium { background: #ffc107; color: black; }
+        .regime-high { background: #dc3545; color: white; }
+        .regime-event { background: #ff6f61; color: white; }
         .signal-box {
             background: rgba(15, 52, 96, 0.9);
             border-radius: 15px;
@@ -103,6 +137,14 @@ st.markdown("""
         .sidebar .stButton>button {
             width: 100%;
             margin-top: 10px;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #a0a0a0;
+            font-size: 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 30px;
         }
         @keyframes fadeIn {
             from {opacity: 0;} to {opacity: 1;}
@@ -127,7 +169,7 @@ st.markdown("""
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** | Powered by xAI")
+st.markdown("**Protection First, Edge Always** | Made by Shritish and Salman")
 
 # Sidebar
 with st.sidebar:
@@ -152,7 +194,6 @@ def load_data():
         nifty.index = pd.to_datetime(nifty.index).date
         nifty = nifty[~nifty.index.duplicated(keep='first')]
         nifty_series = nifty["NIFTY_Close"]
-        st.write(f"NIFTY_Close shape: {nifty_series.shape}")
 
         # Fetch India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -170,7 +211,6 @@ def load_data():
         vix.index = pd.to_datetime(vix.index).date
         vix = vix[~vix.index.duplicated(keep='first')]
         vix_series = vix["VIX"]
-        st.write(f"VIX shape: {vix_series.shape}")
 
         # Align data
         common_dates = nifty_series.index.intersection(vix_series.index)
@@ -181,7 +221,6 @@ def load_data():
         # Extract 1D arrays
         nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
         vix_data = vix_series.loc[common_dates].to_numpy().flatten()
-        st.write(f"nifty_data shape: {nifty_data.shape}, vix_data shape: {vix_data.shape}")
 
         # Create DataFrame
         df = pd.DataFrame({
@@ -196,7 +235,6 @@ def load_data():
             st.error("DataFrame is empty after processing.")
             return None
 
-        st.write(f"Final DataFrame shape: {df.shape}")
         return df
 
     except Exception as e:
@@ -362,7 +400,6 @@ def forecast_volatility_future(df, forecast_horizon):
             # Ensure current_row is a DataFrame with correct columns
             current_row_df = pd.DataFrame([current_row], columns=feature_cols)
             current_row_scaled = scaler.transform(current_row_df)
-            st.write(f"Iteration {i+1}: current_row_scaled shape: {current_row_scaled.shape}")
             next_vol = model.predict(current_row_scaled)[0]
             xgb_vols.append(next_vol)
 
@@ -377,7 +414,7 @@ def forecast_volatility_future(df, forecast_horizon):
             current_row["IVP"] = current_row["IVP"] * np.random.uniform(0.99, 1.01)
             current_row["PCR"] = np.clip(current_row["PCR"] + np.random.normal(0, 0.05), 0.7, 2.0)
             current_row["Spot_MaxPain_Diff_Pct"] = np.clip(current_row["Spot_MaxPain_Diff_Pct"] * np.random.uniform(0.95, 1.05), 0.1, 1.0)
-            current_row["Event_Flag"] = df_xgb["Event_Flag"].iloc[-1]  # Preserve event flag
+            current_row["Event_Flag"] = df_xgb["Event_Flag"].iloc[-1]
             current_row["FII_Index_Fut_Pos"] += np.random.normal(0, 1000)
             current_row["FII_Option_Pos"] += np.random.normal(0, 500)
             current_row["IV_Skew"] = np.clip(current_row["IV_Skew"] + np.random.normal(0, 0.1), -3, 3)
@@ -536,28 +573,30 @@ if run_button:
                 st.subheader("📈 Volatility Forecast")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
+                    st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
                 with col2:
-                    st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%")
+                    st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%", help="Historical volatility over the last 5 days")
                 with col3:
-                    st.metric("XGBoost RMSE", f"{rmse:.2f}%")
+                    st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%", help="XGBoost model's root mean squared error")
                     st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
                     st.markdown("**Confidence Score**", unsafe_allow_html=True)
+                    st.markdown(f'<div class="progress-bar"><div class="progress-fill" style="width: {confidence_score}%"></div></div>', unsafe_allow_html=True)
 
                 # Forecast Chart
+                st.markdown("### Volatility Forecast Trend")
                 chart_data = pd.DataFrame({
                     "Date": forecast_log["Date"],
                     "GARCH": garch_vols,
                     "XGBoost": xgb_vols,
                     "Blended": blended_vols
                 }).set_index("Date")
-                st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"])
+                st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"], use_container_width=True)
 
                 # Daily Breakdown
-                st.markdown("### Daily Breakdown")
+                st.markdown("### Daily Volatility Breakdown")
                 for i in range(forecast_horizon):
                     date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
-                    st.markdown(f'<div style="background: rgba(15, 52, 96, 0.7); padding: 10px; border-radius: 10px; margin: 5px 0;">📅 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="signal-box">📅 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # Feature Importance
@@ -571,15 +610,21 @@ if run_button:
                     ],
                     'Importance': feature_importances
                 }).sort_values(by='Importance', ascending=False)
-                st.dataframe(feature_importance)
+                st.dataframe(feature_importance, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # Trading Strategy Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("🎯 Trading Strategy")
                 strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
+                regime_class = {
+                    "LOW": "regime-low",
+                    "MEDIUM": "regime-medium",
+                    "HIGH": "regime-high",
+                    "EVENT-DRIVEN": "regime-event"
+                }.get(strategy["Regime"], "regime-low")
                 st.markdown(f"""
-                    **Volatility Regime**: {strategy["Regime"]} (Avg Vol: {np.mean(blended_vols):.2f}%)  
+                    **Volatility Regime**: <span class="regime-badge {regime_class}">{strategy["Regime"]}</span> (Avg Vol: {np.mean(blended_vols):.2f}%)  
                     **Suggested Strategy**: {strategy["Strategy"]}  
                     **Reason**: {strategy["Reason"]}  
                     **Tags**: {', '.join(strategy["Tags"])}  
@@ -591,7 +636,7 @@ if run_button:
                     **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
                     **Behavior Score**: {strategy["Behavior_Score"]}/10  
                     **Behavioral Warnings**: {', '.join(strategy["Behavior_Warnings"]) if strategy["Behavior_Warnings"] else "None"}
-                """)
+                """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # Journaling Prompt Card
@@ -624,6 +669,14 @@ if run_button:
                         mime="text/csv"
                     )
                 st.markdown('</div>', unsafe_allow_html=True)
+
+                # Footer
+                st.markdown("""
+                    <div class="footer">
+                        VolGuard: Protection First, Edge Always | Built by Shritish Shukla & AI Co-Founder<br>
+                        "We don't predict direction - we predict conditions. We deploy edge, survive, and outlast."
+                    </div>
+                """, unsafe_allow_html=True)
 
 else:
     st.info("Set parameters and activate VolGuard to begin your journey.")
