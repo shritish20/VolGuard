@@ -205,9 +205,19 @@ if page == "Login":
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("5paisa API Login")
+        email = st.text_input("Email", placeholder="Your 5paisa email")
+        password = st.text_input("Password", placeholder="Your 5paisa password", type="password")
+        dob = st.text_input("DOB (YYYYMMDD)", placeholder="e.g., 19900101")
         totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password")
         if st.button("Login with 5paisa"):
             try:
+                # Validate environment variables
+                required_keys = ["APP_NAME", "APP_SOURCE", "USER_ID", "USER_KEY", "ENCRYPTION_KEY"]
+                missing_keys = [key for key in required_keys if not os.getenv(key)]
+                if missing_keys:
+                    st.error(f"Missing environment variables: {', '.join(missing_keys)}. Check your .env file.")
+                    st.stop()
+
                 cred = {
                     "APP_NAME": os.getenv("APP_NAME"),
                     "APP_SOURCE": os.getenv("APP_SOURCE"),
@@ -216,29 +226,27 @@ if page == "Login":
                     "USER_KEY": os.getenv("USER_KEY"),
                     "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY")
                 }
-                client = FivePaisaClient(cred=cred)
-                client_code = os.getenv("CLIENT_CODE")
-                pin = os.getenv("PIN")
+                client = FivePaisaClient(email=email, passwd=password, dob=dob, cred=cred)
                 
-                # Attempt to get TOTP session
-                response = client.get_totp_session(client_code, totp_code, pin)
-                if response.get("Message") == "SUCCESS" and "UserId" in response:
+                # Attempt to login using the login() method
+                login_response = client.login()
+                if login_response and "ClientCode" in login_response:
                     st.session_state.client = client
                     st.session_state.logged_in = True
                     st.session_state.data_source = "Live 5paisa Data"
                     st.success("✅ Successfully Logged In!")
                     # Test market feed to confirm connection
-                    test_feed = client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
-                    if test_feed and "Data" in test_feed and len(test_feed["Data"]) > 0:
+                    test_feed = client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
+                    if test_feed and "Success" in test_feed and test_feed["Success"] and len(test_feed["Success"]) > 0:
                         st.write("✅ Connection confirmed with 5paisa.")
                     else:
-                        st.warning("⚠️ Connection established, but test feed failed. Check API limits.")
+                        st.warning("⚠️ Connection established, but test feed failed. Check API limits or market hours.")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error(f"Login failed: {response.get('Message', 'Invalid response')}. Check TOTP code, credentials, or API status.")
+                    st.error(f"Login failed: Invalid response from API. Response: {login_response}. Check credentials or API status.")
             except Exception as e:
-                st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
+                st.error(f"Login failed: {str(e)}. Check email, password, DOB, TOTP code, credentials, or API status.")
     with col2:
         st.subheader("No API?")
         if st.button("Use Public Data"):
@@ -255,9 +263,9 @@ def load_data():
         # Load NIFTY data
         if st.session_state.client:
             try:
-                market_feed = st.session_state.client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
-                if market_feed and "Data" in market_feed and len(market_feed["Data"]) > 0:
-                    nifty_price = float(market_feed["Data"][0]["LastRate"])
+                market_feed = st.session_state.client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
+                if market_feed and "Success" in market_feed and market_feed["Success"] and len(market_feed["Success"]) > 0:
+                    nifty_price = float(market_feed["Success"][0]["LastRate"])
                     nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
                 else:
                     st.error("Failed to fetch 5paisa NIFTY price. Falling back to public data.")
