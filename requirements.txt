@@ -1,9 +1,10 @@
 streamlit
-pandas
-numpy
-scipy
-arch
-xgboost
+pandas 
+numpy 
+yfinance 
+arch 
+xgboost 
 scikit-learn
-matplotlib
-yfinance
+plotly 
+py5paisa 
+python-dotenv
