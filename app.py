@@ -14,6 +14,11 @@ import os
 from dotenv import load_dotenv
 import time
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -228,13 +233,22 @@ if page == "Login":
                 client_code = os.getenv("CLIENT_CODE")
                 pin = os.getenv("PIN")
                 
-                # Attempt to get TOTP session with error handling
+                # Log credentials for debugging (remove in production)
+                logger.debug(f"Credentials: {cred}, Client Code: {client_code}, PIN: {pin}, TOTP: {totp_code}")
+                
+                # Attempt to get TOTP session with detailed logging
+                logger.debug("Attempting to get TOTP session...")
                 response = client.get_totp_session(client_code, totp_code, pin)
+                logger.debug(f"Raw response from get_totp_session: {response}")
+                
                 if isinstance(response, str):
                     try:
-                        response = json.loads(response)  # Attempt to parse string as JSON
-                    except json.JSONDecodeError:
-                        st.error(f"Login failed: Unexpected string response - {response}. Check TOTP code, credentials, or API status.")
+                        logger.debug("Trying to parse response as JSON...")
+                        response = json.loads(response)
+                        logger.debug(f"Parsed JSON response: {response}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON parsing failed: {e}")
+                        st.error(f"Login failed: Unexpected string response - {response[:50]}... Check TOTP code, credentials, or API status.")
                         st.stop()
                 
                 if isinstance(response, dict) and response.get("Message") == "SUCCESS" and "UserId" in response:
@@ -252,8 +266,10 @@ if page == "Login":
                     st.rerun()
                 else:
                     error_msg = response.get("Message", "Invalid response") if isinstance(response, dict) else "Invalid response format"
+                    logger.error(f"Login failed with error: {error_msg}")
                     st.error(f"Login failed: {error_msg}. Check TOTP code, credentials, or API status.")
             except Exception as e:
+                logger.error(f"Exception during login: {str(e)}")
                 st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
     with col2:
         st.subheader("No API?")
