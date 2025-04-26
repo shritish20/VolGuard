@@ -151,7 +151,7 @@ def load_data():
         nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
         nifty.index = pd.to_datetime(nifty.index).date
         nifty = nifty[~nifty.index.duplicated(keep='first')]
-        nifty_series = nifty["NIFTY_Close"]  # Ensure Series
+        nifty_series = nifty["NIFTY_Close"]
         st.write(f"NIFTY_Close shape: {nifty_series.shape}")
 
         # Fetch India VIX data from GitHub
@@ -169,7 +169,7 @@ def load_data():
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix.index = pd.to_datetime(vix.index).date
         vix = vix[~vix.index.duplicated(keep='first')]
-        vix_series = vix["VIX"]  # Ensure Series
+        vix_series = vix["VIX"]
         st.write(f"VIX shape: {vix_series.shape}")
 
         # Align data
@@ -357,16 +357,37 @@ def forecast_volatility_future(df, forecast_horizon):
 
     xgb_vols = []
     current_row = df_xgb[feature_cols].iloc[-1].copy()
-    for _ in range(forecast_horizon):
-        current_row_scaled = scaler.transform([current_row])
-        next_vol = model.predict(current_row_scaled)[0]
-        xgb_vols.append(next_vol)
-        current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
-        current_row["VIX"] *= np.random.uniform(0.98, 1.02)
-        current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
-        current_row["VIX_Change_Pct"] = (current_row["VIX"] / df_xgb["VIX"].iloc[-1] - 1) * 100
-        current_row["ATM_IV"] = current_row["VIX"] * (1 + np.random.normal(0, 0.1))
-        current_row["Realized_Vol"] = np.clip(next_vol * np.random.uniform(0.95, 1.05), 5, 50)
+    try:
+        for i in range(forecast_horizon):
+            # Ensure current_row is a DataFrame with correct columns
+            current_row_df = pd.DataFrame([current_row], columns=feature_cols)
+            current_row_scaled = scaler.transform(current_row_df)
+            st.write(f"Iteration {i+1}: current_row_scaled shape: {current_row_scaled.shape}")
+            next_vol = model.predict(current_row_scaled)[0]
+            xgb_vols.append(next_vol)
+
+            # Update features for next iteration
+            current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
+            current_row["VIX"] *= np.random.uniform(0.98, 1.02)
+            current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
+            current_row["VIX_Change_Pct"] = (current_row["VIX"] / df_xgb["VIX"].iloc[-1] - 1) * 100
+            current_row["ATM_IV"] = current_row["VIX"] * (1 + np.random.normal(0, 0.1))
+            current_row["Realized_Vol"] = np.clip(next_vol * np.random.uniform(0.95, 1.05), 5, 50)
+            # Update remaining features to maintain consistency
+            current_row["IVP"] = current_row["IVP"] * np.random.uniform(0.99, 1.01)
+            current_row["PCR"] = np.clip(current_row["PCR"] + np.random.normal(0, 0.05), 0.7, 2.0)
+            current_row["Spot_MaxPain_Diff_Pct"] = np.clip(current_row["Spot_MaxPain_Diff_Pct"] * np.random.uniform(0.95, 1.05), 0.1, 1.0)
+            current_row["Event_Flag"] = df_xgb["Event_Flag"].iloc[-1]  # Preserve event flag
+            current_row["FII_Index_Fut_Pos"] += np.random.normal(0, 1000)
+            current_row["FII_Option_Pos"] += np.random.normal(0, 500)
+            current_row["IV_Skew"] = np.clip(current_row["IV_Skew"] + np.random.normal(0, 0.1), -3, 3)
+            current_row["Advance_Decline_Ratio"] = np.clip(current_row["Advance_Decline_Ratio"] + np.random.normal(0, 0.05), 0.5, 2.0)
+            current_row["Capital_Pressure_Index"] = (current_row["FII_Index_Fut_Pos"] / 3e4 + current_row["FII_Option_Pos"] / 1e4 + current_row["PCR"]) / 3
+            current_row["Capital_Pressure_Index"] = np.clip(current_row["Capital_Pressure_Index"], -2, 2)
+            current_row["Gamma_Bias"] = np.clip(current_row["IV_Skew"] * (30 - current_row["Days_to_Expiry"]) / 30, -2, 2)
+    except Exception as e:
+        st.error(f"Error in XGBoost forecasting loop: {str(e)}")
+        return None, None, None, None, None, None, None, None
 
     xgb_vols = np.clip(xgb_vols, 5, 50)
     if df["Event_Flag"].iloc[-1] == 1:
