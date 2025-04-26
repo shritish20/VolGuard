@@ -220,16 +220,25 @@ if page == "Login":
                 client_code = os.getenv("CLIENT_CODE")
                 pin = os.getenv("PIN")
                 
-                client.get_totp_session(client_code, totp_code, pin)
-                
-                st.session_state.client = client
-                st.session_state.logged_in = True
-                st.session_state.data_source = "Live 5paisa Data"
-                st.success("✅ Successfully Logged In!")
-                time.sleep(1)
-                st.rerun()
+                # Attempt to get TOTP session
+                response = client.get_totp_session(client_code, totp_code, pin)
+                if response.get("Message") == "SUCCESS" and "UserId" in response:
+                    st.session_state.client = client
+                    st.session_state.logged_in = True
+                    st.session_state.data_source = "Live 5paisa Data"
+                    st.success("✅ Successfully Logged In!")
+                    # Test market feed to confirm connection
+                    test_feed = client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
+                    if test_feed and "Data" in test_feed and len(test_feed["Data"]) > 0:
+                        st.write("✅ Connection confirmed with 5paisa.")
+                    else:
+                        st.warning("⚠️ Connection established, but test feed failed. Check API limits.")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(f"Login failed: {response.get('Message', 'Invalid response')}. Check TOTP code, credentials, or API status.")
             except Exception as e:
-                st.error(f"Login failed: {str(e)}. Check TOTP code or credentials.")
+                st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
     with col2:
         st.subheader("No API?")
         if st.button("Use Public Data"):
@@ -249,13 +258,20 @@ def load_data():
                 market_feed = st.session_state.client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
                 if market_feed and "Data" in market_feed and len(market_feed["Data"]) > 0:
                     nifty_price = float(market_feed["Data"][0]["LastRate"])
+                    nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
                 else:
-                    st.error("Failed to fetch 5paisa NIFTY price.")
-                    return None
+                    st.error("Failed to fetch 5paisa NIFTY price. Falling back to public data.")
+                    raise Exception("No valid 5paisa data")
             except Exception as e:
-                st.error(f"5paisa data fetch failed: {str(e)}.")
-                return None
-            nifty_data = pd.DataFrame({"NIFTY_Close": [nifty_price]}, index=[datetime.now().date()])
+                st.error(f"5paisa data fetch failed: {str(e)}. Falling back to public data.")
+                nifty = yf.download("^NSEI", period="1y", interval="1d")
+                if nifty.empty or len(nifty) < 200:
+                    st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
+                    return None
+                nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+                nifty.index = pd.to_datetime(nifty.index).date
+                nifty = nifty[~nifty.index.duplicated(keep='first')]
+                nifty_series = nifty["NIFTY_Close"]
         else:
             nifty = yf.download("^NSEI", period="1y", interval="1d")
             if nifty.empty or len(nifty) < 200:
@@ -633,6 +649,7 @@ if page == "Dashboard" and run_button:
     with st.spinner("Initializing AI Copilot..."):
         df = load_data()
         if df is not None:
+            st.markdown(f"<span style='color: #00d4ff; font-size: 14px;'>Data Source: {st.session_state.data_source}</span>", unsafe_allow_html=True)
             df = generate_synthetic_features(df)
 
             with st.spinner("Predicting market volatility..."):
