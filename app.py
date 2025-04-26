@@ -205,14 +205,11 @@ if page == "Login":
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("5paisa API Login")
-        email = st.text_input("Email", placeholder="Your 5paisa email")
-        password = st.text_input("Password", placeholder="Your 5paisa password", type="password")
-        dob = st.text_input("DOB (YYYYMMDD)", placeholder="e.g., 19900101")
         totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password")
         if st.button("Login with 5paisa"):
             try:
                 # Validate environment variables
-                required_keys = ["APP_NAME", "APP_SOURCE", "USER_ID", "USER_KEY", "ENCRYPTION_KEY"]
+                required_keys = ["APP_NAME", "APP_SOURCE", "USER_ID", "PASSWORD", "USER_KEY", "ENCRYPTION_KEY", "CLIENT_CODE", "PIN"]
                 missing_keys = [key for key in required_keys if not os.getenv(key)]
                 if missing_keys:
                     st.error(f"Missing environment variables: {', '.join(missing_keys)}. Check your .env file.")
@@ -226,11 +223,13 @@ if page == "Login":
                     "USER_KEY": os.getenv("USER_KEY"),
                     "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY")
                 }
-                client = FivePaisaClient(email=email, passwd=password, dob=dob, cred=cred)
+                client = FivePaisaClient(cred=cred)
+                client_code = os.getenv("CLIENT_CODE")
+                pin = os.getenv("PIN")
                 
-                # Attempt to login using the login() method
-                login_response = client.login()
-                if login_response and "ClientCode" in login_response:
+                # Attempt to get TOTP session
+                response = client.get_totp_session(client_code, totp_code, pin)
+                if response and response.get("Message") == "SUCCESS" and "UserId" in response:
                     st.session_state.client = client
                     st.session_state.logged_in = True
                     st.session_state.data_source = "Live 5paisa Data"
@@ -244,9 +243,9 @@ if page == "Login":
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error(f"Login failed: Invalid response from API. Response: {login_response}. Check credentials or API status.")
+                    st.error(f"Login failed: {response.get('Message', 'Invalid response')}. Check TOTP code, credentials, or API status.")
             except Exception as e:
-                st.error(f"Login failed: {str(e)}. Check email, password, DOB, TOTP code, credentials, or API status.")
+                st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
     with col2:
         st.subheader("No API?")
         if st.button("Use Public Data"):
@@ -451,7 +450,7 @@ def forecast_volatility_future(df, forecast_horizon):
         return None, None, None, None, None, None, None, None
 
     last_date = df.index[-1]
-    future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
+    futureofit = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
 
     # GARCH Model
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
@@ -614,7 +613,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         else:
             strategy = "Straddle Buy"
             reason = "Event-based uncertainty. Straddle captures large moves."
-            tags = ["High Gamma", "Event", "Directional Bias"]
+            tags = "High Gamma", "Event", "Directional Bias"]
             risk_reward = 1.3
 
     # Capital Allocation
