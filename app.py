@@ -13,8 +13,6 @@ from py5paisa import FivePaisaClient
 import os
 from dotenv import load_dotenv
 import time
-import json
-import jwt
 import logging
 
 # Configure logging
@@ -188,7 +186,7 @@ if "logged_in" not in st.session_state:
 if "data_source" not in st.session_state:
     st.session_state.data_source = "Public Data"
 if "totp_code" not in st.session_state:
-    st.session_state.totp_code = ""
+    st.session_state.totp_code = ""  # Default to empty string to avoid NoneType
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
@@ -214,7 +212,7 @@ if page == "Login":
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("5paisa API Login")
-        st.session_state.totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password", key="totp_input")
+        st.session_state.totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password", value=st.session_state.totp_code, key="totp_input")
         if st.button("Login with 5paisa"):
             try:
                 # Validate environment variables
@@ -238,36 +236,24 @@ if page == "Login":
                 
                 logger.debug(f"Credentials: {cred}, Client Code: {client_code}, PIN: {pin}, TOTP: {st.session_state.totp_code}")
                 
-                # Attempt to get TOTP session
-                logger.debug("Attempting to get TOTP session...")
-                response = client.get_totp_session(client_code, st.session_state.totp_code, pin)
-                logger.debug(f"Raw response from get_totp_session: {response}")
+                # Attempt TOTP authentication
+                if not st.session_state.totp_code or not st.session_state.totp_code.strip():
+                    st.error("TOTP code is required.")
+                    st.stop()
                 
-                # Check response structure
-                if hasattr(response, 'access_token') or ('access_token' in response):
+                logger.debug("Attempting to get TOTP session...")
+                client.get_totp_session(client_code, st.session_state.totp_code, pin)
+                logger.debug("TOTP session established. Retrieving access token...")
+                
+                # Fetch access token
+                access_token = client.get_access_token()
+                if access_token:
+                    client.set_access_token(access_token, client_code)
                     st.session_state.client = client
                     st.session_state.logged_in = True
                     st.success("✅ Successfully logged in to 5paisa!")
-                # Handle alternative response formats (e.g., string or incomplete response)
-                elif isinstance(response, str):
-                    try:
-                        # Try to get access token directly
-                        logger.debug("Attempting to get access token...")
-                        access_token = client.get_access_token()
-                        if access_token:
-                            client.set_access_token(access_token, client_code)
-                            st.session_state.client = client
-                            st.session_state.logged_in = True
-                            st.success("✅ Login successful via access token!")
-                        else:
-                            raise ValueError("No access token retrieved")
-                    except Exception as e:
-                        logger.error(f"Access token retrieval failed: {str(e)}")
-                        st.error(f"Login failed: Unable to retrieve access token. Check TOTP code, credentials, or API status.")
-                        st.stop()
                 else:
-                    logger.error(f"Unexpected response format: {type(response)} - {response}")
-                    st.error("Login failed: Invalid API response format. Check TOTP code, credentials, or API status.")
+                    raise ValueError("Failed to retrieve access token")
                 
                 if st.session_state.logged_in:
                     st.session_state.data_source = "Live 5paisa Data"
