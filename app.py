@@ -135,10 +135,9 @@ def load_data():
             vix = pd.read_csv(vix_url)
             st.write("VIX CSV loaded. Columns:", vix.columns.tolist())  # Debug: Show columns
             st.write("First few rows:", vix.head())  # Debug: Show data
-            # Handle potential date format variations
+            # Handle date parsing with multiple formats
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             if vix["Date"].isna().any():
-                # Try alternative format if needed
                 vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")
             if vix["Date"].isna().all():
                 st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
@@ -148,31 +147,25 @@ def load_data():
                 st.error("VIX CSV missing 'Close' column.")
                 raise KeyError("Missing 'Close' column in VIX CSV.")
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = vix.index.date  # Convert to date objects
+            vix.index = pd.to_datetime(vix.index).date
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
         except Exception as e:
             st.warning(f"Failed to fetch VIX data: {str(e)}. Using fallback.")
-            vix = pd.DataFrame({"VIX": np.full(len(nifty), 15.2)}, index=nifty.index)
+            vix = pd.Series(np.full(len(nifty), 15.2), index=nifty.index, name="VIX")
 
         if not st.session_state.client:
             common_dates = nifty.index.intersection(vix.index)
             if len(common_dates) < 1:
                 st.warning(f"Insufficient overlapping dates: {len(common_dates)}. Using NIFTY dates with fallback VIX.")
                 common_dates = nifty.index[-10:]  # Use last 10 days
-                vix_data = pd.Series(np.full(10, 15.2), index=common_dates, name="VIX")
+                vix_data = pd.Series(np.full(10, 15.2), index=common_dates)
             else:
                 vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill").fillna(15.2)
             nifty_data = nifty.loc[common_dates]
             # Ensure vix_data is a 1D Series
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data}, index=common_dates)
+            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data.values.flatten()}, index=common_dates)
         else:
-            df = pd.DataFrame(
-                {
-                    "NIFTY_Close": nifty_data["NIFTY_Close"],
-                    "VIX": vix["VIX"].iloc[-1] if not vix.empty else 15.2
-                },
-                index=[datetime.now().date()]
-            )
+            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1] if not vix.empty else 15.2}, index=[datetime.now().date()])
 
         df = df.ffill().bfill()
         if df.empty:
