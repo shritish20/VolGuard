@@ -135,19 +135,21 @@ def load_data():
             vix = pd.read_csv(vix_url)
             st.write("VIX CSV loaded. Columns:", vix.columns.tolist())  # Debug: Show columns
             st.write("First few rows:", vix.head())  # Debug: Show data
-            # Handle date parsing with multiple formats
-            vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
-            if vix["Date"].isna().any():
-                vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")
-            if vix["Date"].isna().all():
-                st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
-                raise ValueError("Invalid date format in VIX CSV.")
-            vix = vix.dropna(subset=["Date"])
-            if "Close" not in vix.columns:
-                st.error("VIX CSV missing 'Close' column.")
-                raise KeyError("Missing 'Close' column in VIX CSV.")
-            vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = pd.to_datetime(vix.index).date
+            if "Date" in vix.columns:
+                vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
+                if vix["Date"].isna().any():
+                    vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%y", errors="coerce")
+                if vix["Date"].isna().all():
+                    st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
+                    raise ValueError("Invalid date format in VIX CSV.")
+                vix = vix.dropna(subset=["Date"])
+                vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
+                vix.index = pd.to_datetime(vix.index).date
+            else:
+                st.warning("No 'Date' column found in VIX CSV. Assuming index as dates.")
+                vix.index = pd.date_range(start="2024-04-26", periods=len(vix), freq="B")
+                vix.index = vix.index.date
+                vix = vix[["Close"]].rename(columns={"Close": "VIX"})
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
         except Exception as e:
             st.warning(f"Failed to fetch VIX data: {str(e)}. Using fallback.")
@@ -162,8 +164,7 @@ def load_data():
             else:
                 vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill").fillna(15.2)
             nifty_data = nifty.loc[common_dates]
-            # Ensure vix_data is a 1D Series
-            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data.values.flatten()}, index=common_dates)
+            df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix_data}, index=common_dates)
         else:
             df = pd.DataFrame({"NIFTY_Close": nifty_data["NIFTY_Close"], "VIX": vix["VIX"].iloc[-1] if not vix.empty else 15.2}, index=[datetime.now().date()])
 
