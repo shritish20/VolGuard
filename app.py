@@ -187,6 +187,8 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "data_source" not in st.session_state:
     st.session_state.data_source = "Public Data"
+if "totp_code" not in st.session_state:
+    st.session_state.totp_code = ""
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
@@ -212,7 +214,7 @@ if page == "Login":
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("5paisa API Login")
-        totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password")
+        st.session_state.totp_code = st.text_input("TOTP Code", placeholder="6-digit TOTP from Authenticator", type="password", key="totp_input")
         if st.button("Login with 5paisa"):
             try:
                 # Validate environment variables
@@ -234,47 +236,52 @@ if page == "Login":
                 client_code = os.getenv("CLIENT_CODE")
                 pin = os.getenv("PIN")
                 
-                # Log credentials for debugging (remove in production)
-                logger.debug(f"Credentials: {cred}, Client Code: {client_code}, PIN: {pin}, TOTP: {totp_code}")
+                logger.debug(f"Credentials: {cred}, Client Code: {client_code}, PIN: {pin}, TOTP: {st.session_state.totp_code}")
                 
-                # Attempt to get TOTP session with detailed logging
+                # Attempt to get TOTP session
                 logger.debug("Attempting to get TOTP session...")
-                response = client.get_totp_session(client_code, totp_code, pin)
+                response = client.get_totp_session(client_code, st.session_state.totp_code, pin)
                 logger.debug(f"Raw response from get_totp_session: {response}")
                 
-                # Check if response is a string (likely JWT)
-                if isinstance(response, str):
-                    try:
-                        # Directly decode the JWT (skip JSON parsing attempt)
-                        decoded = jwt.decode(response, options={"verify_signature": False})
-                        if decoded.get("Message") == "SUCCESS" and "UserId" in decoded:
-                            response = decoded  # Use decoded JWT as the response
-                            logger.info("Login successful via JWT decode")
-                        else:
-                            raise ValueError("JWT missing required fields")
-                    except Exception as e:
-                        logger.error(f"JWT processing failed: {str(e)}")
-                        st.error("Login failed: Invalid API response format. Check TOTP code, credentials, or API status.")
-                        st.stop()
-                
-                # Validate the response
-                if isinstance(response, dict) and response.get("Message") == "SUCCESS" and "UserId" in response:
+                # Check response structure
+                if hasattr(response, 'access_token') or ('access_token' in response):
                     st.session_state.client = client
                     st.session_state.logged_in = True
+                    st.success("✅ Successfully logged in to 5paisa!")
+                # Handle alternative response formats (e.g., string or incomplete response)
+                elif isinstance(response, str):
+                    try:
+                        # Try to get access token directly
+                        logger.debug("Attempting to get access token...")
+                        access_token = client.get_access_token()
+                        if access_token:
+                            client.set_access_token(access_token, client_code)
+                            st.session_state.client = client
+                            st.session_state.logged_in = True
+                            st.success("✅ Login successful via access token!")
+                        else:
+                            raise ValueError("No access token retrieved")
+                    except Exception as e:
+                        logger.error(f"Access token retrieval failed: {str(e)}")
+                        st.error(f"Login failed: Unable to retrieve access token. Check TOTP code, credentials, or API status.")
+                        st.stop()
+                else:
+                    logger.error(f"Unexpected response format: {type(response)} - {response}")
+                    st.error("Login failed: Invalid API response format. Check TOTP code, credentials, or API status.")
+                
+                if st.session_state.logged_in:
                     st.session_state.data_source = "Live 5paisa Data"
-                    st.success("✅ Successfully Logged In!")
-                    # Test market feed to confirm connection
-                    test_feed = client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
-                    if test_feed and "Success" in test_feed and test_feed["Success"] and len(test_feed["Success"]) > 0:
-                        st.write("✅ Connection confirmed with 5paisa.")
-                    else:
-                        st.warning("⚠️ Connection established, but test feed failed. Check API limits or market hours.")
+                    # Verify connection
+                    try:
+                        market_feed = client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
+                        if market_feed and "Success" in market_feed and market_feed["Success"] and len(market_feed["Success"]) > 0:
+                            st.write("✅ Market data connection verified")
+                        else:
+                            st.warning("⚠️ Login successful but market feed failed. Check API limits or market hours.")
+                    except Exception as e:
+                        st.warning(f"⚠️ Login successful but market feed failed: {str(e)}")
                     time.sleep(1)
                     st.rerun()
-                else:
-                    error_msg = response.get("Message", "Invalid response") if isinstance(response, dict) else "Invalid response format"
-                    logger.error(f"Login failed with error: {error_msg}")
-                    st.error(f"Login failed: {error_msg}. Check TOTP code, credentials, or API status.")
             except Exception as e:
                 logger.error(f"Exception during login: {str(e)}")
                 st.error(f"Login failed: {str(e)}. Check TOTP code, credentials, or API status.")
