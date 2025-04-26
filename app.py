@@ -133,7 +133,9 @@ def load_data():
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
             vix = pd.read_csv(vix_url)
-            st.write("VIX CSV loaded. Columns:", vix.columns.tolist())  # Debug: Show columns
+            # Clean column names: strip whitespace and convert to title case
+            vix.columns = vix.columns.str.strip().str.title()
+            st.write("VIX CSV loaded. Raw columns:", vix.columns.tolist())  # Debug: Show raw columns
             st.write("First few rows:", vix.head())  # Debug: Show data
             if "Date" in vix.columns:
                 vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
@@ -151,7 +153,7 @@ def load_data():
                 if "Close" in vix.columns:
                     vix = vix[["Close"]].rename(columns={"Close": "VIX"})
                 else:
-                    st.error("No 'Close' column found in VIX CSV.")
+                    st.error("No 'Close' column found in VIX CSV. Available columns: " + ", ".join(vix.columns))
                     raise KeyError("Missing 'Close' column in VIX CSV.")
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
         except Exception as e:
