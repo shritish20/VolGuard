@@ -450,7 +450,7 @@ def forecast_volatility_future(df, forecast_horizon):
         return None, None, None, None, None, None, None, None
 
     last_date = df.index[-1]
-    futureofit = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
+    future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
 
     # GARCH Model
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
@@ -613,7 +613,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         else:
             strategy = "Straddle Buy"
             reason = "Event-based uncertainty. Straddle captures large moves."
-            tags = "High Gamma", "Event", "Directional Bias"]
+            tags = ["High Gamma", "Event", "Directional Bias"]
             risk_reward = 1.3
 
     # Capital Allocation
