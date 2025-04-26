@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 import time
 import json
+import jwt
 import logging
 
 # Configure logging
@@ -246,10 +247,20 @@ if page == "Login":
                         logger.debug("Trying to parse response as JSON...")
                         response = json.loads(response)
                         logger.debug(f"Parsed JSON response: {response}")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON parsing failed: {e}")
-                        st.error(f"Login failed: Unexpected string response - {response[:50]}... Check TOTP code, credentials, or API status.")
-                        st.stop()
+                    except json.JSONDecodeError:
+                        logger.debug("JSON parsing failed, attempting JWT decode...")
+                        try:
+                            # Attempt to decode JWT (assuming no secret key is needed for initial decode)
+                            decoded = jwt.decode(response, options={"verify_signature": False})
+                            logger.debug(f"Decoded JWT: {decoded}")
+                            if "Message" in decoded and decoded["Message"] == "SUCCESS" and "UserId" in decoded:
+                                response = decoded
+                            else:
+                                raise ValueError("Invalid JWT content")
+                        except Exception as e:
+                            logger.error(f"JWT decode failed: {e}")
+                            st.error(f"Login failed: Unexpected string response - {response[:50]}... Check TOTP code, credentials, or API status.")
+                            st.stop()
                 
                 if isinstance(response, dict) and response.get("Message") == "SUCCESS" and "UserId" in response:
                     st.session_state.client = client
