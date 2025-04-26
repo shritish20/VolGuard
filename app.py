@@ -129,6 +129,7 @@ def load_data():
                 st.error("Failed to fetch NIFTY 50 data.")
                 return None
             nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+            # Ensure a single-level date index
             nifty.index = pd.to_datetime(nifty.index).date
         
         # Load VIX data
