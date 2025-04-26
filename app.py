@@ -169,7 +169,7 @@ st.markdown("""
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** | Made by Shritish and Salman")
+st.markdown("**Protection First, Edge Always** |Made by Shritish & Salman")
 
 # Sidebar
 with st.sidebar:
