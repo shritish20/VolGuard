@@ -150,6 +150,9 @@ def load_data():
             return None
         nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
         nifty.index = pd.to_datetime(nifty.index).date
+        nifty = nifty[~nifty.index.duplicated(keep='first')]
+        nifty_series = nifty["NIFTY_Close"]  # Ensure Series
+        st.write(f"NIFTY_Close shape: {nifty_series.shape}")
 
         # Fetch India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -166,14 +169,25 @@ def load_data():
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix.index = pd.to_datetime(vix.index).date
         vix = vix[~vix.index.duplicated(keep='first')]
+        vix_series = vix["VIX"]  # Ensure Series
+        st.write(f"VIX shape: {vix_series.shape}")
 
         # Align data
-        common_dates = nifty.index.intersection(vix.index)
+        common_dates = nifty_series.index.intersection(vix_series.index)
         if len(common_dates) < 200:
             st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
             return None
-        df = pd.DataFrame({"NIFTY_Close": nifty.loc[common_dates, "NIFTY_Close"], 
-                          "VIX": vix.loc[common_dates, "VIX"]}, index=common_dates)
+        
+        # Extract 1D arrays
+        nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
+        vix_data = vix_series.loc[common_dates].to_numpy().flatten()
+        st.write(f"nifty_data shape: {nifty_data.shape}, vix_data shape: {vix_data.shape}")
+
+        # Create DataFrame
+        df = pd.DataFrame({
+            "NIFTY_Close": nifty_data,
+            "VIX": vix_data
+        }, index=common_dates)
         
         # Handle missing data
         if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
@@ -182,6 +196,7 @@ def load_data():
             st.error("DataFrame is empty after processing.")
             return None
 
+        st.write(f"Final DataFrame shape: {df.shape}")
         return df
 
     except Exception as e:
@@ -297,7 +312,7 @@ def forecast_volatility_future(df, forecast_horizon):
     df_garch = df.tail(len(df))
     if len(df_garch) < 200:
         st.error(f"Insufficient data for GARCH: {len(df_garch)} days.")
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
     last_date = df.index[-1]
     future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
