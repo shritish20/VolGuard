@@ -142,14 +142,17 @@ def load_data():
                 if vix["Date"].isna().all():
                     st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
                     raise ValueError("Invalid date format in VIX CSV.")
-                vix = vix.dropna(subset=["Date"])
                 vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
                 vix.index = pd.to_datetime(vix.index).date
             else:
-                st.warning("No 'Date' column found in VIX CSV. Assuming index as dates.")
+                st.warning("No 'Date' column found in VIX CSV. Assuming index as sequential dates starting from 2024-04-26.")
                 vix.index = pd.date_range(start="2024-04-26", periods=len(vix), freq="B")
                 vix.index = vix.index.date
-                vix = vix[["Close"]].rename(columns={"Close": "VIX"})
+                if "Close" in vix.columns:
+                    vix = vix[["Close"]].rename(columns={"Close": "VIX"})
+                else:
+                    st.error("No 'Close' column found in VIX CSV.")
+                    raise KeyError("Missing 'Close' column in VIX CSV.")
             st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
         except Exception as e:
             st.warning(f"Failed to fetch VIX data: {str(e)}. Using fallback.")
