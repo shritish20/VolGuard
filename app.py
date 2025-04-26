@@ -110,6 +110,7 @@ if page == "Login":
 @st.cache_data
 def load_data():
     try:
+        # Load NIFTY data
         if st.session_state.client:
             try:
                 market_feed = st.session_state.client.get_market_feed([{"Exch": "N", "ExchType": "C", "Symbol": "NIFTY 50", "Expiry": "", "StrikePrice": "0", "OptionType": ""}])
@@ -129,82 +130,50 @@ def load_data():
                 return None
             nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
             nifty.index = pd.to_datetime(nifty.index).date
-            st.write("NIFTY data shape:", nifty.shape)  # Debug: Show NIFTY shape
         
+        # Load VIX data
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
-            # Read raw content for debugging
-            raw_content = pd.read_csv(vix_url, nrows=5).to_string()
-            st.write("Raw VIX CSV content (first 5 rows):", raw_content)
             vix = pd.read_csv(vix_url)
-            # Clean column names: strip whitespace and make case-insensitive
+            # Convert all column names to lowercase to handle case sensitivity
             vix.columns = vix.columns.str.strip().str.lower()
-            st.write("VIX CSV loaded. Raw columns (lowercase):", vix.columns.tolist())  # Debug: Show raw columns
-            st.write("First few rows:", vix.head())  # Debug: Show data
             
-            # Check for 'date' column (case-insensitive)
-            date_col = next((col for col in vix.columns if "date" in col.lower()), None)
-            if date_col:
-                vix[date_col] = pd.to_datetime(vix[date_col], format="%d-%b-%Y", errors="coerce")
-                if vix[date_col].isna().any():
-                    vix[date_col] = pd.to_datetime(vix[date_col], format="%d-%b-%y", errors="coerce")
-                if vix[date_col].isna().all():
-                    st.error("All dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
-                    raise ValueError("Invalid date format in VIX CSV.")
-                vix = vix.set_index(date_col)
-                vix.index = pd.to_datetime(vix.index).date
-            else:
-                st.warning("No 'date' column found in VIX CSV. Aligning with NIFTY dates.")
-                if len(vix) > len(nifty):
-                    vix = vix.iloc[-len(nifty):]  # Trim VIX to match NIFTY length
-                elif len(vix) < len(nifty):
-                    nifty = nifty.iloc[-len(vix):]  # Trim NIFTY to match VIX length
-                vix.index = nifty.index  # Align indices
-
-            # Check for 'close' column (case-insensitive)
-            close_col = next((col for col in vix.columns if "close" in col.lower()), None)
-            if close_col:
-                vix = vix[[close_col]].rename(columns={close_col: "VIX"})
-            else:
-                st.error("No 'close' column found in VIX CSV. Available columns: " + ", ".join(vix.columns))
-                raise KeyError("Missing 'close' column in VIX CSV.")
+            # Check for required columns
+            if "date" not in vix.columns or "close" not in vix.columns:
+                st.error(f"VIX CSV must contain 'date' and 'close' columns. Found columns: {vix.columns.tolist()}")
+                return None
             
-            st.write("Processed VIX data:", vix.head())  # Debug: Show processed data
-            st.write("VIX data shape:", vix.shape)  # Debug: Show VIX shape
+            # Parse dates
+            vix["date"] = pd.to_datetime(vix["date"], format="%d-%b-%Y", errors="coerce")
+            if vix["date"].isna().any():
+                st.error("Some dates in VIX CSV are invalid. Expected format: DD-MMM-YYYY (e.g., 26-APR-2024).")
+                return None
+            vix = vix.set_index("date")
+            vix.index = pd.to_datetime(vix.index).date
+            vix = vix[["close"]].rename(columns={"close": "VIX"})
         except Exception as e:
-            st.error(f"Failed to fetch VIX data: {str(e)}.")
+            st.error(f"Failed to load VIX data: {str(e)}")
             return None
 
+        # Merge data
         if not st.session_state.client:
-            common_dates = nifty.index.intersection(vix.index)
-            if len(common_dates) < 1:
+            df = pd.merge(nifty, vix, left_index=True, right_index=True, how="inner")
+            if df.empty:
                 st.error("No overlapping dates between NIFTY and VIX data.")
                 return None
-            vix_data = vix["VIX"].reindex(common_dates).fillna(method="ffill")
-            nifty_data = nifty.loc[common_dates]
-            st.write("vix_data shape before DataFrame:", vix_data.shape)  # Debug: Show shape
-            st.write("vix_data type:", type(vix_data))  # Debug: Show type
-            st.write("nifty_data shape before DataFrame:", nifty_data.shape)  # Debug: Show shape
-            st.write("nifty_data['NIFTY_Close'] shape:", nifty_data["NIFTY_Close"].shape)  # Debug: Show shape
-            st.write("nifty_data['NIFTY_Close'] type:", type(nifty_data["NIFTY_Close"]))  # Debug: Show type
-            # Ensure 1D arrays for DataFrame construction
-            df = pd.DataFrame({
-                "NIFTY_Close": nifty_data["NIFTY_Close"].to_numpy(),  # Convert to 1D array
-                "VIX": vix_data.to_numpy()  # Convert to 1D array
-            }, index=common_dates)
         else:
-            latest_vix = vix["VIX"].iloc[-1]  # Scalar value
+            latest_vix = vix["VIX"].iloc[-1]
             df = pd.DataFrame({
-                "NIFTY_Close": nifty_data["NIFTY_Close"].iloc[0],  # Scalar value
+                "NIFTY_Close": nifty_data["NIFTY_Close"].iloc[0],
                 "VIX": latest_vix
             }, index=[datetime.now().date()])
 
+        # Ensure no missing values
         df = df.ffill().bfill()
         if df.empty:
-            st.error("DataFrame is empty.")
+            st.error("DataFrame is empty after merging.")
             return None
-        st.write("Final DataFrame shape:", df.shape)  # Debug: Show final shape
-        st.write("Final DataFrame:", df.head())  # Debug: Show final DataFrame
+        
         return df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
