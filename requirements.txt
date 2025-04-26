@@ -1,5 +1,3 @@
-pip install pyjwt
-pip install --upgrade py5paisa
 streamlit
 pandas 
 numpy 
@@ -10,3 +8,4 @@ scikit-learn
 plotly 
 py5paisa 
 python-dotenv
+pyjwt
