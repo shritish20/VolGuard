@@ -13,8 +13,8 @@ import io
 import requests
 
 # Suppress warnings
-warnings.filterWarnings("ignore", category=FutureWarning)
-warnings.filterWarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
@@ -559,14 +559,11 @@ if run_button:
             # Display Latest Market Data
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("📊 Latest Market Snapshot")
-            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else=datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y %H:%M:%S")
             last_nifty = df["NIFTY_Close"].iloc[-1] if "NIFTY_Close" in df.columns and not df["NIFTY_Close"].isna().iloc[-1] else "N/A"
             prev_nifty = df["NIFTY_Close"].iloc[-2] if "NIFTY_Close" in df.columns and len(df) >= 2 and not df["NIFTY_Close"].isna().iloc[-2] else "N/A"
-            last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna Facials = {
-                "display": "inline-block",
-                "margin": "0px 8px 0px 0px",
-                "vertical-align": "middle"
-            } df["VIX"].iloc[-2] if "VIX" in df.columns and len(df) >= 2 and not df["VIX"].isna().iloc[-2] else "N/A"
+            last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna().iloc[-1] else "N/A"
+            prev_vix = df["VIX"].iloc[-2] if "VIX" in df.columns and len(df) >= 2 and not df["VIX"].isna().iloc[-2] else "N/A"
             col1, col2 = st.columns(2)
             with col1:
                 nifty_change = last_nifty - prev_nifty if last_nifty != "N/A" and prev_nifty != "N/A" else "N/A"
