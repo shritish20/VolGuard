@@ -191,7 +191,7 @@ def load_data():
             st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
             return None
         nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
-        nifty.index = pd.to_datetime(nifty.index).date
+        nifty.index = pd.to_datetime(nifty.index)
         nifty = nifty[~nifty.index.duplicated(keep='first')]
         nifty_series = nifty["NIFTY_Close"]
 
@@ -208,7 +208,7 @@ def load_data():
             st.error("VIX data is empty.")
             return None
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-        vix.index = pd.to_datetime(vix.index).date
+        vix.index = pd.to_datetime(vix.index)
         vix = vix[~vix.index.duplicated(keep='first')]
         vix_series = vix["VIX"]
 
@@ -397,20 +397,17 @@ def forecast_volatility_future(df, forecast_horizon):
     current_row = df_xgb[feature_cols].iloc[-1].copy()
     try:
         for i in range(forecast_horizon):
-            # Ensure current_row is a DataFrame with correct columns
             current_row_df = pd.DataFrame([current_row], columns=feature_cols)
             current_row_scaled = scaler.transform(current_row_df)
             next_vol = model.predict(current_row_scaled)[0]
             xgb_vols.append(next_vol)
 
-            # Update features for next iteration
             current_row["Days_to_Expiry"] = max(1, current_row["Days_to_Expiry"] - 1)
             current_row["VIX"] *= np.random.uniform(0.98, 1.02)
             current_row["Straddle_Price"] *= np.random.uniform(0.98, 1.02)
             current_row["VIX_Change_Pct"] = (current_row["VIX"] / df_xgb["VIX"].iloc[-1] - 1) * 100
             current_row["ATM_IV"] = current_row["VIX"] * (1 + np.random.normal(0, 0.1))
             current_row["Realized_Vol"] = np.clip(next_vol * np.random.uniform(0.95, 1.05), 5, 50)
-            # Update remaining features to maintain consistency
             current_row["IVP"] = current_row["IVP"] * np.random.uniform(0.99, 1.01)
             current_row["PCR"] = np.clip(current_row["PCR"] + np.random.normal(0, 0.05), 0.7, 2.0)
             current_row["Spot_MaxPain_Diff_Pct"] = np.clip(current_row["Spot_MaxPain_Diff_Pct"] * np.random.uniform(0.95, 1.05), 0.1, 1.0)
@@ -568,6 +565,20 @@ if run_button:
                 forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
 
             if forecast_log is not None:
+                # Display Latest Market Data
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("📊 Latest Market Snapshot")
+                last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S")
+                last_nifty = df["NIFTY_Close"].iloc[-1]
+                last_vix = df["VIX"].iloc[-1]
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("NIFTY 50 Last Close", f"₹{last_nifty:,.2f}", help="Latest NIFTY 50 closing price")
+                with col2:
+                    st.metric("India VIX", f"{last_vix:.2f}%", help="Latest India VIX value")
+                st.markdown(f"**Last Updated**: {last_date}")
+                st.markdown('</div>', unsafe_allow_html=True)
+
                 # Volatility Forecast Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📈 Volatility Forecast")
