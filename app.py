@@ -13,8 +13,8 @@ import io
 import requests
 
 # Suppress warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterWarnings("ignore", category=FutureWarning)
+warnings.filterWarnings("ignore", category=UserWarning)
 
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
@@ -312,16 +312,6 @@ def generate_synthetic_features(df):
     df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
     df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
     
-    # Advance/Decline Ratio
-    df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
-    
-    # Capital Pressure Index
-    df["Capital_Pressure_Index"] = (df["FII_Index_Fut_Pos"] / 3e4 + df["FII_Option_Pos"] / 1e4 + df["PCR"]) / 3
-    df["Capital_Pressure_Index"] = np.clip(df["Capital_Pressure_Index"], -2, 2)
-    
-    # Gamma Bias
-    df["Gamma_Bias"] = np.clip(df["IV_Skew"] * (30 - df["Days_to_Expiry"]) / 30, -2, 2)
-    
     # Capital and PnL
     df["Total_Capital"] = capital
     df["PnL_Day"] = np.random.normal(0, 5000, n_days) * (1 - df["Event_Flag"] * 0.5)
@@ -382,7 +372,7 @@ def forecast_volatility_future(df, forecast_horizon):
     feature_cols = [
         'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
         'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
+        'FII_Option_Pos'
     ]
     X = df_xgb[feature_cols]
     y = df_xgb['Target_Vol']
@@ -423,10 +413,6 @@ def forecast_volatility_future(df, forecast_horizon):
             current_row["FII_Index_Fut_Pos"] += np.random.normal(0, 1000)
             current_row["FII_Option_Pos"] += np.random.normal(0, 500)
             current_row["IV_Skew"] = np.clip(current_row["IV_Skew"] + np.random.normal(0, 0.1), -3, 3)
-            current_row["Advance_Decline_Ratio"] = np.clip(current_row["Advance_Decline_Ratio"] + np.random.normal(0, 0.05), 0.5, 2.0)
-            current_row["Capital_Pressure_Index"] = (current_row["FII_Index_Fut_Pos"] / 3e4 + current_row["FII_Option_Pos"] / 1e4 + current_row["PCR"]) / 3
-            current_row["Capital_Pressure_Index"] = np.clip(current_row["Capital_Pressure_Index"], -2, 2)
-            current_row["Gamma_Bias"] = np.clip(current_row["IV_Skew"] * (30 - current_row["Days_to_Expiry"]) / 30, -2, 2)
     except Exception as e:
         st.error(f"Error in XGBoost forecasting loop: {str(e)}")
         return None, None, None, None, None, None, None, None
@@ -573,14 +559,35 @@ if run_button:
             # Display Latest Market Data
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("📊 Latest Market Snapshot")
-            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else=datetime.now().strftime("%d-%b-%Y %H:%M:%S")
             last_nifty = df["NIFTY_Close"].iloc[-1] if "NIFTY_Close" in df.columns and not df["NIFTY_Close"].isna().iloc[-1] else "N/A"
-            last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna().iloc[-1] else "N/A"
+            prev_nifty = df["NIFTY_Close"].iloc[-2] if "NIFTY_Close" in df.columns and len(df) >= 2 and not df["NIFTY_Close"].isna().iloc[-2] else "N/A"
+            last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna Facials = {
+                "display": "inline-block",
+                "margin": "0px 8px 0px 0px",
+                "vertical-align": "middle"
+            } df["VIX"].iloc[-2] if "VIX" in df.columns and len(df) >= 2 and not df["VIX"].isna().iloc[-2] else "N/A"
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("NIFTY 50 Last Close", f"₹{last_nifty:,.2f}" if last_nifty != "N/A" else "N/A", help="Latest NIFTY 50 closing price")
+                nifty_change = last_nifty - prev_nifty if last_nifty != "N/A" and prev_nifty != "N/A" else "N/A"
+                nifty_change_display = f"{nifty_change:+,.2f}" if nifty_change != "N/A" else "N/A"
+                st.metric(
+                    label="NIFTY 50 Last Close",
+                    value=f"{last_nifty:,.2f}" if last_nifty != "N/A" else "N/A",
+                    delta=nifty_change_display,
+                    delta_color="normal",
+                    help="Latest NIFTY 50 closing price"
+                )
             with col2:
-                st.metric("India VIX", f"{last_vix:.2f}%" if last_vix != "N/A" else "N/A", help="Latest India VIX value")
+                vix_change = last_vix - prev_vix if last_vix != "N/A" and prev_vix != "N/A" else "N/A"
+                vix_change_display = f"{vix_change:+.2f}" if vix_change != "N/A" else "N/A"
+                st.metric(
+                    label="India VIX",
+                    value=f"{last_vix:.2f}%" if last_vix != "N/A" else "N/A",
+                    delta=vix_change_display,
+                    delta_color="normal",
+                    help="Latest India VIX value"
+                )
             st.markdown(f"**Last Updated**: {last_date}")
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -626,7 +633,7 @@ if run_button:
                     'Feature': [
                         'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
                         'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-                        'FII_Option_Pos', 'Advance_Decline_Ratio', 'Capital_Pressure_Index', 'Gamma_Bias'
+                        'FII_Option_Pos'
                     ],
                     'Importance': feature_importances
                 }).sort_values(by='Importance', ascending=False)
