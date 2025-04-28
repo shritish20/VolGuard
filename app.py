@@ -554,12 +554,11 @@ if run_button:
         df = load_data()
         if df is not None:
             df = generate_synthetic_features(df)
-            # st.write(f"DataFrame shape: {df.shape}, Columns: {df.columns}")  # Debug: Uncomment to check DataFrame
 
             # Display Latest Market Data
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("📊 Latest Market Snapshot")
-            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+            last_date = df.index[-1].strftime("%d-%b-%Y") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y")
             last_nifty = df["NIFTY_Close"].iloc[-1] if "NIFTY_Close" in df.columns and not df["NIFTY_Close"].isna().iloc[-1] else "N/A"
             prev_nifty = df["NIFTY_Close"].iloc[-2] if "NIFTY_Close" in df.columns and len(df) >= 2 and not df["NIFTY_Close"].isna().iloc[-2] else "N/A"
             last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna().iloc[-1] else "N/A"
