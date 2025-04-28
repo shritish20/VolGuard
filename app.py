@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import warnings
 import io
+import requests
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -197,16 +198,23 @@ def load_data():
 
         # Fetch India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
-        vix = pd.read_csv(vix_url)
+        try:
+            response = requests.get(vix_url)
+            response.raise_for_status()
+            vix = pd.read_csv(io.StringIO(response.text))
+        except requests.exceptions.RequestException as e:
+            st.error(f"Failed to fetch India VIX data: {str(e)}")
+            return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
+
         vix.columns = vix.columns.str.strip()
         if "Date" not in vix.columns or "Close" not in vix.columns:
             st.error("india_vix.csv is missing required columns.")
-            return None
+            return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
             st.error("VIX data is empty.")
-            return None
+            return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix.index = pd.to_datetime(vix.index)
         vix = vix[~vix.index.duplicated(keep='first')]
@@ -216,7 +224,7 @@ def load_data():
         common_dates = nifty_series.index.intersection(vix_series.index)
         if len(common_dates) < 200:
             st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
-            return None
+            return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         
         # Extract 1D arrays
         nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
@@ -560,25 +568,26 @@ if run_button:
         df = load_data()
         if df is not None:
             df = generate_synthetic_features(df)
+            # st.write(f"DataFrame shape: {df.shape}, Columns: {df.columns}")  # Debug: Uncomment to check DataFrame
+
+            # Display Latest Market Data
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("📊 Latest Market Snapshot")
+            last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+            last_nifty = df["NIFTY_Close"].iloc[-1] if "NIFTY_Close" in df.columns and not df["NIFTY_Close"].isna().iloc[-1] else "N/A"
+            last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna().iloc[-1] else "N/A"
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("NIFTY 50 Last Close", f"₹{last_nifty:,.2f}" if last_nifty != "N/A" else "N/A", help="Latest NIFTY 50 closing price")
+            with col2:
+                st.metric("India VIX", f"{last_vix:.2f}%" if last_vix != "N/A" else "N/A", help="Latest India VIX value")
+            st.markdown(f"**Last Updated**: {last_date}")
+            st.markdown('</div>', unsafe_allow_html=True)
 
             with st.spinner("Predicting market volatility..."):
                 forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
 
             if forecast_log is not None:
-                # Display Latest Market Data
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📊 Latest Market Snapshot")
-                last_date = df.index[-1].strftime("%d-%b-%Y %H:%M:%S")
-                last_nifty = df["NIFTY_Close"].iloc[-1]
-                last_vix = df["VIX"].iloc[-1]
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("NIFTY 50 Last Close", f"₹{last_nifty:,.2f}", help="Latest NIFTY 50 closing price")
-                with col2:
-                    st.metric("India VIX", f"{last_vix:.2f}%", help="Latest India VIX value")
-                st.markdown(f"**Last Updated**: {last_date}")
-                st.markdown('</div>', unsafe_allow_html=True)
-
                 # Volatility Forecast Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📈 Volatility Forecast")
