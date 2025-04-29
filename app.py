@@ -997,3 +997,4 @@ if run_button:
 
 else:
     st.info("Set parameters and activate VolGuard to begin your journey.")
+    st.warning("This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.")
