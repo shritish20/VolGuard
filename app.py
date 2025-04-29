@@ -8,9 +8,10 @@ from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
-import warnings
-import io
+import matplotlib.pyplot as plt
 import requests
+import io
+import warnings
 
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -19,7 +20,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS for an enhanced, modern UI
+# Custom CSS for modern UI
 st.markdown("""
     <style>
         .main {
@@ -178,6 +179,10 @@ with st.sidebar:
     forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
     capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
     risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
+    st.markdown("**Backtest Parameters**")
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-10-21"), key="start_date")
+    end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
+    strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"], key="strategy_select")
     run_button = st.button("Activate VolGuard", key="run_button")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
@@ -186,7 +191,6 @@ with st.sidebar:
 @st.cache_data
 def load_data():
     try:
-        # Fetch NIFTY 50 data from Yahoo Finance
         nifty = yf.download("^NSEI", period="1y", interval="1d")
         if nifty.empty or len(nifty) < 200:
             st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
@@ -196,7 +200,6 @@ def load_data():
         nifty = nifty[~nifty.index.duplicated(keep='first')]
         nifty_series = nifty["NIFTY_Close"]
 
-        # Fetch India VIX data from GitHub
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
         try:
             response = requests.get(vix_url)
@@ -220,23 +223,16 @@ def load_data():
         vix = vix[~vix.index.duplicated(keep='first')]
         vix_series = vix["VIX"]
 
-        # Align data
         common_dates = nifty_series.index.intersection(vix_series.index)
         if len(common_dates) < 200:
             st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         
-        # Extract 1D arrays
-        nifty_data = nifty_series.loc[common_dates].to_numpy().flatten()
-        vix_data = vix_series.loc[common_dates].to_numpy().flatten()
-
-        # Create DataFrame
         df = pd.DataFrame({
-            "NIFTY_Close": nifty_data,
-            "VIX": vix_data
+            "NIFTY_Close": nifty_series.loc[common_dates],
+            "VIX": vix_series.loc[common_dates]
         }, index=common_dates)
         
-        # Handle missing data
         if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
             df = df.ffill().bfill()
         if df.empty:
@@ -244,17 +240,28 @@ def load_data():
             return None
 
         return df
-
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         return None
 
 # Function to generate synthetic options features
-def generate_synthetic_features(df):
+@st.cache_data
+def generate_synthetic_features(df, capital):
     n_days = len(df)
     np.random.seed(42)
     risk_free_rate = 0.06
     strike_step = 100
+
+    def calculate_days_to_expiry(dates):
+        days_to_expiry = []
+        for date in dates:
+            days_ahead = (3 - date.weekday()) % 7
+            if days_ahead == 0:
+                days_ahead = 7
+            next_expiry = date + pd.Timedelta(days=days_ahead)
+            dte = (next_expiry - date).days
+            days_to_expiry.append(dte)
+        return np.array(days_to_expiry)
 
     def black_scholes(S, K, T, r, sigma, option_type="call"):
         try:
@@ -268,12 +275,11 @@ def generate_synthetic_features(df):
         except:
             return 0
 
-    # ATM Implied Volatility with event spikes
-    event_spike = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5), 1.2, 1.0)
+    df["Days_to_Expiry"] = calculate_days_to_expiry(df.index)
+    event_spike = np.where((df.index.month % 3 == 0) & (df.index.day < 5), 1.2, 1.0)
     df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
     df["ATM_IV"] = np.clip(df["ATM_IV"], 5, 50)
 
-    # Implied Volatility Percentile
     def dynamic_ivp(x):
         if len(x) >= 5:
             return (np.sum(x.iloc[:-1] <= x.iloc[-1]) / (len(x) - 1)) * 100
@@ -281,45 +287,28 @@ def generate_synthetic_features(df):
     df["IVP"] = df["ATM_IV"].rolling(252, min_periods=5).apply(dynamic_ivp)
     df["IVP"] = df["IVP"].interpolate().fillna(50.0)
 
-    # Put-Call Ratio
     market_trend = df["NIFTY_Close"].pct_change().rolling(5).mean().fillna(0)
     df["PCR"] = np.clip(1.0 + np.random.normal(0, 0.1, n_days) + market_trend * -10, 0.7, 2.0)
-    
-    # VIX Change
     df["VIX_Change_Pct"] = df["VIX"].pct_change().fillna(0) * 100
-    
-    # Max Pain Difference
     df["Spot_MaxPain_Diff_Pct"] = np.abs(np.random.lognormal(-2, 0.5, n_days))
     df["Spot_MaxPain_Diff_Pct"] = np.clip(df["Spot_MaxPain_Diff_Pct"], 0.1, 1.0)
-    
-    # Days to Expiry
-    df["Days_to_Expiry"] = np.random.choice([1, 3, 7, 14, 21, 28], n_days)
-    
-    # Event Flag
-    df["Event_Flag"] = np.where((pd.to_datetime(df.index).month % 3 == 0) & (pd.to_datetime(df.index).day < 5) | (df["Days_to_Expiry"] <= 3), 1, 0)
-    
-    # FII Positions
+    df["Event_Flag"] = np.where((df.index.month % 3 == 0) & (df.index.day < 5) | (df["Days_to_Expiry"] <= 3), 1, 0)
     fii_trend = np.random.normal(0, 10000, n_days)
     fii_trend[::30] *= -1
     df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
     df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
-    
-    # IV Skew
     df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
-    
-    # Realized Volatility
     df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
     df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
     df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
-    
-    # Capital and PnL
+    df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
+    df["Capital_Pressure_Index"] = (df["FII_Index_Fut_Pos"] / 3e4 + df["FII_Option_Pos"] / 1e4 + df["PCR"]) / 3
+    df["Capital_Pressure_Index"] = np.clip(df["Capital_Pressure_Index"], -2, 2)
+    df["Gamma_Bias"] = np.clip(df["IV_Skew"] * (30 - df["Days_to_Expiry"]) / 30, -2, 2)
     df["Total_Capital"] = capital
     df["PnL_Day"] = np.random.normal(0, 5000, n_days) * (1 - df["Event_Flag"] * 0.5)
-    
-    # Options Prices
+
     straddle_prices = []
-    call_prices = []
-    put_prices = []
     for i in range(n_days):
         S = df["NIFTY_Close"].iloc[i]
         K = round(S / strike_step) * strike_step
@@ -327,22 +316,19 @@ def generate_synthetic_features(df):
         sigma = df["ATM_IV"].iloc[i] / 100
         call_price = black_scholes(S, K, T, risk_free_rate, sigma, "call")
         put_price = black_scholes(S, K, T, risk_free_rate, sigma, "put")
-        straddle_price = (call_price + put_price)
+        straddle_price = (call_price + put_price) * (S / 1000)
         straddle_price = np.clip(straddle_price, 50, 400)
         straddle_prices.append(straddle_price)
-        call_prices.append(call_price)
-        put_prices.append(put_price)
     df["Straddle_Price"] = straddle_prices
-    df["Call_Price"] = call_prices
-    df["Put_Price"] = put_prices
 
-    # Handle any remaining NaNs
     if df.isna().sum().sum() > 0:
         df = df.interpolate().fillna(method='bfill')
     
+    df.to_csv("volguard_options_data.csv")
     return df
 
 # Function to forecast volatility
+@st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
     df.index = pd.to_datetime(df.index)
     df_garch = df.tail(len(df))
@@ -353,7 +339,6 @@ def forecast_volatility_future(df, forecast_horizon):
     last_date = df.index[-1]
     future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=forecast_horizon, freq='B')
 
-    # GARCH Model (purely statistical, no event adjustment)
     df_garch['Log_Returns'] = np.log(df_garch['NIFTY_Close'] / df_garch['NIFTY_Close'].shift(1)).dropna() * 100
     garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
     garch_fit = garch_model.fit(disp="off")
@@ -361,10 +346,8 @@ def forecast_volatility_future(df, forecast_horizon):
     garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)
     garch_vols = np.clip(garch_vols, 5, 50)
 
-    # Realized Volatility
     realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
 
-    # XGBoost Model
     df_xgb = df.tail(len(df))
     df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
     df_xgb = df_xgb.dropna()
@@ -421,7 +404,6 @@ def forecast_volatility_future(df, forecast_horizon):
     if df["Event_Flag"].iloc[-1] == 1:
         xgb_vols = [v * 1.1 for v in xgb_vols]
 
-    # Blended Forecast
     garch_diff = np.abs(garch_vols[0] - realized_vol)
     xgb_diff = np.abs(xgb_vols[0] - realized_vol)
     garch_weight = xgb_diff / (garch_diff + xgb_diff) if (garch_diff + xgb_diff) > 0 else 0.5
@@ -439,6 +421,7 @@ def forecast_volatility_future(df, forecast_horizon):
     return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, model.feature_importances_
 
 # Function to generate trading strategy
+@st.cache_data
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
     latest = df.iloc[-1]
     avg_vol = np.mean(forecast_log["Blended_Vol"])
@@ -451,7 +434,6 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
     event_flag = latest["Event_Flag"]
     capital = latest["Total_Capital"]
 
-    # Regime Classification
     if event_flag == 1:
         regime = "EVENT-DRIVEN"
     elif avg_vol < 15:
@@ -461,7 +443,6 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
     else:
         regime = "HIGH"
 
-    # Strategy Selector
     strategy = "Undefined"
     reason = "N/A"
     tags = []
@@ -513,14 +494,12 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             tags = ["High Gamma", "Event", "Directional Bias"]
             risk_reward = 1.3
 
-    # Capital Allocation
     capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
     position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
     deploy = capital * capital_alloc.get(regime, 0.2) * position_size
     max_loss = deploy * 0.2
     total_exposure = deploy / capital
 
-    # Risk Filters
     risk_flags = []
     if regime in ["HIGH", "EVENT-DRIVEN"] and strategy in ["Short Strangle", "Iron Fly"]:
         risk_flags.append("No naked legs allowed in HIGH/EVENT-DRIVEN regimes")
@@ -528,8 +507,9 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         risk_flags.append("Daily drawdown exceeds 3%")
     if latest["VIX_Change_Pct"] > 10:
         risk_flags.append("High VIX spike detected")
+    if total_exposure > 0.7:
+        risk_flags.append("Total exposure exceeds 70%")
 
-    # Behavioral Monitoring
     behavior_score = 8 if deploy < 0.5 * capital else 6
     behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
 
@@ -548,12 +528,217 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         "Behavior_Warnings": behavior_warnings
     }
 
+# Function for backtesting
+@st.cache_data
+def run_backtest(df, capital, strategy_choice):
+    backtest_results = []
+    lot_size = 25
+    base_transaction_cost = 0.002
+    stt = 0.0005
+    portfolio_pnl = 0
+    risk_free_rate = 0.06 / 126
+    nifty_returns = df["NIFTY_Close"].pct_change()
+
+    def run_strategy_engine(day_data, avg_vol, portfolio_pnl):
+        iv = day_data["ATM_IV"]
+        hv = day_data["Realized_Vol"]
+        iv_hv_gap = iv - hv
+        iv_skew = day_data["IV_Skew"]
+        dte = day_data["Days_to_Expiry"]
+        event_flag = day_data["Event_Flag"]
+
+        if portfolio_pnl < -0.1 * day_data["Total_Capital"]:
+            return None, None, "Portfolio drawdown limit reached", [], 0, 0, 0
+
+        if event_flag == 1:
+            regime = "EVENT-DRIVEN"
+        elif avg_vol < 15:
+            regime = "LOW"
+        elif avg_vol < 20:
+            regime = "MEDIUM"
+        else:
+            regime = "HIGH"
+
+        strategy = "Undefined"
+        reason = "N/A"
+        tags = []
+        risk_reward = 1.5 if iv_hv_gap > 5 else 1.0
+
+        if regime == "LOW":
+            if iv_hv_gap > 5 and dte < 10:
+                strategy = "Butterfly Spread"
+                reason = "Low vol & short expiry favors pinning strategies."
+                tags = ["Neutral", "Theta", "Expiry Play"]
+                risk_reward = 2.0
+            else:
+                strategy = "Iron Fly"
+                reason = "Low volatility and time decay favors delta-neutral Iron Fly."
+                tags = ["Neutral", "Theta", "Range Bound"]
+
+        elif regime == "MEDIUM":
+            if iv_hv_gap > 3 and iv_skew > 2:
+                strategy = "Iron Condor"
+                reason = "Medium vol and skew favor wide-range Iron Condor."
+                tags = ["Neutral", "Theta", "Range Bound"]
+                risk_reward = 1.8
+            else:
+                strategy = "Short Strangle"
+                reason = "Balanced vol, premium-rich environment for Short Strangle."
+                tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
+
+        elif regime == "HIGH":
+            if iv_hv_gap > 10:
+                strategy = "Jade Lizard"
+                reason = "High IV + call skew = Jade Lizard for defined upside risk."
+                tags = ["Skewed", "Volatility", "Defined Risk"]
+                risk_reward = 1.2
+            else:
+                strategy = "Debit Spread"
+                reason = "High vol implies limited premium edge. Go directional."
+                tags = ["Directional", "Volatility Hedge", "Defined Risk"]
+
+        elif regime == "EVENT-DRIVEN":
+            if iv > 30 and dte < 5:
+                strategy = "Calendar Spread"
+                reason = "Event + near expiry + IV spike → term structure opportunity."
+                tags = ["Volatility", "Event", "Calendar"]
+                risk_reward = 1.5
+            else:
+                strategy = "Straddle Buy"
+                reason = "Event-based uncertainty. Straddle captures large moves."
+                tags = ["High Gamma", "Event", "Directional Bias"]
+                risk_reward = 1.3
+
+        capital = day_data["Total_Capital"]
+        capital_alloc = {"LOW": 0.08, "MEDIUM": 0.06, "HIGH": 0.04, "EVENT-DRIVEN": 0.04}
+        deploy = capital * capital_alloc.get(regime, 0.04)
+        max_loss = deploy * 0.025
+        return regime, strategy, reason, tags, deploy, max_loss, risk_reward
+
+    def get_dynamic_slippage(strategy, iv, dte):
+        base_slippage = 0.005
+        iv_multiplier = min(iv / 20, 2.5)
+        dte_factor = 1.5 if dte < 5 else 1.0
+        if strategy == "Iron Condor":
+            return base_slippage * 1.8 * iv_multiplier * dte_factor
+        elif strategy == "Butterfly Spread":
+            return base_slippage * 2.2 * iv_multiplier * dte_factor
+        elif strategy == "Iron Fly":
+            return base_slippage * 1.5 * iv_multiplier * dte_factor
+        elif strategy in ["Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"]:
+            return base_slippage * 1.2 * iv_multiplier * dte_factor
+        return base_slippage * iv_multiplier * dte_factor
+
+    def apply_volatility_shock(pnl, nifty_move, iv, event_flag):
+        shock_prob = 0.35 if event_flag == 1 else 0.20
+        if np.random.rand() < shock_prob:
+            shock_factor = nifty_move / (iv * 100) if iv != 0 else 1.0
+            shock = -abs(pnl) * min(shock_factor * 1.5, 2.0)
+            return shock
+        return pnl
+
+    def apply_liquidity_discount(premium):
+        if np.random.rand() < 0.05:
+            return premium * 0.8
+        return premium
+
+    def apply_execution_delay(premium):
+        if np.random.rand() < 0.10:
+            return premium * 0.9
+        return premium
+
+    for i in range(1, len(df)):
+        day_data = df.iloc[i]
+        prev_day = df.iloc[i-1]
+        date = day_data.name
+        avg_vol = df["Realized_Vol"].iloc[max(0, i-5):i].mean()
+
+        regime, strategy, reason, tags, deploy, max_loss, risk_reward = run_strategy_engine(day_data, avg_vol, portfolio_pnl)
+        
+        if strategy is None or (strategy_choice != "All Strategies" and strategy != strategy_choice):
+            continue
+
+        extra_cost = 0.001 if "Iron" in strategy else 0
+        total_cost = base_transaction_cost + extra_cost + stt
+        slippage = get_dynamic_slippage(strategy, day_data["ATM_IV"], day_data["Days_to_Expiry"])
+        entry_price = day_data["Straddle_Price"]
+        lots = int(deploy / (entry_price * lot_size))
+        lots = max(1, min(lots, 2))
+
+        decay_factor = max(0.75, 1 - day_data["Days_to_Expiry"] / 10)
+        premium = entry_price * lot_size * lots * (1 - slippage - total_cost) * decay_factor
+        premium = apply_liquidity_discount(premium)
+        premium = apply_execution_delay(premium)
+
+        iv_factor = min(day_data["ATM_IV"] / avg_vol, 1.5) if avg_vol != 0 else 1.0
+        breakeven_factor = 0.04 if (day_data["Event_Flag"] == 1 or day_data["ATM_IV"] > 25) else 0.06
+        breakeven = entry_price * (1 + iv_factor * breakeven_factor)
+        nifty_move = abs(day_data["NIFTY_Close"] - prev_day["NIFTY_Close"])
+        loss = max(0, nifty_move - breakeven) * lot_size * lots
+
+        if strategy in ["Short Strangle", "Iron Fly", "Iron Condor"]:
+            max_strategy_loss = premium * 0.6 if strategy in ["Iron Fly", "Iron Condor"] else premium * 0.8
+            loss = min(loss, max_strategy_loss)
+            pnl = premium - loss
+        elif strategy in ["Calendar Spread", "Straddle Buy"]:
+            max_strategy_loss = premium * 0.7
+            loss = min(loss, max_strategy_loss)
+            pnl = premium - loss if nifty_move > breakeven else -loss
+        else:
+            payoff = premium if nifty_move <= breakeven else 0
+            loss = min(loss, premium * 0.35)
+            pnl = payoff - loss
+
+        pnl = apply_volatility_shock(pnl, nifty_move, day_data["ATM_IV"], day_data["Event_Flag"])
+        if (day_data["Event_Flag"] == 1 or day_data["ATM_IV"] > 25) and np.random.rand() < 0.08:
+            gap_loss = premium * np.random.uniform(0.5, 1.0)
+            pnl -= gap_loss
+        if np.random.rand() < 0.02:
+            crash_loss = premium * np.random.uniform(1.0, 1.5)
+            pnl -= crash_loss
+
+        pnl = max(-max_loss, min(pnl, max_loss * 1.5))
+        portfolio_pnl += pnl
+
+        backtest_results.append({
+            "Date": date,
+            "Regime": regime,
+            "Strategy": strategy,
+            "PnL": pnl,
+            "Capital_Deployed": deploy,
+            "Max_Loss": max_loss,
+            "Risk_Reward": risk_reward
+        })
+
+    backtest_df = pd.DataFrame(backtest_results)
+    if len(backtest_df) == 0:
+        return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+
+    total_pnl = backtest_df["PnL"].sum()
+    win_rate = len(backtest_df[backtest_df["PnL"] > 0]) / len(backtest_df)
+    max_drawdown = (backtest_df["PnL"].cumsum().cummax() - backtest_df["PnL"].cumsum()).max()
+
+    backtest_df.set_index("Date", inplace=True)
+    returns = backtest_df["PnL"] / df["Total_Capital"].reindex(backtest_df.index, method="ffill")
+    nifty_returns = df["NIFTY_Close"].pct_change().reindex(backtest_df.index, method="ffill").fillna(0)
+    excess_returns = returns - nifty_returns - risk_free_rate
+    sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(126) if excess_returns.std() != 0 else 0
+    sortino_ratio = excess_returns.mean() / excess_returns[excess_returns < 0].std() * np.sqrt(126) if len(excess_returns[excess_returns < 0]) > 0 and excess_returns[excess_returns < 0].std() != 0 else 0
+    calmar_ratio = (total_pnl / capital) / (max_drawdown / capital) if max_drawdown != 0 else 0
+
+    strategy_perf = backtest_df.groupby("Strategy")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
+    strategy_perf["Win_Rate"] = backtest_df.groupby("Strategy")["PnL"].apply(lambda x: len(x[x > 0]) / len(x)).reset_index(drop=True)
+    regime_perf = backtest_df.groupby("Regime")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
+    regime_perf["Win_Rate"] = backtest_df.groupby("Regime")["PnL"].apply(lambda x: len(x[x > 0]) / len(x)).reset_index(drop=True)
+
+    return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
+
 # Main execution
 if run_button:
     with st.spinner("Initializing AI Copilot..."):
         df = load_data()
         if df is not None:
-            df = generate_synthetic_features(df)
+            df = generate_synthetic_features(df, capital)
 
             # Display Latest Market Data
             st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -662,6 +847,59 @@ if run_button:
                 """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # Backtest Results
+                df_backtest = df.loc[start_date:end_date]
+                if len(df_backtest) == 0:
+                    st.error("No data available for the selected date range.")
+                else:
+                    with st.spinner("Running backtest..."):
+                        backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df_backtest, capital, strategy_choice)
+
+                    if len(backtest_df) == 0:
+                        st.error("No trades generated. Try a different strategy or date range.")
+                    else:
+                        st.markdown('<div class="card">', unsafe_allow_html=True)
+                        st.subheader("📊 Backtest Results")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total PnL", f"₹{total_pnl:,.2f}", help="Total profit and loss")
+                            st.metric("Total Return", f"{total_pnl / capital * 100:.2f}%", help="Percentage return on capital")
+                        with col2:
+                            st.metric("Win Rate", f"{win_rate:.2%}", help="Percentage of winning trades")
+                            st.metric("Max Drawdown", f"₹{max_drawdown:,.2f} ({max_drawdown / capital * 100:.2f}%)", help="Maximum loss from peak")
+                        with col3:
+                            st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}", help="Risk-adjusted return")
+                            st.metric("Sortino Ratio", f"{sortino_ratio:.2f}", help="Downside risk-adjusted return")
+                            st.metric("Calmar Ratio", f"{calmar_ratio:.2f}", help="Return per unit of drawdown")
+
+                        st.markdown("### Strategy-wise Performance")
+                        st.dataframe(strategy_perf, use_container_width=True)
+
+                        st.markdown("### Regime-wise Performance")
+                        st.dataframe(regime_perf, use_container_width=True)
+
+                        st.markdown("### Cumulative PnL")
+                        fig, ax = plt.subplots()
+                        backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560")
+                        ax.set_title("Cumulative PnL", color="#e5e5e5")
+                        ax.set_xlabel("Date", color="#e5e5e5")
+                        ax.set_ylabel("PnL (₹)", color="#e5e5e5")
+                        ax.grid(True, color="#a0a0a0", linestyle="--")
+                        ax.set_facecolor("#0f1c2e")
+                        fig.set_facecolor("#1a1a2e")
+                        ax.tick_params(colors="#e5e5e5")
+                        st.pyplot(fig)
+
+                        st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events.")
+
+                        st.download_button(
+                            label="Download Backtest Results",
+                            data=backtest_df.reset_index().to_csv(index=False),
+                            file_name="backtest_results.csv",
+                            mime="text/csv"
+                        )
+                        st.markdown('</div>', unsafe_allow_html=True)
+
                 # Journaling Prompt Card
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📝 Journaling Prompt")
@@ -673,7 +911,7 @@ if run_button:
                 # Export Functionality
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("📤 Export Insights")
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     csv = forecast_log.to_csv(index=False)
                     st.download_button(
@@ -690,6 +928,15 @@ if run_button:
                         data=strategy_csv,
                         file_name="volguard_strategy.csv",
                         mime="text/csv"
+                    )
+                with col3:
+                    backtest_csv = backtest_df.reset_index().to_csv(index=False) if len(backtest_df) > 0 else ""
+                    st.download_button(
+                        label="Download Backtest (CSV)",
+                        data=backtest_csv,
+                        file_name="backtest_results.csv",
+                        mime="text/csv",
+                        disabled=len(backtest_df) == 0
                     )
                 st.markdown('</div>', unsafe_allow_html=True)
 
