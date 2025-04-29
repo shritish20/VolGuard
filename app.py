@@ -990,11 +990,11 @@ if run_button:
                     # Footer
                     st.markdown("""
                         <div class="footer">
-                            VolGuard: Protection First, Edge Always | Built by Shritish Shukla & AI Co-Founder<br>
-                            "We don't predict direction - we predict conditions. We deploy edge, survive, and outlast."
+                            VolGuard: Protection First, Edge Always | Built by Shritish Shukla & Salman Azim<br>
+                            "This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions."
                         </div>
                     """, unsafe_allow_html=True)
 
 else:
     st.info("Set parameters and activate VolGuard to begin your journey.")
-    st.warning("This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.")
+    
