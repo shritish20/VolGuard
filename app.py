@@ -183,7 +183,8 @@ with st.sidebar:
     start_date = st.date_input("Start Date", value=pd.to_datetime("2024-10-21"), key="start_date")
     end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
     strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"], key="strategy_select")
-    run_button = st.button("Activate VolGuard", key="run_button")
+    run_forecast_button = st.button("Run Forecast & Strategy", key="forecast_button")
+    run_backtest_button = st.button("Run Backtest", key="backtest_button")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
@@ -734,7 +735,7 @@ def run_backtest(df, capital, strategy_choice):
     return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
 
 # Main execution
-if run_button:
+if run_forecast_button or run_backtest_button:
     with st.spinner("Initializing AI Copilot..."):
         df = load_data()
         if df is not None:
@@ -772,82 +773,114 @@ if run_button:
             st.markdown(f"**Last Updated**: {last_date}")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            with st.spinner("Predicting market volatility..."):
-                forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
+            if run_forecast_button:
+                with st.spinner("Predicting market volatility..."):
+                    forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
 
-            if forecast_log is not None:
-                # Volatility Forecast Card
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📈 Volatility Forecast")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
-                with col2:
-                    st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%", help="Historical volatility over the last 5 days")
-                with col3:
-                    st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%", help="XGBoost model's root mean squared error")
-                    st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
-                    st.markdown("**Confidence Score**", unsafe_allow_html=True)
-                    st.markdown(f'<div class="progress-bar"><div class="progress-fill" style="width: {confidence_score}%"></div></div>', unsafe_allow_html=True)
+                if forecast_log is not None:
+                    # Volatility Forecast Card
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📈 Volatility Forecast")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
+                    with col2:
+                        st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%", help="Historical volatility over the last 5 days")
+                    with col3:
+                        st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%", help="XGBoost model's root mean squared error")
+                        st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
+                        st.markdown("**Confidence Score**", unsafe_allow_html=True)
+                        st.markdown(f'<div class="progress-bar"><div class="progress-fill" style="width: {confidence_score}%"></div></div>', unsafe_allow_html=True)
 
-                # Forecast Chart
-                st.markdown("### Volatility Forecast Trend")
-                chart_data = pd.DataFrame({
-                    "Date": forecast_log["Date"],
-                    "GARCH": garch_vols,
-                    "XGBoost": xgb_vols,
-                    "Blended": blended_vols
-                }).set_index("Date")
-                st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"], use_container_width=True)
+                    # Forecast Chart
+                    st.markdown("### Volatility Forecast Trend")
+                    chart_data = pd.DataFrame({
+                        "Date": forecast_log["Date"],
+                        "GARCH": garch_vols,
+                        "XGBoost": xgb_vols,
+                        "Blended": blended_vols
+                    }).set_index("Date")
+                    st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"], use_container_width=True)
 
-                # Daily Breakdown
-                st.markdown("### Daily Volatility Breakdown")
-                for i in range(forecast_horizon):
-                    date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
-                    st.markdown(f'<div class="signal-box">📡 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    # Daily Breakdown
+                    st.markdown("### Daily Volatility Breakdown")
+                    for i in range(forecast_horizon):
+                        date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
+                        st.markdown(f'<div class="signal-box">📡 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                # Feature Importance
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("🔍 Feature Importance")
-                feature_importance = pd.DataFrame({
-                    'Feature': [
-                        'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-                        'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-                        'FII_Option_Pos'
-                    ],
-                    'Importance': feature_importances
-                }).sort_values(by='Importance', ascending=False)
-                st.dataframe(feature_importance, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    # Feature Importance
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("🔍 Feature Importance")
+                    feature_importance = pd.DataFrame({
+                        'Feature': [
+                            'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+                            'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+                            'FII_Option_Pos'
+                        ],
+                        'Importance': feature_importances
+                    }).sort_values(by='Importance', ascending=False)
+                    st.dataframe(feature_importance, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                # Trading Strategy Card
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("🎯 Trading Strategy")
-                strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
-                regime_class = {
-                    "LOW": "regime-low",
-                    "MEDIUM": "regime-medium",
-                    "HIGH": "regime-high",
-                    "EVENT-DRIVEN": "regime-event"
-                }.get(strategy["Regime"], "regime-low")
-                st.markdown(f"""
-                    **Volatility Regime**: <span class="regime-badge {regime_class}">{strategy["Regime"]}</span> (Avg Vol: {np.mean(blended_vols):.2f}%)  
-                    **Suggested Strategy**: {strategy["Strategy"]}  
-                    **Reason**: {strategy["Reason"]}  
-                    **Tags**: {', '.join(strategy["Tags"])}  
-                    **Confidence Score**: {strategy["Confidence"]:.2f}  
-                    **Risk-Reward Expectation**: {strategy["Risk_Reward"]:.2f}:1  
-                    **Capital to Deploy**: ₹{strategy["Deploy"]:,.0f}  
-                    **Max Risk Allowed**: ₹{strategy["Max_Loss"]:,.0f}  
-                    **Exposure**: {strategy["Exposure"]*100:.2f}%  
-                    **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
-                    **Behavior Score**: {strategy["Behavior_Score"]}/10  
-                    **Behavioral Warnings**: {', '.join(strategy["Behavior_Warnings"]) if strategy["Behavior_Warnings"] else "None"}
-                """, unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    # Trading Strategy Card
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("🎯 Trading Strategy")
+                    strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
+                    regime_class = {
+                        "LOW": "regime-low",
+                        "MEDIUM": "regime-medium",
+                        "HIGH": "regime-high",
+                        "EVENT-DRIVEN": "regime-event"
+                    }.get(strategy["Regime"], "regime-low")
+                    st.markdown(f"""
+                        **Volatility Regime**: <span class="regime-badge {regime_class}">{strategy["Regime"]}</span> (Avg Vol: {np.mean(blended_vols):.2f}%)  
+                        **Suggested Strategy**: {strategy["Strategy"]}  
+                        **Reason**: {strategy["Reason"]}  
+                        **Tags**: {', '.join(strategy["Tags"])}  
+                        **Confidence Score**: {strategy["Confidence"]:.2f}  
+                        **Risk-Reward Expectation**: {strategy["Risk_Reward"]:.2f}:1  
+                        **Capital to Deploy**: ₹{strategy["Deploy"]:,.0f}  
+                        **Max Risk Allowed**: ₹{strategy["Max_Loss"]:,.0f}  
+                        **Exposure**: {strategy["Exposure"]*100:.2f}%  
+                        **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
+                        **Behavior Score**: {strategy["Behavior_Score"]}/10  
+                        **Behavioral Warnings**: {', '.join(strategy["Behavior_Warnings"]) if strategy["Behavior_Warnings"] else "None"}
+                    """, unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                # Backtest Results
+                    # Journaling Prompt Card
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📝 Journaling Prompt")
+                    journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
+                    if st.button("Save Reflection", key="save_button"):
+                        st.success("Reflection saved!")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    # Export Functionality
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📤 Export Insights")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        csv = forecast_log.to_csv(index=False)
+                        st.download_button(
+                            label="Download Forecast (CSV)",
+                            data=csv,
+                            file_name="volguard_forecast.csv",
+                            mime="text/csv"
+                        )
+                    with col2:
+                        strategy_df = pd.DataFrame([strategy])
+                        strategy_csv = strategy_df.to_csv(index=False)
+                        st.download_button(
+                            label="Download Strategy (CSV)",
+                            data=strategy_csv,
+                            file_name="volguard_strategy.csv",
+                            mime="text/csv"
+                        )
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+            if run_backtest_button:
                 df_backtest = df.loc[start_date:end_date]
                 if len(df_backtest) == 0:
                     st.error("No data available for the selected date range.")
@@ -858,8 +891,11 @@ if run_button:
                     if len(backtest_df) == 0:
                         st.error("No trades generated. Try a different strategy or date range.")
                     else:
+                        # Dedicated Backtest Results Card
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📊 Backtest Results")
+                        st.subheader("📊 Backtest Performance")
+                        st.markdown(f"**Period**: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}")
+                        st.markdown(f"**Strategy Tested**: {strategy_choice}")
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Total PnL", f"₹{total_pnl:,.2f}", help="Total profit and loss")
@@ -879,12 +915,12 @@ if run_button:
                         st.dataframe(regime_perf, use_container_width=True)
 
                         st.markdown("### Cumulative PnL")
-                        fig, ax = plt.subplots()
-                        backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560")
-                        ax.set_title("Cumulative PnL", color="#e5e5e5")
-                        ax.set_xlabel("Date", color="#e5e5e5")
-                        ax.set_ylabel("PnL (₹)", color="#e5e5e5")
-                        ax.grid(True, color="#a0a0a0", linestyle="--")
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560", linewidth=2)
+                        ax.set_title("Cumulative PnL Over Time", color="#e5e5e5", fontsize=14)
+                        ax.set_xlabel("Date", color="#e5e5e5", fontsize=12)
+                        ax.set_ylabel("PnL (₹)", color="#e5e5e5", fontsize=12)
+                        ax.grid(True, color="#a0a0a0", linestyle="--", alpha=0.5)
                         ax.set_facecolor("#0f1c2e")
                         fig.set_facecolor("#1a1a2e")
                         ax.tick_params(colors="#e5e5e5")
@@ -893,60 +929,20 @@ if run_button:
                         st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events.")
 
                         st.download_button(
-                            label="Download Backtest Results",
+                            label="Download Backtest Results (CSV)",
                             data=backtest_df.reset_index().to_csv(index=False),
                             file_name="backtest_results.csv",
                             mime="text/csv"
                         )
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                # Journaling Prompt Card
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📝 Journaling Prompt")
-                journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
-                if st.button("Save Reflection", key="save_button"):
-                    st.success("Reflection saved!")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                # Export Functionality
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📤 Export Insights")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    csv = forecast_log.to_csv(index=False)
-                    st.download_button(
-                        label="Download Forecast (CSV)",
-                        data=csv,
-                        file_name="volguard_forecast.csv",
-                        mime="text/csv"
-                    )
-                with col2:
-                    strategy_df = pd.DataFrame([strategy])
-                    strategy_csv = strategy_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Strategy (CSV)",
-                        data=strategy_csv,
-                        file_name="volguard_strategy.csv",
-                        mime="text/csv"
-                    )
-                with col3:
-                    backtest_csv = backtest_df.reset_index().to_csv(index=False) if len(backtest_df) > 0 else ""
-                    st.download_button(
-                        label="Download Backtest (CSV)",
-                        data=backtest_csv,
-                        file_name="backtest_results.csv",
-                        mime="text/csv",
-                        disabled=len(backtest_df) == 0
-                    )
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                # Footer
-                st.markdown("""
-                    <div class="footer">
-                        VolGuard: Protection First, Edge Always | Built by Shritish Shukla & AI Co-Founder<br>
-                        "We don't predict direction - we predict conditions. We deploy edge, survive, and outlast."
-                    </div>
-                """, unsafe_allow_html=True)
+            # Footer
+            st.markdown("""
+                <div class="footer">
+                    VolGuard: Protection First, Edge Always | Built by Shritish Shukla & AI Co-Founder<br>
+                    "We don't predict direction - we predict conditions. We deploy edge, survive, and outlast."
+                </div>
+            """, unsafe_allow_html=True)
 
 else:
-    st.info("Set parameters and activate VolGuard to begin your journey.")
+    st.info("Run Forecast & Strategy or Backtest to begin your VolGuard journey.")
