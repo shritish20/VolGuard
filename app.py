@@ -176,7 +176,8 @@ st.markdown("""
 
 # Header
 st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** | Built by Shritish Shukla & Salman Azim")
+st.markdown("**Protection First, Edge Always** 
+| Built by Shritish Shukla & Salman Azim")
 
 # Initialize session state
 if "backtest_run" not in st.session_state:
