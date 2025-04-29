@@ -9,3 +9,4 @@ plotly
 py5paisa 
 python-dotenv
 pytz
+matplotlib
