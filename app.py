@@ -193,7 +193,7 @@ with st.sidebar:
     st.markdown("**Backtest Parameters**")
     start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"), key="start_date")
     end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
-    strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"], key="strategy_select")
+    strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"], key="strategy_select")
     run_button = st.button("Run Analysis", key="run_button")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
@@ -443,7 +443,7 @@ def forecast_volatility_future(df, forecast_horizon):
         logger.error(f"Error in volatility forecasting: {str(e)}")
         return None, None, None, None, None, None, None, None
 
-# Function to generate trading strategy
+# Function to generate trading strategy (Option Selling Only)
 @st.cache_data
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
     try:
@@ -488,7 +488,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             if iv_hv_gap > 3 and iv_skew > 2:
                 strategy = "Calendar Spread"
                 reason = "IV skew and medium vol suggest potential vol expansion."
-                tags = ["Volatility Play", "Directional", "Skew"]
+                tags = ["Volatility Play", "Neutral", "Skew"]
                 risk_reward = 1.8
             else:
                 strategy = "Short Strangle"
@@ -502,9 +502,9 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
                 tags = ["Skewed", "Volatility", "Defined Risk"]
                 risk_reward = 1.2
             else:
-                strategy = "Debit Spread"
-                reason = "High vol implies limited premium edge. Go directional."
-                tags = ["Directional", "Volatility Hedge", "Defined Risk"]
+                strategy = "Iron Condor"
+                reason = "High vol favors wide-range Iron Condor for premium collection."
+                tags = ["Neutral", "Theta", "Range Bound"]
 
         elif regime == "EVENT-DRIVEN":
             if iv > 30 and dte < 5:
@@ -513,10 +513,9 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
                 tags = ["Volatility", "Event", "Calendar"]
                 risk_reward = 1.5
             else:
-                strategy = "Straddle Buy"
-                reason = "Event-based uncertainty. Straddle captures large moves."
-                tags = ["High Gamma", "Event", "Directional Bias"]
-                risk_reward = 1.3
+                strategy = "Iron Fly"
+                reason = "Event-based uncertainty favors defined-risk Iron Fly."
+                tags = ["Neutral", "Theta", "Event"]
 
         capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
         position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
@@ -525,7 +524,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         total_exposure = deploy / capital
 
         risk_flags = []
-        if regime in ["HIGH", "EVENT-DRIVEN"] and strategy in ["Short Strangle", "Iron Fly"]:
+        if regime in ["HIGH", "EVENT-DRIVEN"] and strategy in ["Short Strangle"]:
             risk_flags.append("No naked legs allowed in HIGH/EVENT-DRIVEN regimes")
         if latest["PnL_Day"] < -0.03 * capital:
             risk_flags.append("Daily drawdown exceeds 3%")
@@ -557,7 +556,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         logger.error(f"Error generating strategy: {str(e)}")
         return None
 
-# Function for backtesting
+# Function for backtesting (Option Selling Only)
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
         logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
@@ -644,9 +643,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                         tags = ["Skewed", "Volatility", "Defined Risk"]
                         risk_reward = 1.2
                     else:
-                        strategy = "Debit Spread"
-                        reason = "High vol implies limited premium edge. Go directional."
-                        tags = ["Directional", "Volatility Hedge", "Defined Risk"]
+                        strategy = "Iron Condor"
+                        reason = "High vol favors wide-range Iron Condor for premium collection."
+                        tags = ["Neutral", "Theta", "Range Bound"]
 
                 elif regime == "EVENT-DRIVEN":
                     if iv > 30 and dte < 5:
@@ -655,14 +654,13 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                         tags = ["Volatility", "Event", "Calendar"]
                         risk_reward = 1.5
                     else:
-                        strategy = "Straddle Buy"
-                        reason = "Event-based uncertainty. Straddle captures large moves."
-                        tags = ["High Gamma", "Event", "Directional Bias"]
-                        risk_reward = 1.3
+                        strategy = "Iron Fly"
+                        reason = "Event-based uncertainty favors defined-risk Iron Fly."
+                        tags = ["Neutral", "Theta", "Event"]
 
                 capital = day_data["Total_Capital"]
-                capital_alloc = {"LOW": 0.08, "MEDIUM": 0.06, "HIGH": 0.04, "EVENT-DRIVEN": 0.04}
-                deploy = capital * capital_alloc.get(regime, 0.04)
+                capital_alloc = {"LOW": 0.10, "MEDIUM": 0.08, "HIGH": 0.06, "EVENT-DRIVEN": 0.06}
+                deploy = capital * capital_alloc.get(regime, 0.06)
                 max_loss = deploy * 0.025
                 return regime, strategy, reason, tags, deploy, max_loss, risk_reward
             except Exception as e:
@@ -677,10 +675,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 "Iron Condor": 1.8,
                 "Butterfly Spread": 2.2,
                 "Iron Fly": 1.5,
-                "Calendar Spread": 1.2,
-                "Jade Lizard": 1.2,
-                "Debit Spread": 1.2,
-                "Straddle Buy": 1.2
+                "Short Strangle": 1.6,
+                "Calendar Spread": 1.3,
+                "Jade Lizard": 1.4
             }
             return base_slippage * strategy_multipliers.get(strategy, 1.0) * iv_multiplier * dte_factor
 
@@ -732,18 +729,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 nifty_move = abs(day_data["NIFTY_Close"] - prev_day["NIFTY_Close"])
                 loss = max(0, nifty_move - breakeven) * lot_size * lots
 
-                if strategy in ["Short Strangle", "Iron Fly", "Iron Condor"]:
-                    max_strategy_loss = premium * 0.6 if strategy in ["Iron Fly", "Iron Condor"] else premium * 0.8
-                    loss = min(loss, max_strategy_loss)
-                    pnl = premium - loss
-                elif strategy in ["Calendar Spread", "Straddle Buy"]:
-                    max_strategy_loss = premium * 0.7
-                    loss = min(loss, max_strategy_loss)
-                    pnl = premium - loss if nifty_move > breakeven else -loss
-                else:
-                    payoff = premium if nifty_move <= breakeven else 0
-                    loss = min(loss, premium * 0.35)
-                    pnl = payoff - loss
+                max_strategy_loss = premium * 0.6 if strategy in ["Iron Fly", "Iron Condor"] else premium * 0.8
+                loss = min(loss, max_strategy_loss)
+                pnl = premium - loss
 
                 pnl = apply_volatility_shock(pnl, nifty_move, day_data["ATM_IV"], day_data["Event_Flag"])
                 if (day_data["Event_Flag"] == 1 or day_data["ATM_IV"] > 25) and np.random.rand() < 0.08:
@@ -920,7 +908,7 @@ if run_button:
                     # Backtest Section
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.subheader("📊 Backtest Performance")
-                    st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}.")
+                    st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')} (Option Selling Strategies Only).")
                     
                     with st.spinner("Running backtest..."):
                         # Validate date range
@@ -966,7 +954,7 @@ if run_button:
                             st.markdown("### Cumulative PnL")
                             fig, ax = plt.subplots(figsize=(10, 5))
                             backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560", linewidth=2)
-                            ax.set_title("Cumulative PnL Over Time", color="#e5e5e5", fontsize=14)
+                            ax.set_title("Cumulative PnL Over Time (Option Selling)", color="#e5e5e5", fontsize=14)
                             ax.set_xlabel("Date", color="#e5e5e5", fontsize=12)
                             ax.set_ylabel("PnL (₹)", color="#e5e5e5", fontsize=12)
                             ax.grid(True, color="#a0a0a0", linestyle="--", alpha=0.5)
@@ -975,7 +963,7 @@ if run_button:
                             ax.tick_params(colors="#e5e5e5")
                             st.pyplot(fig)
 
-                            st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events.")
+                            st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events. Results reflect option selling strategies only.")
 
                             st.download_button(
                                 label="Download Backtest Results (CSV)",
