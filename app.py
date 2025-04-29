@@ -198,7 +198,7 @@ def load_data():
         nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
         nifty.index = pd.to_datetime(nifty.index)
         nifty = nifty[~nifty.index.duplicated(keep='first')]
-        nifty_series = nifty["NIFTY_Close"]
+        nifty_series = nifty["NIFTY_Close"].squeeze()  # Ensure 1D series
 
         vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
         try:
@@ -221,7 +221,7 @@ def load_data():
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix.index = pd.to_datetime(vix.index)
         vix = vix[~vix.index.duplicated(keep='first')]
-        vix_series = vix["VIX"]
+        vix_series = vix["VIX"].squeeze()  # Ensure 1D series
 
         common_dates = nifty_series.index.intersection(vix_series.index)
         if len(common_dates) < 200:
@@ -928,7 +928,7 @@ if run_button:
                             st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events.")
 
                             st.download_button(
-                                label="Download Backtest Results (CSV)",
+                                label=" W Download Backtest Results (CSV)",
                                 data=backtest_df.reset_index().to_csv(index=False),
                                 file_name="backtest_results.csv",
                                 mime="text/csv"
