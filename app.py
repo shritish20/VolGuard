@@ -191,10 +191,10 @@ with st.sidebar:
     capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
     risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
     st.markdown("**Backtest Parameters**")
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-10-21"), key="start_date")
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"), key="start_date")
     end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
     strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"], key="strategy_select")
-    run_button = st.button("Activate VolGuard", key="run_button")
+    run_button = st.button("Run Analysis", key="run_button")
     st.markdown("---")
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
@@ -203,7 +203,7 @@ with st.sidebar:
 def load_data():
     try:
         logger.debug("Fetching NIFTY 50 data...")
-        nifty = yf.download("^NSEI", period="1y", interval="1d")
+        nifty = yf.download("^NSEI", period="2y", interval="1d")
         if nifty.empty or len(nifty) < 200:
             st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
             return None
@@ -560,14 +560,34 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
 # Function for backtesting
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
-        logger.debug("Starting backtest...")
+        logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
+        # Validate inputs
+        if df.empty:
+            st.error("Backtest failed: No data available.")
+            logger.error("Backtest failed: Empty DataFrame")
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+        
+        df_backtest = df.loc[start_date:end_date].copy()
+        if len(df_backtest) < 50:
+            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days). Need at least 50 days.")
+            logger.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+        
+        # Ensure required columns exist
+        required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
+        missing_cols = [col for col in required_cols if col not in df_backtest.columns]
+        if missing_cols:
+            st.error(f"Backtest failed: Missing columns {missing_cols}")
+            logger.error(f"Backtest failed: Missing columns {missing_cols}")
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+
         backtest_results = []
         lot_size = 25
         base_transaction_cost = 0.002
         stt = 0.0005
         portfolio_pnl = 0
         risk_free_rate = 0.06 / 126
-        nifty_returns = df["NIFTY_Close"].pct_change()
+        nifty_returns = df_backtest["NIFTY_Close"].pct_change()
 
         def run_strategy_engine(day_data, avg_vol, portfolio_pnl):
             try:
@@ -647,21 +667,22 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 return regime, strategy, reason, tags, deploy, max_loss, risk_reward
             except Exception as e:
                 logger.error(f"Error in strategy engine: {str(e)}")
-                return None, None, "Strategy engine failed", [], 0, 0, 0
+                return None, None, f"Strategy engine failed: {str(e)}", [], 0, 0, 0
 
         def get_dynamic_slippage(strategy, iv, dte):
             base_slippage = 0.005
             iv_multiplier = min(iv / 20, 2.5)
             dte_factor = 1.5 if dte < 5 else 1.0
-            if strategy == "Iron Condor":
-                return base_slippage * 1.8 * iv_multiplier * dte_factor
-            elif strategy == "Butterfly Spread":
-                return base_slippage * 2.2 * iv_multiplier * dte_factor
-            elif strategy == "Iron Fly":
-                return base_slippage * 1.5 * iv_multiplier * dte_factor
-            elif strategy in ["Calendar Spread", "Jade Lizard", "Debit Spread", "Straddle Buy"]:
-                return base_slippage * 1.2 * iv_multiplier * dte_factor
-            return base_slippage * iv_multiplier * dte_factor
+            strategy_multipliers = {
+                "Iron Condor": 1.8,
+                "Butterfly Spread": 2.2,
+                "Iron Fly": 1.5,
+                "Calendar Spread": 1.2,
+                "Jade Lizard": 1.2,
+                "Debit Spread": 1.2,
+                "Straddle Buy": 1.2
+            }
+            return base_slippage * strategy_multipliers.get(strategy, 1.0) * iv_multiplier * dte_factor
 
         def apply_volatility_shock(pnl, nifty_move, iv, event_flag):
             shock_prob = 0.35 if event_flag == 1 else 0.20
@@ -681,12 +702,12 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 return premium * 0.9
             return premium
 
-        for i in range(1, len(df)):
+        for i in range(1, len(df_backtest)):
             try:
-                day_data = df.iloc[i]
-                prev_day = df.iloc[i-1]
+                day_data = df_backtest.iloc[i]
+                prev_day = df_backtest.iloc[i-1]
                 date = day_data.name
-                avg_vol = df["Realized_Vol"].iloc[max(0, i-5):i].mean()
+                avg_vol = df_backtest["Realized_Vol"].iloc[max(0, i-5):i].mean()
 
                 regime, strategy, reason, tags, deploy, max_loss, risk_reward = run_strategy_engine(day_data, avg_vol, portfolio_pnl)
                 
@@ -750,7 +771,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
         backtest_df = pd.DataFrame(backtest_results)
         if len(backtest_df) == 0:
-            logger.warning("No trades generated in backtest.")
+            logger.warning(f"No trades generated for {strategy_choice} from {start_date} to {end_date}")
             return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         total_pnl = backtest_df["PnL"].sum()
@@ -758,8 +779,8 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         max_drawdown = (backtest_df["PnL"].cumsum().cummax() - backtest_df["PnL"].cumsum()).max() if len(backtest_df) > 0 else 0
 
         backtest_df.set_index("Date", inplace=True)
-        returns = backtest_df["PnL"] / df["Total_Capital"].reindex(backtest_df.index, method="ffill")
-        nifty_returns = df["NIFTY_Close"].pct_change().reindex(backtest_df.index, method="ffill").fillna(0)
+        returns = backtest_df["PnL"] / df_backtest["Total_Capital"].reindex(backtest_df.index, method="ffill")
+        nifty_returns = df_backtest["NIFTY_Close"].pct_change().reindex(backtest_df.index, method="ffill").fillna(0)
         excess_returns = returns - nifty_returns - risk_free_rate
         sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(126) if excess_returns.std() != 0 else 0
         sortino_ratio = excess_returns.mean() / excess_returns[excess_returns < 0].std() * np.sqrt(126) if len(excess_returns[excess_returns < 0]) > 0 and excess_returns[excess_returns < 0].std() != 0 else 0
@@ -779,7 +800,11 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
 # Main execution
 if run_button:
-    with st.spinner("Initializing AI Copilot..."):
+    with st.spinner("Running VolGuard Analysis..."):
+        # Reset previous backtest results
+        st.session_state.backtest_run = False
+        st.session_state.backtest_results = None
+
         df = load_data()
         if df is not None:
             df = generate_synthetic_features(df, capital)
@@ -892,59 +917,32 @@ if run_button:
                         """, unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Journaling Prompt Card
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
-                    st.subheader("📝 Journaling Prompt")
-                    journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
-                    if st.button("Save Reflection", key="save_button"):
-                        st.success("Reflection saved!")
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    # Export Functionality
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
-                    st.subheader("📤 Export Insights")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        csv = forecast_log.to_csv(index=False)
-                        st.download_button(
-                            label="Download Forecast (CSV)",
-                            data=csv,
-                            file_name="volguard_forecast.csv",
-                            mime="text/csv"
-                        )
-                    with col2:
-                        if strategy is not None:
-                            strategy_df = pd.DataFrame([strategy])
-                            strategy_csv = strategy_df.to_csv(index=False)
-                            st.download_button(
-                                label="Download Strategy (CSV)",
-                                data=strategy_csv,
-                                file_name="volguard_strategy.csv",
-                                mime="text/csv"
-                            )
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    # Backtest Section (Last)
+                    # Backtest Section
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.subheader("📊 Backtest Performance")
-                    st.markdown("Evaluate historical performance of your selected strategy.")
-                    if st.button("Run Backtest", key="backtest_button"):
-                        st.session_state.backtest_run = True
-                        df_backtest = df.loc[start_date:end_date]
-                        if len(df_backtest) == 0:
-                            st.error("No data available for the selected date range.")
-                            st.session_state.backtest_run = False
+                    st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}.")
+                    
+                    with st.spinner("Running backtest..."):
+                        # Validate date range
+                        if start_date >= end_date:
+                            st.error("Backtest failed: Start date must be before end date.")
+                            logger.error("Backtest failed: Invalid date range")
+                        elif start_date < df.index[0].date() or end_date > df.index[-1].date():
+                            st.error("Backtest failed: Selected date range is outside available data.")
+                            logger.error(f"Backtest failed: Date range {start_date} to {end_date} outside data range {df.index[0].date()} to {df.index[-1].date()}")
                         else:
-                            with st.spinner("Running backtest..."):
-                                backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df_backtest, capital, strategy_choice, start_date, end_date)
-                                st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
+                            st.session_state.backtest_run = True
+                            backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df, capital, strategy_choice, start_date, end_date)
+                            st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
 
-                    # Display backtest results if available
+                    # Display backtest results
                     if st.session_state.backtest_run and st.session_state.backtest_results is not None:
                         backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = st.session_state.backtest_results
                         if len(backtest_df) == 0:
-                            st.error("No trades generated. Try a different strategy or date range.")
+                            st.error("No trades generated. Try selecting 'All Strategies' or a wider date range.")
+                            logger.warning("Backtest produced no trades")
                         else:
+                            st.success("Backtest completed successfully!")
                             st.markdown(f"**Period**: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}")
                             st.markdown(f"**Strategy Tested**: {strategy_choice}")
                             col1, col2, col3 = st.columns(3)
@@ -987,14 +985,46 @@ if run_button:
                             )
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Journaling Prompt Card
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📝 Journaling Prompt")
+                    journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
+                    if st.button("Save Reflection", key="save_button"):
+                        st.success("Reflection saved!")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    # Export Functionality
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📤 Export Insights")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        csv = forecast_log.to_csv(index=False)
+                        st.download_button(
+                            label="Download Forecast (CSV)",
+                            data=csv,
+                            file_name="volguard_forecast.csv",
+                            mime="text/csv"
+                        )
+                    with col2:
+                        if strategy is not None:
+                            strategy_df = pd.DataFrame([strategy])
+                            strategy_csv = strategy_df.to_csv(index=False)
+                            st.download_button(
+                                label="Download Strategy (CSV)",
+                                data=strategy_csv,
+                                file_name="volguard_strategy.csv",
+                                mime="text/csv"
+                            )
+                    st.markdown('</div>', unsafe_allow_html=True)
+
                     # Footer
                     st.markdown("""
                         <div class="footer">
                             VolGuard: Protection First, Edge Always | Built by Shritish Shukla & Salman Azim<br>
-                            "This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions."
+                            ⚠️ This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.
                         </div>
                     """, unsafe_allow_html=True)
 
 else:
-    st.info("Set parameters and activate VolGuard to begin your journey.")
+    st.info("Set parameters and click 'Run Analysis' to begin your journey.")
     st.warning("⚠️ This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.")
