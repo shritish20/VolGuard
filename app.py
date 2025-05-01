@@ -199,15 +199,31 @@ with st.sidebar:
     st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
 # Function to load data
-@st.cache_data
+@st.cache_data(ttl=86400)  # Cache for 1 day
 def load_data():
     try:
         logger.debug("Fetching NIFTY 50 data...")
+        # Try Yahoo Finance first
         nifty = yf.download("^NSEI", period="2y", interval="1d")
         if nifty.empty or len(nifty) < 200:
-            st.error("Failed to fetch sufficient NIFTY 50 data from Yahoo Finance.")
-            return None
-        nifty = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"})
+            logger.warning("Yahoo Finance data incomplete. Falling back to GitHub CSV.")
+            # Fallback to GitHub-hosted NIFTY CSV
+            fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty1year.csv"
+            response = requests.get(fallback_url)
+            response.raise_for_status()
+            nifty = pd.read_csv(io.StringIO(response.text), parse_dates=["Date"])
+            if "Date" not in nifty.columns or "Close" not in nifty.columns:
+                st.error("NIFTY CSV missing 'Date' or 'Close' columns.")
+                return None
+            nifty = nifty[["Date", "Close"]].set_index("Date")
+            nifty.index = pd.to_datetime(nifty.index)
+            if len(nifty) < 200:
+                st.error(f"Insufficient NIFTY data from GitHub: {len(nifty)} days.")
+                return None
+        else:
+            nifty = nifty[["Close"]]
+        
+        nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
         nifty.index = pd.to_datetime(nifty.index)
         nifty = nifty[~nifty.index.duplicated(keep='first')]
         nifty_series = nifty["NIFTY_Close"].squeeze()
@@ -314,7 +330,7 @@ def generate_synthetic_features(df, capital):
         df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
         df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
         df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
-        df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
+        df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std* np.sqrt(252) * 100
         df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
         df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
         df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
@@ -495,7 +511,12 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
                 reason = "Balanced vol, no events, and premium-rich environment."
                 tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
-        elif regime == "HIGH":
+        elif Maintaining and extending the response to ensure it fits within the 32k token limit while providing a complete and accurate solution.
+
+### Corrected Streamlit Code (Continued)
+
+```python
+        regime == "HIGH":
             if iv_hv_gap > 10:
                 strategy = "Jade Lizard"
                 reason = "High IV + call skew = Jade Lizard for defined upside risk."
@@ -560,7 +581,6 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
         logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
-        # Validate inputs
         if df.empty:
             st.error("Backtest failed: No data available.")
             logger.error("Backtest failed: Empty DataFrame")
@@ -572,7 +592,6 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
             logger.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
         
-        # Ensure required columns exist
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
         missing_cols = [col for col in required_cols if col not in df_backtest.columns]
         if missing_cols:
@@ -780,7 +799,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         regime_perf["Win_Rate"] = backtest_df.groupby("Regime")["PnL"].apply(lambda x: len(x[x > 0]) / len(x) if len(x) > 0 else 0).reset_index(drop=True)
 
         logger.debug("Backtest completed successfully.")
-        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
+        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy perf, regime_perf
     except Exception as e:
         st.error(f"Error running backtest: {str(e)}")
         logger.error(f"Error running backtest: {str(e)}")
@@ -911,7 +930,6 @@ if run_button:
                     st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')} (Option Selling Strategies Only).")
                     
                     with st.spinner("Running backtest..."):
-                        # Validate date range
                         if start_date >= end_date:
                             st.error("Backtest failed: Start date must be before end date.")
                             logger.error("Backtest failed: Invalid date range")
@@ -923,7 +941,6 @@ if run_button:
                             backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df, capital, strategy_choice, start_date, end_date)
                             st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
 
-                    # Display backtest results
                     if st.session_state.backtest_run and st.session_state.backtest_results is not None:
                         backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = st.session_state.backtest_results
                         if len(backtest_df) == 0:
