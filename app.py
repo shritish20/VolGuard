@@ -105,7 +105,7 @@ st.markdown("""
             height: 20px;
             width: 100%;
             overflow: hidden;
-            box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
+            box-shadow: 0, 0, 5px rgba(0, 212, 255, 0.3);
         }
         .progress-fill {
             height: 100%;
@@ -330,7 +330,7 @@ def generate_synthetic_features(df, capital):
         df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
         df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
         df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
-        df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std* np.sqrt(252) * 100
+        df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
         df["Realized_Vol"] = df["Realized_Vol"].fillna(df["VIX"])
         df["Realized_Vol"] = np.clip(df["Realized_Vol"], 0, 50)
         df["Advance_Decline_Ratio"] = np.clip(1.0 + np.random.normal(0, 0.2, n_days) + market_trend * 10, 0.5, 2.0)
@@ -511,12 +511,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
                 reason = "Balanced vol, no events, and premium-rich environment."
                 tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
-        elif Maintaining and extending the response to ensure it fits within the 32k token limit while providing a complete and accurate solution.
-
-### Corrected Streamlit Code (Continued)
-
-```python
-        regime == "HIGH":
+        elif regime == "HIGH":
             if iv_hv_gap > 10:
                 strategy = "Jade Lizard"
                 reason = "High IV + call skew = Jade Lizard for defined upside risk."
@@ -799,7 +794,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         regime_perf["Win_Rate"] = backtest_df.groupby("Regime")["PnL"].apply(lambda x: len(x[x > 0]) / len(x) if len(x) > 0 else 0).reset_index(drop=True)
 
         logger.debug("Backtest completed successfully.")
-        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy perf, regime_perf
+        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
     except Exception as e:
         st.error(f"Error running backtest: {str(e)}")
         logger.error(f"Error running backtest: {str(e)}")
