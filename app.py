@@ -105,7 +105,7 @@ st.markdown("""
             height: 20px;
             width: 100%;
             overflow: hidden;
-            box-shadow: 0, 0, 5px rgba(0, 212, 255, 0.3);
+            box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
         }
         .progress-fill {
             height: 100%;
@@ -208,7 +208,7 @@ def load_data():
         if nifty.empty or len(nifty) < 200:
             logger.warning("Yahoo Finance data incomplete. Falling back to GitHub CSV.")
             # Fallback to GitHub-hosted NIFTY CSV
-            fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/Nifty1year.csv"
+            fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/nifty_50.csv"
             response = requests.get(fallback_url)
             response.raise_for_status()
             nifty = pd.read_csv(io.StringIO(response.text), parse_dates=["Date"])
@@ -229,7 +229,7 @@ def load_data():
         nifty_series = nifty["NIFTY_Close"].squeeze()
 
         logger.debug("Fetching India VIX data...")
-        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
+        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv"
         try:
             response = requests.get(vix_url)
             response.raise_for_status()
