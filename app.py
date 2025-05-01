@@ -211,28 +211,23 @@ def load_data():
             fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/nifty_50.csv"
             response = requests.get(fallback_url)
             response.raise_for_status()
-            # Load CSV without assuming Date column
-            nifty = pd.read_csv(io.StringIO(response.text))
-            logger.debug(f"CSV columns: {nifty.columns.tolist()}")
+            # Load CSV with UTF-8-SIG to handle BOM
+            nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
+            logger.debug(f"Raw CSV columns: {nifty.columns.tolist()}")
 
-            # Identify date column
-            possible_date_cols = ['Date', 'date', 'DATE', 'Timestamp', 'timestamp']
-            date_col = None
-            for col in possible_date_cols:
-                if col in nifty.columns:
-                    date_col = col
-                    break
-            
-            if date_col is None or "Close" not in nifty.columns:
-                st.error(f"NIFTY CSV missing required columns. Found: {nifty.columns.tolist()}")
+            # Strip whitespace from column names
+            nifty.columns = nifty.columns.str.strip()
+            logger.debug(f"Cleaned CSV columns: {nifty.columns.tolist()}")
+
+            # Verify required columns
+            if "Date" not in nifty.columns or "Close" not in nifty.columns:
+                st.error(f"NIFTY CSV missing required columns 'Date' or 'Close'. Found: {nifty.columns.tolist()}")
                 logger.error(f"NIFTY CSV missing 'Date' or 'Close'. Columns: {nifty.columns.tolist()}")
                 return None
 
-            # Rename date column to 'Date' for consistency
-            nifty = nifty.rename(columns={date_col: "Date"})
-            # Try parsing dates manually
+            # Parse dates with specific format
             try:
-                nifty["Date"] = pd.to_datetime(nifty["Date"], errors="coerce")
+                nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             except Exception as e:
                 st.error(f"Failed to parse 'Date' column in nifty_50.csv: {str(e)}")
                 logger.error(f"Date parsing error: {str(e)}")
