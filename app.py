@@ -211,14 +211,44 @@ def load_data():
             fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/nifty_50.csv"
             response = requests.get(fallback_url)
             response.raise_for_status()
-            nifty = pd.read_csv(io.StringIO(response.text), parse_dates=["Date"])
-            if "Date" not in nifty.columns or "Close" not in nifty.columns:
-                st.error("NIFTY CSV missing 'Date' or 'Close' columns.")
+            # Load CSV without assuming Date column
+            nifty = pd.read_csv(io.StringIO(response.text))
+            logger.debug(f"CSV columns: {nifty.columns.tolist()}")
+
+            # Identify date column
+            possible_date_cols = ['Date', 'date', 'DATE', 'Timestamp', 'timestamp']
+            date_col = None
+            for col in possible_date_cols:
+                if col in nifty.columns:
+                    date_col = col
+                    break
+            
+            if date_col is None or "Close" not in nifty.columns:
+                st.error(f"NIFTY CSV missing required columns. Found: {nifty.columns.tolist()}")
+                logger.error(f"NIFTY CSV missing 'Date' or 'Close'. Columns: {nifty.columns.tolist()}")
                 return None
+
+            # Rename date column to 'Date' for consistency
+            nifty = nifty.rename(columns={date_col: "Date"})
+            # Try parsing dates manually
+            try:
+                nifty["Date"] = pd.to_datetime(nifty["Date"], errors="coerce")
+            except Exception as e:
+                st.error(f"Failed to parse 'Date' column in nifty_50.csv: {str(e)}")
+                logger.error(f"Date parsing error: {str(e)}")
+                return None
+            
+            nifty = nifty.dropna(subset=["Date"])
+            if nifty.empty:
+                st.error("NIFTY CSV contains no valid dates.")
+                logger.error("No valid dates in NIFTY CSV")
+                return None
+                
             nifty = nifty[["Date", "Close"]].set_index("Date")
             nifty.index = pd.to_datetime(nifty.index)
             if len(nifty) < 200:
                 st.error(f"Insufficient NIFTY data from GitHub: {len(nifty)} days.")
+                logger.error(f"Insufficient data: {len(nifty)} days")
                 return None
         else:
             nifty = nifty[["Close"]]
@@ -236,16 +266,19 @@ def load_data():
             vix = pd.read_csv(io.StringIO(response.text))
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to fetch India VIX data: {str(e)}")
+            logger.error(f"VIX fetch error: {str(e)}")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
 
         vix.columns = vix.columns.str.strip()
         if "Date" not in vix.columns or "Close" not in vix.columns:
-            st.error("india_vix.csv is missing required columns.")
+            st.error(f"india_vix.csv is missing required columns. Found: {vix.columns.tolist()}")
+            logger.error(f"VIX CSV missing 'Date' or 'Close'. Columns: {vix.columns.tolist()}")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
-            st.error("VIX data is empty.")
+            st.error("VIX data is empty after parsing.")
+            logger.error("VIX data empty")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
         vix.index = pd.to_datetime(vix.index)
@@ -255,6 +288,7 @@ def load_data():
         common_dates = nifty_series.index.intersection(vix_series.index)
         if len(common_dates) < 200:
             st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
+            logger.error(f"Insufficient overlap: {len(common_dates)} days")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
         
         df = pd.DataFrame({
@@ -266,6 +300,7 @@ def load_data():
             df = df.ffill().bfill()
         if df.empty:
             st.error("DataFrame is empty after processing.")
+            logger.error("Empty DataFrame after processing")
             return None
 
         logger.debug("Data loaded successfully.")
