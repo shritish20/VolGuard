@@ -13,9 +13,6 @@ import requests
 import io
 import warnings
 import logging
-from py5paisa import FivePaisaClient
-import os
-import time
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -28,7 +25,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Page config
 st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
-# Custom CSS (inline)
+# Custom CSS for modern UI
 st.markdown("""
     <style>
         .main {
@@ -156,17 +153,6 @@ st.markdown("""
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             margin-top: 30px;
         }
-        .stTabs [data-baseweb="tab"] {
-            background: #16213e;
-            color: #e5e5e5;
-            border-radius: 10px;
-            padding: 10px 20px;
-            margin: 5px;
-        }
-        .stTabs [data-baseweb="tab"][aria-selected="true"] {
-            background: #e94560;
-            color: white;
-        }
         @keyframes fadeIn {
             from {opacity: 0;} to {opacity: 1;}
         }
@@ -188,151 +174,71 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Header
+st.title("🛡️ VolGuard: Your AI Trading Copilot")
+st.markdown("**Protection First, Edge Always** | Built by Shritish Shukla & Salman Azim")
+
 # Initialize session state
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "client" not in st.session_state:
-    st.session_state.client = None
 if "backtest_run" not in st.session_state:
     st.session_state.backtest_run = False
 if "backtest_results" not in st.session_state:
     st.session_state.backtest_results = None
-if "trade_log" not in st.session_state:
-    st.session_state.trade_log = pd.DataFrame(columns=["Timestamp", "Strategy", "Action", "Price", "Quantity", "PnL"])
-if "portfolio_pnl" not in st.session_state:
-    st.session_state.portfolio_pnl = 0
-if "stop_trading" not in st.session_state:
-    st.session_state.stop_trading = False
 
-# TOTP Login Page
-def login_page():
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.title("🛡️ VolGuard Login")
-    st.markdown("Enter 5paisa credentials to access VolGuard.")
-    
-    client_code = st.text_input("Client Code", value="56139858")
-    totp_code = st.text_input("TOTP Code (from Authenticator)", type="password")
-    pin = st.text_input("MPIN", type="password", value="634566")
-    
-    if st.button("Login"):
-        try:
-            cred = {
-                "APP_NAME": "5P56139858",
-                "APP_SOURCE": "25268",
-                "USER_ID": "kpiO3Nfckot",
-                "PASSWORD": "cvLDUzSKka0",
-                "USER_KEY": "qdgWkql4y2RIPzNvVkuAU8GXDr4K0poo",
-                "ENCRYPTION_KEY": "qc3dezuXampaQncAjs0w0C0HAKS5hMjv"
-            }
-            client = FivePaisaClient(cred=cred)
-            client.get_totp_session(client_code, totp_code, pin)
-            st.session_state.client = client
-            st.session_state.logged_in = True
-            st.success("Logged in successfully!")
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Login failed: {str(e)}")
-    st.markdown('</div>', unsafe_allow_html=True)
+# Sidebar
+with st.sidebar:
+    st.header("⚙️ Trading Controls")
+    forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
+    capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
+    risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
+    st.markdown("**Backtest Parameters**")
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"), key="start_date")
+    end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
+    strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"], key="strategy_select")
+    run_button = st.button("Run Analysis", key="run_button")
+    st.markdown("---")
+    st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
-# Fetch real-time data
-def fetch_realtime_data(client):
-    try:
-        # Fetch NIFTY 50 spot price
-        scrip_code = "999920000"  # NIFTY 50
-        market_feed = client.fetch_market_feed([{"Exch": "N", "ExchType": "C", "ScripCode": scrip_code}])
-        nifty_price = market_feed["Data"][0]["LastRate"] if market_feed["Data"] else None
-        
-        # Fetch option chain
-        option_chain = client.get_option_chain("N", "C", scrip_code)
-        option_data = pd.DataFrame(option_chain["Options"]) if "Options" in option_chain else pd.DataFrame()
-        
-        if nifty_price and not option_data.empty:
-            # Save to market_data.csv
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            market_data = pd.DataFrame({
-                "Timestamp": [timestamp],
-                "NIFTY_Close": [nifty_price],
-                "VIX": [np.nan]  # VIX not available via 5paisa, use synthetic
-            })
-            if os.path.exists("data/market_data.csv"):
-                market_data.to_csv("data/market_data.csv", mode="a", header=False, index=False)
-            else:
-                market_data.to_csv("data/market_data.csv", index=False)
-            
-            return nifty_price, option_data
-        else:
-            logger.error("Failed to fetch real-time data")
-            return None, pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching real-time data: {str(e)}")
-        logger.error(f"Real-time data error: {str(e)}")
-        return None, pd.DataFrame()
-
-# Execute trade
-def execute_trade(client, strategy, action, price, quantity):
-    try:
-        order = {
-            "Exch": "N",
-            "ExchType": "D",
-            "ScripCode": "999920005",  # NIFTY option (simplified)
-            "Qty": quantity,
-            "OrderType": action.upper(),
-            "Price": price
-        }
-        response = client.place_order(order)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        pnl = price * quantity * (-1 if action == "SELL" else 1)
-        trade = pd.DataFrame([{
-            "Timestamp": timestamp,
-            "Strategy": strategy,
-            "Action": action,
-            "Price": price,
-            "Quantity": quantity,
-            "PnL": pnl
-        }])
-        st.session_state.trade_log = pd.concat([st.session_state.trade_log, trade], ignore_index=True)
-        st.session_state.trade_log.to_csv("data/trade_log.csv", index=False)
-        st.session_state.portfolio_pnl += pnl
-        return response
-    except Exception as e:
-        st.error(f"Trade execution failed: {str(e)}")
-        logger.error(f"Trade error: {str(e)}")
-        return None
-
-# Check stop trading conditions
-def check_stop_trading(capital):
-    if st.session_state.portfolio_pnl < -0.1 * capital:
-        st.session_state.stop_trading = True
-        st.error("Trading stopped: Portfolio drawdown exceeds 10%")
-        logger.error("Trading stopped due to drawdown")
-    elif st.session_state.trade_log["PnL"].tail(5).sum() < -0.05 * capital:
-        st.session_state.stop_trading = True
-        st.error("Trading stopped: Recent trades loss exceeds 5%")
-        logger.error("Trading stopped due to recent losses")
-
-# Load historical data
-@st.cache_data(ttl=86400)
+# Function to load data
+@st.cache_data(ttl=86400)  # Cache for 1 day
 def load_data():
     try:
         logger.debug("Fetching NIFTY 50 data...")
+        # Try Yahoo Finance first
         nifty = yf.download("^NSEI", period="2y", interval="1d")
         if nifty.empty or len(nifty) < 200:
             logger.warning("Yahoo Finance data incomplete. Falling back to GitHub CSV.")
+            # Fallback to GitHub-hosted NIFTY CSV
             fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/nifty_50.csv"
             response = requests.get(fallback_url)
             response.raise_for_status()
+            # Load CSV with UTF-8-SIG to handle BOM
             nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
+            logger.debug(f"Raw CSV columns: {nifty.columns.tolist()}")
+
+            # Strip whitespace from column names
             nifty.columns = nifty.columns.str.strip()
+            logger.debug(f"Cleaned CSV columns: {nifty.columns.tolist()}")
+
+            # Verify required columns
             if "Date" not in nifty.columns or "Close" not in nifty.columns:
                 st.error(f"NIFTY CSV missing required columns 'Date' or 'Close'. Found: {nifty.columns.tolist()}")
                 logger.error(f"NIFTY CSV missing 'Date' or 'Close'. Columns: {nifty.columns.tolist()}")
                 return None
-            nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
+
+            # Parse dates with specific format
+            try:
+                nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
+            except Exception as e:
+                st.error(f"Failed to parse 'Date' column in nifty_50.csv: {str(e)}")
+                logger.error(f"Date parsing error: {str(e)}")
+                return None
+            
             nifty = nifty.dropna(subset=["Date"])
             if nifty.empty:
                 st.error("NIFTY CSV contains no valid dates.")
                 logger.error("No valid dates in NIFTY CSV")
                 return None
+                
             nifty = nifty[["Date", "Close"]].set_index("Date")
             nifty.index = pd.to_datetime(nifty.index)
             if len(nifty) < 200:
@@ -341,6 +247,7 @@ def load_data():
                 return None
         else:
             nifty = nifty[["Close"]]
+        
         nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
         nifty.index = pd.to_datetime(nifty.index)
         nifty = nifty[~nifty.index.duplicated(keep='first')]
@@ -398,7 +305,7 @@ def load_data():
         logger.error(f"Error loading data: {str(e)}")
         return None
 
-# Generate synthetic features
+# Function to generate synthetic options features
 @st.cache_data
 def generate_synthetic_features(df, capital):
     try:
@@ -479,7 +386,7 @@ def generate_synthetic_features(df, capital):
         if df.isna().sum().sum() > 0:
             df = df.interpolate().fillna(method='bfill')
         
-        df.to_csv("data/volguard_options_data.csv")
+        df.to_csv("volguard_options_data.csv")
         logger.debug("Synthetic features generated successfully.")
         return df
     except Exception as e:
@@ -487,7 +394,7 @@ def generate_synthetic_features(df, capital):
         logger.error(f"Error generating features: {str(e)}")
         return None
 
-# Forecast volatility
+# Function to forecast volatility
 @st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
     try:
@@ -582,7 +489,7 @@ def forecast_volatility_future(df, forecast_horizon):
         logger.error(f"Error in volatility forecasting: {str(e)}")
         return None, None, None, None, None, None, None, None
 
-# Generate trading strategy
+# Function to generate trading strategy (Option Selling Only)
 @st.cache_data
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score):
     try:
@@ -695,7 +602,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         logger.error(f"Error generating strategy: {str(e)}")
         return None
 
-# Backtest function
+# Function for backtesting (Option Selling Only)
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
         logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
@@ -923,78 +830,68 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         logger.error(f"Error running backtest: {str(e)}")
         return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
-# Main app
-if not st.session_state.logged_in:
-    login_page()
-else:
-    client = st.session_state.client
-    st.title("🛡️ VolGuard: Your AI Trading Copilot")
-    st.markdown("**Protection First, Edge Always** | Built by Shritish Shukla & Salman Azim")
-
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ Trading Controls")
-        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
-        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
-        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
-        st.markdown("**Backtest Parameters**")
-        start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"), key="start_date")
-        end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
-        strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"], key="strategy_select")
-        run_button = st.button("Run Analysis", key="run_button")
-        st.markdown("---")
-        st.markdown("**Motto:** Deploy with edge, survive, outlast.")
-
-    # Tabs for UI
-    tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Live Trading", "Trade Log", "Backtest"])
-
-    with tab1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📊 Market Snapshot")
-        nifty_price, option_data = fetch_realtime_data(client)
-        if nifty_price:
-            st.metric("NIFTY 50 Live", f"{nifty_price:,.2f}")
-        if not option_data.empty:
-            st.markdown("### Option Chain")
-            st.dataframe(option_data[["StrikePrice", "CallLTP", "PutLTP"]], use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+# Main execution
+if run_button:
+    with st.spinner("Running VolGuard Analysis..."):
+        # Reset previous backtest results
+        st.session_state.backtest_run = False
+        st.session_state.backtest_results = None
 
         df = load_data()
         if df is not None:
             df = generate_synthetic_features(df, capital)
             if df is not None:
+                # Display Latest Market Data
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📊 Historical Snapshot")
-                last_date = df.index[-1].strftime("%d-%b-%Y")
-                last_nifty = df["NIFTY_Close"].iloc[-1]
-                prev_nifty = df["NIFTY_Close"].iloc[-2]
-                last_vix = df["VIX"].iloc[-1]
-                prev_vix = df["VIX"].iloc[-2]
+                st.subheader("📊 Latest Market Snapshot")
+                last_date = df.index[-1].strftime("%d-%b-%Y") if not df.empty and pd.notna(df.index[-1]) else datetime.now().strftime("%d-%b-%Y")
+                last_nifty = df["NIFTY_Close"].iloc[-1] if "NIFTY_Close" in df.columns and not df["NIFTY_Close"].isna().iloc[-1] else "N/A"
+                prev_nifty = df["NIFTY_Close"].iloc[-2] if "NIFTY_Close" in df.columns and len(df) >= 2 and not df["NIFTY_Close"].isna().iloc[-2] else "N/A"
+                last_vix = df["VIX"].iloc[-1] if "VIX" in df.columns and not df["VIX"].isna().iloc[-1] else "N/A"
+                prev_vix = df["VIX"].iloc[-2] if "VIX" in df.columns and len(df) >= 2 and not df["VIX"].isna().iloc[-2] else "N/A"
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("NIFTY 50 Last Close", f"{last_nifty:,.2f}", f"{last_nifty - prev_nifty:+,.2f}")
+                    nifty_change = last_nifty - prev_nifty if last_nifty != "N/A" and prev_nifty != "N/A" else "N/A"
+                    nifty_change_display = f"{nifty_change:+,.2f}" if nifty_change != "N/A" else "N/A"
+                    st.metric(
+                        label="NIFTY 50 Last Close",
+                        value=f"{last_nifty:,.2f}" if last_nifty != "N/A" else "N/A",
+                        delta=nifty_change_display,
+                        delta_color="normal",
+                        help="Latest NIFTY 50 closing price"
+                    )
                 with col2:
-                    st.metric("India VIX", f"{last_vix:.2f}%", f"{last_vix - prev_vix:+.2f}")
+                    vix_change = last_vix - prev_vix if last_vix != "N/A" and prev_vix != "N/A" else "N/A"
+                    vix_change_display = f"{vix_change:+.2f}" if vix_change != "N/A" else "N/A"
+                    st.metric(
+                        label="India VIX",
+                        value=f"{last_vix:.2f}%" if last_vix != "N/A" else "N/A",
+                        delta=vix_change_display,
+                        delta_color="normal",
+                        help="Latest India VIX value"
+                    )
                 st.markdown(f"**Last Updated**: {last_date}")
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                with st.spinner("Predicting volatility..."):
+                with st.spinner("Predicting market volatility..."):
                     forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
 
                 if forecast_log is not None:
+                    # Volatility Forecast Card
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.subheader("📈 Volatility Forecast")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
+                        st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
                     with col2:
-                        st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%")
+                        st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%", help="Historical volatility over the last 5 days")
                     with col3:
-                        st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%")
+                        st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%", help="XGBoost model's root mean squared error")
                         st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
                         st.markdown("**Confidence Score**", unsafe_allow_html=True)
                         st.markdown(f'<div class="progress-bar"><div class="progress-fill" style="width: {confidence_score}%"></div></div>', unsafe_allow_html=True)
 
+                    # Forecast Chart
                     st.markdown("### Volatility Forecast Trend")
                     chart_data = pd.DataFrame({
                         "Date": forecast_log["Date"],
@@ -1004,12 +901,14 @@ else:
                     }).set_index("Date")
                     st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"], use_container_width=True)
 
+                    # Daily Breakdown
                     st.markdown("### Daily Volatility Breakdown")
                     for i in range(forecast_horizon):
                         date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
                         st.markdown(f'<div class="signal-box">📡 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Feature Importance
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.subheader("🔍 Feature Importance")
                     feature_importance = pd.DataFrame({
@@ -1023,6 +922,7 @@ else:
                     st.dataframe(feature_importance, use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Trading Strategy Card
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.subheader("🎯 Trading Strategy")
                     strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score)
@@ -1049,147 +949,112 @@ else:
                         """, unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-    with tab2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("💹 Live Trading")
-        if st.session_state.stop_trading:
-            st.error("Trading is stopped due to risk limits.")
-        else:
-            if strategy is not None:
-                st.markdown(f"**Current Strategy**: {strategy['Strategy']}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    price = st.number_input("Trade Price (₹)", min_value=0.0, value=100.0)
-                with col2:
-                    quantity = st.number_input("Quantity (Lots)", min_value=1, value=1)
-                action = st.selectbox("Action", ["BUY", "SELL"])
-                if st.button("Execute Trade"):
-                    if not st.session_state.stop_trading:
-                        response = execute_trade(client, strategy["Strategy"], action, price, quantity)
-                        if response:
-                            st.success(f"Trade executed: {action} {quantity} lots at ₹{price}")
-                        check_stop_trading(capital)
-        st.markdown('</div>', unsafe_allow_html=True)
+                    # Backtest Section
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📊 Backtest Performance")
+                    st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')} (Option Selling Strategies Only).")
+                    
+                    with st.spinner("Running backtest..."):
+                        if start_date >= end_date:
+                            st.error("Backtest failed: Start date must be before end date.")
+                            logger.error("Backtest failed: Invalid date range")
+                        elif start_date < df.index[0].date() or end_date > df.index[-1].date():
+                            st.error("Backtest failed: Selected date range is outside available data.")
+                            logger.error(f"Backtest failed: Date range {start_date} to {end_date} outside data range {df.index[0].date()} to {df.index[-1].date()}")
+                        else:
+                            st.session_state.backtest_run = True
+                            backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df, capital, strategy_choice, start_date, end_date)
+                            st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
 
-    with tab3:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📋 Trade Log")
-        if not st.session_state.trade_log.empty:
-            st.dataframe(st.session_state.trade_log, use_container_width=True)
-            st.download_button(
-                label="Download Trade Log (CSV)",
-                data=st.session_state.trade_log.to_csv(index=False),
-                file_name="trade_log.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No trades executed yet.")
-        st.markdown('</div>', unsafe_allow_html=True)
+                    if st.session_state.backtest_run and st.session_state.backtest_results is not None:
+                        backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = st.session_state.backtest_results
+                        if len(backtest_df) == 0:
+                            st.error("No trades generated. Try selecting 'All Strategies' or a wider date range.")
+                            logger.warning("Backtest produced no trades")
+                        else:
+                            st.success("Backtest completed successfully!")
+                            st.markdown(f"**Period**: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}")
+                            st.markdown(f"**Strategy Tested**: {strategy_choice}")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total PnL", f"₹{total_pnl:,.2f}", help="Total profit and loss")
+                                st.metric("Total Return", f"{total_pnl / capital * 100:.2f}%", help="Percentage return on capital")
+                            with col2:
+                                st.metric("Win Rate", f"{win_rate:.2%}", help="Percentage of winning trades")
+                                st.metric("Max Drawdown", f"₹{max_drawdown:,.2f} ({max_drawdown / capital * 100:.2f}%)", help="Maximum loss from peak")
+                            with col3:
+                                st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}", help="Risk-adjusted return")
+                                st.metric("Sortino Ratio", f"{sortino_ratio:.2f}", help="Downside risk-adjusted return")
+                                st.metric("Calmar Ratio", f"{calmar_ratio:.2f}", help="Return per unit of drawdown")
 
-    with tab4:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📊 Backtest Performance")
-        st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')} (Option Selling Strategies Only).")
-        
-        if run_button:
-            with st.spinner("Running backtest..."):
-                if start_date >= end_date:
-                    st.error("Backtest failed: Start date must be before end date.")
-                    logger.error("Backtest failed: Invalid date range")
-                elif start_date < df.index[0].date() or end_date > df.index[-1].date():
-                    st.error("Backtest failed: Selected date range is outside available data.")
-                    logger.error(f"Backtest failed: Date range {start_date} to {end_date} outside data range {df.index[0].date()} to {df.index[-1].date()}")
-                else:
-                    st.session_state.backtest_run = True
-                    backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df, capital, strategy_choice, start_date, end_date)
-                    st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
+                            st.markdown("### Strategy-wise Performance")
+                            st.dataframe(strategy_perf, use_container_width=True)
 
-        if st.session_state.backtest_run and st.session_state.backtest_results is not None:
-            backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = st.session_state.backtest_results
-            if len(backtest_df) == 0:
-                st.error("No trades generated. Try selecting 'All Strategies' or a wider date range.")
-                logger.warning("Backtest produced no trades")
-            else:
-                st.success("Backtest completed successfully!")
-                st.markdown(f"**Period**: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}")
-                st.markdown(f"**Strategy Tested**: {strategy_choice}")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total PnL", f"₹{total_pnl:,.2f}")
-                    st.metric("Total Return", f"{total_pnl / capital * 100:.2f}%")
-                with col2:
-                    st.metric("Win Rate", f"{win_rate:.2%}")
-                    st.metric("Max Drawdown", f"₹{max_drawdown:,.2f} ({max_drawdown / capital * 100:.2f}%)")
-                with col3:
-                    st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}")
-                    st.metric("Sortino Ratio", f"{sortino_ratio:.2f}")
-                    st.metric("Calmar Ratio", f"{calmar_ratio:.2f}")
+                            st.markdown("### Regime-wise Performance")
+                            st.dataframe(regime_perf, use_container_width=True)
 
-                st.markdown("### Strategy-wise Performance")
-                st.dataframe(strategy_perf, use_container_width=True)
+                            st.markdown("### Cumulative PnL")
+                            fig, ax = plt.subplots(figsize=(10, 5))
+                            backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560", linewidth=2)
+                            ax.set_title("Cumulative PnL Over Time (Option Selling)", color="#e5e5e5", fontsize=14)
+                            ax.set_xlabel("Date", color="#e5e5e5", fontsize=12)
+                            ax.set_ylabel("PnL (₹)", color="#e5e5e5", fontsize=12)
+                            ax.grid(True, color="#a0a0a0", linestyle="--", alpha=0.5)
+                            ax.set_facecolor("#0f1c2e")
+                            fig.set_facecolor("#1a1a2e")
+                            ax.tick_params(colors="#e5e5e5")
+                            st.pyplot(fig)
 
-                st.markdown("### Regime-wise Performance")
-                st.dataframe(regime_perf, use_container_width=True)
+                            st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events. Results reflect option selling strategies only.")
 
-                st.markdown("### Cumulative PnL")
-                fig, ax = plt.subplots(figsize=(10, 5))
-                backtest_df["PnL"].cumsum().plot(ax=ax, color="#e94560", linewidth=2)
-                ax.set_title("Cumulative PnL Over Time (Option Selling)", color="#e5e5e5", fontsize=14)
-                ax.set_xlabel("Date", color="#e5e5e5", fontsize=12)
-                ax.set_ylabel("PnL (₹)", color="#e5e5e5", fontsize=12)
-                ax.grid(True, color="#a0a0a0", linestyle="--", alpha=0.5)
-                ax.set_facecolor("#0f1c2e")
-                fig.set_facecolor("#1a1a2e")
-                ax.tick_params(colors="#e5e5e5")
-                st.pyplot(fig)
+                            st.download_button(
+                                label="Download Backtest Results (CSV)",
+                                data=backtest_df.reset_index().to_csv(index=False),
+                                file_name="backtest_results.csv",
+                                mime="text/csv"
+                            )
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                st.markdown("**Note**: Expected real-world performance is ~50-70% of synthetic results due to execution, liquidity, and unforeseen market events. Results reflect option selling strategies only.")
+                    # Journaling Prompt Card
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📝 Journaling Prompt")
+                    journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
+                    if st.button("Save Reflection", key="save_button"):
+                        st.success("Reflection saved!")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                st.download_button(
-                    label="Download Backtest Results (CSV)",
-                    data=backtest_df.reset_index().to_csv(index=False),
-                    file_name="backtest_results.csv",
-                    mime="text/csv"
-                )
-        st.markdown('</div>', unsafe_allow_html=True)
+                    # Export Functionality
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📤 Export Insights")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        csv = forecast_log.to_csv(index=False)
+                        st.download_button(
+                            label="Download Forecast (CSV)",
+                            data=csv,
+                            file_name="volguard_forecast.csv",
+                            mime="text/csv"
+                        )
+                    with col2:
+                        if strategy is not None:
+                            strategy_df = pd.DataFrame([strategy])
+                            strategy_csv = strategy_df.to_csv(index=False)
+                            st.download_button(
+                                label="Download Strategy (CSV)",
+                                data=strategy_csv,
+                                file_name="volguard_strategy.csv",
+                                mime="text/csv"
+                            )
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Journaling
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📝 Journaling Prompt")
-    journal = st.text_area("Reflect on your discipline today:", height=120, key="journal_input")
-    if st.button("Save Reflection", key="save_button"):
-        st.success("Reflection saved!")
-    st.markdown('</div>', unsafe_allow_html=True)
+                    # Footer
+                    st.markdown("""
+                        <div class="footer">
+                            VolGuard: Protection First, Edge Always | Built by Shritish Shukla & Salman Azim<br>
+                            ⚠️ This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.
+                        </div>
+                    """, unsafe_allow_html=True)
 
-    # Export
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📤 Export Insights")
-    col1, col2 = st.columns(2)
-    with col1:
-        if forecast_log is not None:
-            csv = forecast_log.to_csv(index=False)
-            st.download_button(
-                label="Download Forecast (CSV)",
-                data=csv,
-                file_name="volguard_forecast.csv",
-                mime="text/csv"
-            )
-    with col2:
-        if strategy is not None:
-            strategy_df = pd.DataFrame([strategy])
-            strategy_csv = strategy_df.to_csv(index=False)
-            st.download_button(
-                label="Download Strategy (CSV)",
-                data=strategy_csv,
-                file_name="volguard_strategy.csv",
-                mime="text/csv"
-            )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("""
-        <div class="footer">
-            VolGuard: Protection First, Edge Always | Built by Shritish Shukla & Salman Azim<br>
-            ⚠️ This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.
-        </div>
-    """, unsafe_allow_html=True)
+else:
+    st.info("Set parameters and click 'Run Analysis' to begin your journey.")
+    st.warning("⚠️ This application is a decision support tool, not a recommender system. Please use the provided information to make informed decisions.") 
