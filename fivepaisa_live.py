@@ -123,16 +123,25 @@ def login_to_5paisa():
                 "USER_KEY": creds["user_key"],
                 "ENCRYPTION_KEY": creds["encryption_key"]
             })
-            try:
-    response = client.get_totp_session(creds["client_code"], totp, creds["pin"])
+            
+try:
+    login_response = client.get_totp_session(creds["client_code"], totp, creds["pin"])
     
-    if response.get("Status") != 0:
-        st.sidebar.success("✅ Logged in to 5Paisa!")
-        return client
+    # Check if login success keyword is present
+    if login_response and isinstance(login_response, dict):
+        if login_response.get("Message") == "Success":
+            st.sidebar.success("✅ Logged in to 5Paisa!")
+            return client
+        else:
+            st.sidebar.error(f"❌ Login failed: {login_response.get('Message')}")
+            return None
     else:
-        st.sidebar.error("❌ Login failed: Invalid TOTP or session.")
+        st.sidebar.error("❌ Unexpected login response.")
         return None
 
+except Exception as e:
+    st.sidebar.error(f"Login error: {e}")
+    return None
 except Exception as e:
     st.sidebar.error(f"Login error: {e}")
     return None
