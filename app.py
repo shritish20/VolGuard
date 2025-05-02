@@ -14,6 +14,19 @@ import io
 import warnings
 import logging
 
+import streamlit as st
+from fivepaisa_live import login_to_5paisa
+
+st.title("VolGuard TOTP Login Test")
+
+# 5Paisa Login UI (Sidebar)
+client = login_to_5paisa()
+
+# Show login status
+if client:
+    st.success("✅ Successfully logged in to 5Paisa.")
+else:
+    st.warning("Login not active yet.")
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
