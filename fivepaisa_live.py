@@ -5,12 +5,12 @@ from datetime import datetime
 from scipy.stats import norm
 from py5paisa import FivePaisaClient
 
-# ---------- Load API Credentials ----------
+# ---------- Load Credentials ----------
 @st.cache_resource(show_spinner=False)
 def load_credentials():
     return st.secrets["5paisa"]
 
-# ---------- Secure Login With TOTP ----------
+# ---------- Secure Login with TOTP + PIN + Real Session Validation ----------
 def login_to_5paisa():
     creds = load_credentials()
 
@@ -37,9 +37,9 @@ def login_to_5paisa():
 
             client.get_totp_session(creds["client_code"], totp, creds["pin"])
 
-            # ✅ Real session check using order book
-            test = client.get_order_book()
-            if isinstance(test, list):  # Means login really worked
+            # ✅ Real protected call — checks if login is truly valid
+            check = client.get_positions()
+            if isinstance(check, list):
                 st.sidebar.success("✅ Logged in to 5Paisa!")
                 return client
             else:
@@ -56,7 +56,7 @@ def login_to_5paisa():
 
     return None
 
-# ---------- Black-Scholes Model ----------
+# ---------- Black-Scholes IV Calculation ----------
 def black_scholes_call(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -92,9 +92,8 @@ def max_pain(df, nifty_spot):
         pain.append((K, total_loss))
     return min(pain, key=lambda x: x[1])[0]
 
-# ---------- Fetch Live Market Data ----------
+# ---------- Live Data Fetch ----------
 def get_volguard_live_data(client):
-    # Get Nifty Spot Price
     nifty_req = [{
         "Exch": "N",
         "ExchType": "C",
@@ -104,8 +103,7 @@ def get_volguard_live_data(client):
     feed = client.fetch_market_feed(nifty_req)
     nifty_spot = feed["Data"][0].get("LastRate", 0)
 
-    # Option Chain
-    expiry_timestamp = 1746694800000  # Update manually each expiry
+    expiry_timestamp = 1746694800000  # Update weekly
     option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
     df = pd.DataFrame(option_chain["Options"])
     df["StrikeRate"] = df["StrikeRate"].astype(float)
@@ -120,7 +118,6 @@ def get_volguard_live_data(client):
     puts = df[df["CPType"] == "PE"]
     pcr = puts["OpenInterest"].sum() / calls["OpenInterest"].sum()
 
-    # IV for ±100 range
     T = (datetime(2025, 5, 8) - datetime.now()).days / 365
     r = 0.06
     iv_df = df[(df["StrikeRate"] >= atm_strike - 100) & (df["StrikeRate"] <= atm_strike + 100)].copy()
