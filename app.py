@@ -13,18 +13,14 @@ import requests
 import io
 import warnings
 import logging
+import streamlit as st
+st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
+
 from fivepaisa_live import login_to_5paisa
+from patched_data_loader import get_today_data_patched
 
 st.title("VolGuard TOTP Login Test")
-
-# 5Paisa Login UI (Sidebar)
-client = login_to_5paisa()
-
-# Show login status
-if client:
-    st.success("✅ Successfully logged in to 5Paisa.")
-else:
-    st.warning("Login not active yet.")
+...
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -32,9 +28,6 @@ logger = logging.getLogger(__name__)
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
-
-# Page config
-st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
 # Custom CSS for modern UI
 st.markdown("""
