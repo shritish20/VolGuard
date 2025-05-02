@@ -123,9 +123,19 @@ def login_to_5paisa():
                 "USER_KEY": creds["user_key"],
                 "ENCRYPTION_KEY": creds["encryption_key"]
             })
-            client.get_totp_session(creds["client_code"], totp, creds["pin"])
-            st.sidebar.success("✅ Logged in to 5Paisa!")
-            return client
+            try:
+    response = client.get_totp_session(creds["client_code"], totp, creds["pin"])
+    
+    if response.get("Status") != 0:
+        st.sidebar.success("✅ Logged in to 5Paisa!")
+        return client
+    else:
+        st.sidebar.error("❌ Login failed: Invalid TOTP or session.")
+        return None
+
+except Exception as e:
+    st.sidebar.error(f"Login error: {e}")
+    return None
         except Exception as e:
             st.sidebar.error(f"Login failed: {e}")
     elif login_button and not totp:
