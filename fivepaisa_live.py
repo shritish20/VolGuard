@@ -93,3 +93,42 @@ def get_volguard_live_data(client):
         "max_pain_diff_pct": max_pain_diff,
         "iv_df": iv_df
     }
+import streamlit as st
+from py5paisa import FivePaisaClient
+
+@st.cache_resource(show_spinner=False)
+def load_credentials():
+    return st.secrets["5paisa"]
+
+def login_to_5paisa():
+    creds = load_credentials()
+
+    st.sidebar.subheader("🔐 5Paisa Secure Login")
+    use_live = st.sidebar.checkbox("Enable Live 5Paisa Mode", value=False)
+
+    if not use_live:
+        st.sidebar.info("Live mode disabled.")
+        return None
+
+    totp = st.sidebar.text_input("Enter TOTP Code", type="password", max_chars=6)
+    login_button = st.sidebar.button("Login to 5Paisa")
+
+    if login_button and totp:
+        try:
+            client = FivePaisaClient(cred={
+                "APP_NAME": creds["app_name"],
+                "APP_SOURCE": creds["app_source"],
+                "USER_ID": creds["user_id"],
+                "PASSWORD": creds["password"],
+                "USER_KEY": creds["user_key"],
+                "ENCRYPTION_KEY": creds["encryption_key"]
+            })
+            client.get_totp_session(creds["client_code"], totp, creds["pin"])
+            st.sidebar.success("✅ Logged in to 5Paisa!")
+            return client
+        except Exception as e:
+            st.sidebar.error(f"Login failed: {e}")
+    elif login_button and not totp:
+        st.sidebar.warning("Please enter TOTP code.")
+
+    return None
