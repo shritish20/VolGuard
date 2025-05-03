@@ -206,16 +206,22 @@ client = FivePaisaClient(cred=cred)
 
 import streamlit as st
 from py5paisa import FivePaisaClient
+import logging
 
-# Sidebar Login Panel
+# Setup logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("5paisa")
+
+st.set_page_config(page_title="5paisa Option Seller Panel", layout="wide")
+
+# Sidebar Login
 with st.sidebar:
     st.header("🔐 5paisa Login")
 
-    totp_code = st.text_input("Enter TOTP Code (from Authenticator App)", type="password")
+    totp_code = st.text_input("Enter TOTP (from Authenticator App)", type="password")
 
-    if st.button("Login to 5paisa"):
+    if st.button("Login"):
         try:
-            # Credentials from .streamlit/secrets.toml
             cred = {
                 "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
                 "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
@@ -226,70 +232,100 @@ with st.sidebar:
             }
 
             client = FivePaisaClient(cred=cred)
+
             client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
             pin = st.secrets["fivepaisa"]["PIN"]
 
-            response = client.get_totp_session(client_code, totp_code, pin)
+            client.get_totp_session(client_code, totp_code, pin)
 
             access_token = client.get_access_token()
-
             if access_token:
-                st.success("✅ Successfully Logged In!")
+                st.success("✅ Login Successful!")
                 st.session_state.client = client
                 st.session_state.logged_in = True
             else:
-                st.error("❌ Login Failed: No access token received.")
+                st.error("❌ Login Failed: No token received.")
                 st.session_state.logged_in = False
 
         except Exception as e:
-            st.error(f"Login Error: {str(e)}")
+            st.error(f"Login Error: {e}")
             st.session_state.logged_in = False
 
-# Main Dashboard
-st.title("📊 5paisa Trading Dashboard")
+# If Logged In
+if st.session_state.get("logged_in"):
 
-if st.session_state.get("logged_in", False):
     client = st.session_state.client
+    st.title("📊 Option Seller Dashboard")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        if st.button("👤 Show Profile Info"):
+        if st.button("💰 Check Margin"):
             try:
-                profile = client.get_user_info()
-                st.json(profile)
+                margin = client.margin()
+                st.json(margin)
             except Exception as e:
-                st.error(f"Error fetching profile: {e}")
+                st.error(f"Error: {e}")
 
     with col2:
-        if st.button("📋 Show Holdings"):
+        if st.button("📦 View Holdings"):
             try:
                 holdings = client.holdings()
                 st.json(holdings)
             except Exception as e:
-                st.error(f"Error fetching holdings: {e}")
+                st.error(f"Error: {e}")
 
     col3, col4 = st.columns(2)
+
     with col3:
-        if st.button("📈 Show Open Positions"):
+        if st.button("📈 View Net Positions"):
             try:
                 positions = client.positions()
                 st.json(positions)
             except Exception as e:
-                st.error(f"Error fetching positions: {e}")
+                st.error(f"Error: {e}")
 
     with col4:
-        if st.button("📑 Show Order Book"):
+        st.subheader("📂 Option Chain Viewer")
+        symbol = st.text_input("Enter Symbol (e.g., NIFTY, BANKNIFTY)").upper()
+        if st.button("Fetch Option Chain"):
             try:
-                orders = client.order_book()
-                st.json(orders)
+                # Placeholder logic — real option chain API integration needed
+                st.info(f"Option chain for {symbol} — (API not available in py5paisa SDK)")
             except Exception as e:
-                st.error(f"Error fetching order book: {e}")
+                st.error(f"Error: {e}")
 
     st.markdown("---")
-    if st.button("🚪 Logout"):
+
+    st.subheader("📝 Place an Order (Manual)")
+    exch = st.selectbox("Exchange", ["N", "B", "C"])
+    symbol = st.text_input("Symbol", "NIFTY")
+    qty = st.number_input("Qty", value=50, step=50)
+    price = st.number_input("Price", value=100.0)
+    bs = st.radio("Buy/Sell", ["B", "S"])
+    type_ = st.selectbox("Order Type", ["L", "M"])  # L = Limit, M = Market
+
+    if st.button("Place Order"):
+        try:
+            order = client.place_order(
+                OrderType="B",  # B = BUY, S = SELL
+                Exchange=exch,
+                ExchangeType="D",
+                ScripCode=client.search_scrip(symbol)[0]["ScripCode"],
+                Qty=qty,
+                Price=price,
+                IsIntraday=True,
+                IsStopLossOrder=False,
+                StopLossPrice=0,
+                IsVTCOrder=False
+            )
+            st.success(f"Order Placed: {order}")
+        except Exception as e:
+            st.error(f"Error placing order: {e}")
+
+    if st.button("🔒 Logout"):
         st.session_state.logged_in = False
-        st.session_state.client = None
-        st.success("Logged out successfully.")
+        st.success("Logged out successfully!")
 
 else:
     st.info("Please login from the sidebar to continue.")
