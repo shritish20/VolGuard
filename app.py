@@ -224,22 +224,21 @@ with st.sidebar:
 
             client = FivePaisaClient(cred=cred)
 
-            response = client.get_totp_session(
-                client_code=st.secrets["fivepaisa"]["CLIENT_CODE"],
-                totp=totp_code,
-                pin=st.secrets["fivepaisa"]["PIN"]
-            )
+            client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
+            pin = st.secrets["fivepaisa"]["PIN"]
 
-            if response.get("Status") == "Success":
+            response = client.get_totp_session(client_code, totp_code, pin)
+
+            if response is not None and response.get("Status") == "Success":
                 st.success("✅ Successfully Logged In!")
                 st.session_state.client = client
                 st.session_state.logged_in = True
             else:
-                st.error("❌ Login Failed: Invalid TOTP or session.")
+                st.error(f"❌ Login Failed: {response}")
                 st.session_state.logged_in = False
 
         except Exception as e:
-            st.error(f"Login Failed: {str(e)}")
+            st.error(f"Login Error: {str(e)}")
             st.session_state.logged_in = False
 
 # Sidebar Controls
