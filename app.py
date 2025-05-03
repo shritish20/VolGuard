@@ -204,21 +204,16 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
+
 import streamlit as st
 from py5paisa import FivePaisaClient
-import logging
-import json
+from py5paisa.order import Order, OrderType
+import pandas as pd
 
-# Set up logging for debugging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("5paisa")
-logging.getLogger("urllib3").setLevel(logging.DEBUG)  
-
-# Sidebar Login
+# ---------------------------- Login Section ----------------------------
 with st.sidebar:
-    st.header("🔐 5paisa Login")
-
-    totp_code = st.text_input("Enter TOTP (from Authenticator App)", type="password")
+    st.header("🔐 Login to 5paisa")
+    totp_code = st.text_input("Enter TOTP Code (from Authenticator App)", type="password")
 
     if st.button("Login"):
         try:
@@ -231,143 +226,77 @@ with st.sidebar:
                 "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
             }
 
-            logger.debug("Initializing FivePaisaClient with credentials")
             client = FivePaisaClient(cred=cred)
-
             client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
             pin = st.secrets["fivepaisa"]["PIN"]
 
-            # Log inputs (mask sensitive data)
-            st.write(f"Client Code: {client_code[:4]}****")
-            st.write(f"TOTP Code: {totp_code[:2]}****")
-            st.write(f"PIN: {'*' * len(pin)}")
+            session = client.get_totp_session(client_code, totp_code, pin)
 
-            logger.debug("Calling get_totp_session with client_code=%s, totp_code=%s, pin=%s",
-                         client_code[:4] + "****", totp_code[:2] + "****", "*" * len(pin))
-            response = client.get_totp_session(client_code, totp_code, pin)
-
-            # Debug: Display response
-            st.write(f"Response Type: {type(response)}")
-            st.write(f"Response: {response}")
-
-            access_token = client.get_access_token()
-            st.write(f"Access Token: {access_token}")
-
-            if access_token:
-                st.success("✅ Login Successful!")
+            if client.get_access_token():
+                st.success("✅ Logged in successfully")
                 st.session_state.client = client
                 st.session_state.logged_in = True
-                logger.info("Login successful, access token received")
             else:
-                st.error("❌ Login Failed: No token received.")
+                st.error("❌ Login Failed")
                 st.session_state.logged_in = False
-                logger.error("Login failed: No access token received")
 
         except Exception as e:
             st.error(f"Login Error: {str(e)}")
-            logger.exception("Exception during login")
             st.session_state.logged_in = False
 
-# If Logged In
-if st.session_state.get("logged_in"):
+# ---------------------------- Main Dashboard ----------------------------
+if st.session_state.get("logged_in", False):
     client = st.session_state.client
-    st.title("📊 Option Seller Dashboard")
 
-    col1, col2 = st.columns(2)
+    st.title("5paisa Option Seller Dashboard")
 
-    with col1:
-        if st.button("💰 Check Margin"):
-            try:
-                logger.debug("Fetching margin")
-                margin = client.margin()
-                st.json(margin)
-                logger.info("Margin fetched successfully")
-            except Exception as e:
-                st.error(f"Error fetching margin: {str(e)}")
-                logger.exception("Error fetching margin")
+    # ---------------- Account Summary ----------------
+    st.subheader("💰 Account Summary")
+    try:
+        margin = client.margin()
+        st.metric("Available Margin", f"{margin['CashMarginAvailable']} ₹")
+        st.metric("Used Margin", f"{margin['MarginUsed']} ₹")
+        st.metric("Net Margin", f"{margin['NetCashAvailable']} ₹")
+    except:
+        st.warning("Could not fetch margin info.")
 
-    with col2:
-        if st.button("📦 View Holdings"):
-            try:
-                logger.debug("Fetching holdings")
-                holdings = client.holdings()
-                st.json(holdings)
-                logger.info("Holdings fetched successfully")
-            except Exception as e:
-                st.error(f"Error fetching holdings: {str(e)}")
-                logger.exception("Error fetching holdings")
+    # ---------------- Holdings ----------------
+    st.subheader("📦 Holdings")
+    try:
+        holdings = client.holdings()
+        df_hold = pd.DataFrame(holdings['Data'])
+        st.dataframe(df_hold[['ScripName', 'Qty', 'BuyAvgRate', 'LTP', 'CurrentValue']], use_container_width=True)
+    except:
+        st.warning("Could not fetch holdings.")
 
-    col3, col4 = st.columns(2)
+    # ---------------- Positions ----------------
+    st.subheader("📊 Open Positions")
+    try:
+        pos = client.positions()
+        df_pos = pd.DataFrame(pos['Data'])
+        if not df_pos.empty:
+            df_pos['Unrealized P&L'] = df_pos['MTOM']
+            df_pos['Realized P&L'] = df_pos['BookedPL']
+            df_pos['Total P&L'] = df_pos['MTOM'] + df_pos['BookedPL']
+            st.dataframe(df_pos[['ScripName', 'BuyQty', 'SellQty', 'NetQty', 'BuyAvgRate', 'SellAvgRate', 'Unrealized P&L', 'Realized P&L', 'Total P&L']], use_container_width=True)
+            st.success(f"Total P&L: ₹{df_pos['Total P&L'].sum():.2f}")
+        else:
+            st.info("No open positions.")
+    except:
+        st.warning("Could not fetch positions.")
 
-    with col3:
-        if st.button("📈 View Net Positions"):
-            try:
-                logger.debug("Fetching positions")
-                positions = client.positions()
-                st.json(positions)
-                logger.info("Positions fetched successfully")
-            except Exception as e:
-                st.error(f"Error fetching positions: {str(e)}")
-                logger.exception("Error fetching positions")
-
-    with col4:
-        st.subheader("📂 Option Chain Viewer")
-        symbol = st.text_input("Enter Symbol (e.g., NIFTY, BANKNIFTY)").upper()
-        if st.button("Fetch Option Chain"):
-            try:
-                logger.debug("Fetching option chain for symbol: %s", symbol)
-                # Placeholder: py5paisa SDK doesn't have a direct option chain API
-                st.info(f"Option chain for {symbol} — (API not available in py5paisa SDK)")
-                logger.info("Option chain fetch attempted (placeholder)")
-            except Exception as e:
-                st.error(f"Error fetching option chain: {str(e)}")
-                logger.exception("Error fetching option chain")
-
-    st.markdown("---")
-
-    st.subheader("📝 Place an Order (Manual)")
-    exch = st.selectbox("Exchange", ["N", "B", "C"])
-    symbol = st.text_input("Symbol", "NIFTY")
-    qty = st.number_input("Qty", value=50, step=50)
-    price = st.number_input("Price", value=100.0)
-    bs = st.radio("Buy/Sell", ["B", "S"])
-    type_ = st.selectbox("Order Type", ["L", "M"])  # L = Limit, M = Market
-
+    # ---------------- Optional Order Placement ----------------
+    st.subheader("🛒 Place Derivative Order (Test)")
+    scrip_code = st.number_input("Enter Scrip Code", value=57633)
+    qty = st.number_input("Qty", value=50, step=25)
+    price = st.number_input("Price", value=1.5)
     if st.button("Place Order"):
         try:
-            logger.debug("Placing order: Exchange=%s, Symbol=%s, Qty=%s, Price=%s, Buy/Sell=%s, OrderType=%s",
-                         exch, symbol, qty, price, bs, type_)
-            scrip_code = client.search_scrip(symbol)
-            if not scrip_code or not scrip_code[0].get("ScripCode"):
-                raise ValueError(f"Scrip code not found for symbol: {symbol}")
-
-            order = client.place_order(
-                OrderType=bs,  # B = BUY, S = SELL
-                Exchange=exch,
-                ExchangeType="D",  # Derivatives
-                ScripCode=scrip_code[0]["ScripCode"],
-                Qty=qty,
-                Price=price if type_ == "L" else 0,  # Use price for Limit, 0 for Market
-                IsIntraday=True,
-                IsStopLossOrder=False,
-                StopLossPrice=0,
-                IsVTCOrder=False
-            )
-            st.success(f"Order Placed: {json.dumps(order, indent=2)}")
-            logger.info("Order placed successfully: %s", order)
+            order = client.place_order(OrderType='B', Exchange='N', ExchangeType='D',
+                                       ScripCode=scrip_code, Qty=qty, Price=price)
+            st.success(f"Order placed: {order}")
         except Exception as e:
-            st.error(f"Error placing order: {str(e)}")
-            logger.exception("Error placing order")
-
-    if st.button("🔒 Logout"):
-        st.session_state.logged_in = False
-        st.session_state.client = None
-        st.success("Logged out successfully!")
-        logger.info("User logged out")
-
-else:
-    st.info("Please login from the sidebar to continue.")
-
+            st.error(f"Order Error: {e}")
 # Sidebar Controls
 with st.sidebar:
     st.header("⚙️ Trading Controls")
