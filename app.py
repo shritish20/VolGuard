@@ -206,13 +206,15 @@ client = FivePaisaClient(cred=cred)
 
 import streamlit as st
 from py5paisa import FivePaisaClient
+from py5paisa.order import Order
 import pandas as pd
 
-# st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
+st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
 
 # ---------------- Sidebar Login ----------------
 with st.sidebar:
     st.header("🔐 5paisa Login")
+
     totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
 
     if st.button("Login"):
@@ -227,7 +229,11 @@ with st.sidebar:
             }
 
             client = FivePaisaClient(cred=cred)
-            response = client.get_totp_session(st.secrets["fivepaisa"]["CLIENT_CODE"], totp_code, st.secrets["fivepaisa"]["PIN"])
+            response = client.get_totp_session(
+                st.secrets["fivepaisa"]["CLIENT_CODE"],
+                totp_code,
+                st.secrets["fivepaisa"]["PIN"]
+            )
 
             if client.get_access_token():
                 st.session_state.client = client
@@ -243,116 +249,95 @@ if "logged_in" in st.session_state and st.session_state.logged_in:
     client = st.session_state.client
     st.title("📊 Option Seller Dashboard")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["P&L / Margin", "Holdings", "Orders / Trades", "Market Feed"])
+    tab1, tab2, tab3, tab4 = st.tabs(["P&L / Margin", "Positions", "Orders", "Market Feed"])
 
     # --- TAB 1: P&L & Margin ---
     with tab1:
         st.subheader("💰 Margin Summary")
         try:
             margin = client.margin()
-            margin_df = pd.DataFrame([margin["Data"]])
-            st.dataframe(margin_df[["NetMarginAvailable", "MarginUsed", "MtoMLoss"]].rename(columns={
-                "NetMarginAvailable": "Available Margin",
-                "MarginUsed": "Used Margin",
-                "MtoMLoss": "MTM P&L"
-            }), use_container_width=True)
+            if isinstance(margin, dict) and "Data" in margin:
+                margin_df = pd.DataFrame([margin["Data"]])
+            elif isinstance(margin, list):
+                margin_df = pd.DataFrame(margin)
+            else:
+                margin_df = pd.DataFrame([margin])
+            st.dataframe(margin_df, use_container_width=True)
         except Exception as e:
             st.error(f"Margin Error: {e}")
 
         st.subheader("📈 Net Positions")
         try:
             pos = client.positions()
-            pos_df = pd.DataFrame(pos["Data"])
-            if not pos_df.empty:
-                pos_df = pos_df[["ScripName", "NetQty", "BuyAvgRate", "SellAvgRate", "MTOM", "Product"]]
-                st.dataframe(pos_df.rename(columns={
-                    "ScripName": "Scrip",
-                    "NetQty": "Qty",
-                    "BuyAvgRate": "Buy Avg",
-                    "SellAvgRate": "Sell Avg",
-                    "MTOM": "MTM",
-                    "Product": "Type"
-                }), use_container_width=True)
+            if isinstance(pos, dict) and "Data" in pos:
+                pos_df = pd.DataFrame(pos["Data"])
+            elif isinstance(pos, list):
+                pos_df = pd.DataFrame(pos)
             else:
-                st.info("No open positions.")
+                pos_df = pd.DataFrame([pos])
+            st.dataframe(pos_df, use_container_width=True)
         except Exception as e:
             st.error(f"Positions Error: {e}")
 
     # --- TAB 2: Holdings ---
     with tab2:
-        st.subheader("📦 Holdings (Equity)")
+        st.subheader("📦 Holdings")
         try:
             holdings = client.holdings()
-            hold_df = pd.DataFrame(holdings["Data"])
-            if not hold_df.empty:
-                hold_df = hold_df[["ScripName", "Qty", "BuyRate", "LTP", "CurrentValue", "ProfitLoss"]]
-                st.dataframe(hold_df.rename(columns={
-                    "ScripName": "Scrip",
-                    "Qty": "Quantity",
-                    "BuyRate": "Buy Price",
-                    "LTP": "Last Price",
-                    "CurrentValue": "Value",
-                    "ProfitLoss": "P&L"
-                }), use_container_width=True)
+            if isinstance(holdings, dict) and "Data" in holdings:
+                hold_df = pd.DataFrame(holdings["Data"])
+            elif isinstance(holdings, list):
+                hold_df = pd.DataFrame(holdings)
             else:
-                st.info("No holdings found.")
+                hold_df = pd.DataFrame([holdings])
+            st.dataframe(hold_df, use_container_width=True)
         except Exception as e:
             st.error(f"Holdings Error: {e}")
 
-    # --- TAB 3: Orders & Trades ---
+    # --- TAB 3: Order/Trade Book ---
     with tab3:
         st.subheader("📝 Order Book")
         try:
             orders = client.order_book()
-            order_df = pd.DataFrame(orders["Data"])
-            if not order_df.empty:
-                st.dataframe(order_df[["ScripName", "OrderQty", "Rate", "Status", "OrderType", "ExchTime"]], use_container_width=True)
+            if isinstance(orders, dict) and "Data" in orders:
+                order_df = pd.DataFrame(orders["Data"])
+            elif isinstance(orders, list):
+                order_df = pd.DataFrame(orders)
             else:
-                st.info("No recent orders.")
+                order_df = pd.DataFrame([orders])
+            st.dataframe(order_df, use_container_width=True)
         except Exception as e:
             st.error(f"Order Book Error: {e}")
 
         st.subheader("📄 Trade Book")
         try:
             trades = client.get_tradebook()
-            trade_df = pd.DataFrame(trades["Data"])
-            if not trade_df.empty:
-                st.dataframe(trade_df[["ScripName", "Qty", "Rate", "BuySell", "TradeDate"]], use_container_width=True)
+            if isinstance(trades, dict) and "Data" in trades:
+                trade_df = pd.DataFrame(trades["Data"])
+            elif isinstance(trades, list):
+                trade_df = pd.DataFrame(trades)
             else:
-                st.info("No trades executed.")
+                trade_df = pd.DataFrame([trades])
+            st.dataframe(trade_df, use_container_width=True)
         except Exception as e:
             st.error(f"Trade Book Error: {e}")
 
-    # --- TAB 4: Market Feed (by name or code) ---
+    # --- TAB 4: Market Feed / Live Data ---
     with tab4:
         st.subheader("📡 Market Feed")
-        name_or_code = st.text_input("Enter Scrip Name (e.g., ITC) or Scrip Code (e.g., 1660):")
+        scrip_code = st.text_input("Enter Scrip Code (e.g., 1660 for ITC):")
         if st.button("Fetch Market Data"):
             try:
-                if name_or_code.isdigit():
-                    scrip_code = int(name_or_code)
-                else:
-                    # Name to code mapping — minimal live list
-                    name_map = {
-                        "ITC": 1660,
-                        "RELIANCE": 2885,
-                        "INFY": 1594,
-                        "SBIN": 3045,
-                        "TCS": 11536
-                    }
-                    scrip_code = name_map.get(name_or_code.upper(), None)
-
-                if scrip_code:
-                    req = [{"Exch": "N", "ExchType": "C", "ScripCode": scrip_code}]
-                    data = client.fetch_market_feed_scrip(req)
-                    st.json(data)
-                else:
-                    st.warning("Invalid name or code. Try a valid scrip.")
+                req = [{"Exch": "N", "ExchType": "C", "ScripCode": int(scrip_code)}]
+                data = client.fetch_market_feed_scrip(req)
+                st.json(data)
             except Exception as e:
-                st.error(f"Feed Error: {e}")
+                st.error(f"Error fetching feed: {e}")
+
 else:
     st.warning("Please login from sidebar to begin.")
-# Sidebar Controls
+
+#Sidebar Controls
 with st.sidebar:
     st.header("⚙️ Trading Controls")
     forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
