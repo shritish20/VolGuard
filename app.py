@@ -210,11 +210,16 @@ with st.sidebar:
     client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
     totp_code = st.text_input("Enter TOTP Code (from Authenticator App)", type="password")
     pin = st.secrets["fivepaisa"]["PIN"]
+
     if st.button("Login to 5paisa"):
         try:
-            client.get_totp_session(client_code, totp_code, pin)
-            st.success("✅ Successfully Logged In!")
-            st.session_state.logged_in = True
+            response = client.get_totp_session(client_code, totp_code, pin)
+            if response.get("body", {}).get("Message") == "Success":
+                st.success("✅ Successfully Logged In!")
+                st.session_state.logged_in = True
+            else:
+                st.error("Login Failed: Invalid TOTP or credentials.")
+                st.session_state.logged_in = False
         except Exception as e:
             st.error(f"Login Failed: {str(e)}")
             st.session_state.logged_in = False
