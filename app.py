@@ -14,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 import pytz
+import yfinance as yf
 
 # Load .env file
 load_dotenv()
@@ -38,16 +39,30 @@ def initialize_5paisa_client(client_code, totp_code, pin):
     client.get_totp_session(client_code, totp_code, pin)
     return client
 
-# GitHub Data Loading
+# GitHub Data Loading with Fallback
 @st.cache_data
 def load_historical_data():
-    nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
-    vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
-    nifty = pd.read_csv(nifty_url, parse_dates=["Date"]).set_index("Date")
-    vix = pd.read_csv(vix_url, parse_dates=["Date"]).set_index("Date")
-    df = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"}).join(vix[["Close"]].rename(columns={"Close": "VIX"}))
-    df = df.fillna(method="ffill").fillna(method="bfill")
-    return df
+    try:
+        nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
+        vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
+        nifty = pd.read_csv(nifty_url, parse_dates=["Date"], date_format="%Y-%m-%d").set_index("Date")
+        vix = pd.read_csv(vix_url, parse_dates=["Date"], date_format="%Y-%m-%d").set_index("Date")
+        df = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"}).join(vix[["Close"]].rename(columns={"Close": "VIX"}))
+        df = df.fillna(method="ffill").fillna(method="bfill")
+        return df
+    except Exception as e:
+        st.error(f"Failed to load data from GitHub: {str(e)}. Switching to Yahoo Finance fallback.")
+        # Fallback to Yahoo Finance
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)
+        nifty = yf.download("^NSEI", start=start_date, end=end_date)
+        vix = yf.download("^INDIAVIX", start=start_date, end=end_date)
+        if nifty.empty or vix.empty:
+            st.error("Failed to load data from Yahoo Finance. Please try again later.")
+            return pd.DataFrame()
+        df = nifty[["Close"]].rename(columns={"Close": "NIFTY_Close"}).join(vix[["Close"]].rename(columns={"Close": "VIX"}))
+        df = df.fillna(method="ffill").fillna(method="bfill")
+        return df
 
 # Load Cached Real Data from GitHub
 @st.cache_data
@@ -247,6 +262,9 @@ def main():
 
     # Load Data
     df = load_historical_data()
+    if df.empty:
+        st.error("No data available to proceed. Please check data sources.")
+        return
     df = generate_synthetic_features(df)
 
     # Check Market Hours (Using pytz for IST)
