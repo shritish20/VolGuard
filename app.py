@@ -211,8 +211,8 @@ def load_data():
             fallback_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(fallback_url)
             response.raise_for_status()
-            # Load CSV with UTF-8 encoding
-            nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8")
+            # Load CSV with UTF-8-SIG to handle BOM
+            nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
             logger.debug(f"Raw CSV columns: {nifty.columns.tolist()}")
 
             # Strip whitespace from column names
@@ -225,9 +225,24 @@ def load_data():
                 logger.error(f"NIFTY CSV missing 'Date' or 'Close'. Columns: {nifty.columns.tolist()}")
                 return None
 
+            # Debug: Print first few rows to check data
+            logger.debug(f"First 5 rows of NIFTY CSV:\n{nifty.head().to_string()}")
+            
             # Parse dates with correct format
             try:
+                # Try parsing with YYYY-MM-DD format first
                 nifty["Date"] = pd.to_datetime(nifty["Date"], format="%Y-%m-%d", errors="coerce")
+                # Check if parsing failed for any dates
+                invalid_dates = nifty["Date"].isna().sum()
+                if invalid_dates > 0:
+                    logger.warning(f"Found {invalid_dates} invalid dates in NIFTY CSV. Attempting alternative format...")
+                    # Try alternative format (e.g., DD-MMM-YYYY)
+                    nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
+                    invalid_dates = nifty["Date"].isna().sum()
+                    if invalid_dates > 0:
+                        st.error(f"NIFTY CSV contains {invalid_dates} invalid dates after trying multiple formats.")
+                        logger.error(f"Invalid dates after trying multiple formats: {invalid_dates}")
+                        return None
             except Exception as e:
                 st.error(f"Failed to parse 'Date' column in nifty_50.csv: {str(e)}")
                 logger.error(f"Date parsing error: {str(e)}")
@@ -258,7 +273,7 @@ def load_data():
         try:
             response = requests.get(vix_url)
             response.raise_for_status()
-            vix = pd.read_csv(io.StringIO(response.text))
+            vix = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to fetch India VIX data: {str(e)}")
             logger.error(f"VIX fetch error: {str(e)}")
@@ -269,7 +284,28 @@ def load_data():
             st.error(f"india_vix.csv is missing required columns. Found: {vix.columns.tolist()}")
             logger.error(f"VIX CSV missing 'Date' or 'Close'. Columns: {vix.columns.tolist()}")
             return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
-        vix["Date"] = pd.to_datetime(vix["Date"], format="%Y-%m-%d", errors="coerce")
+
+        # Debug: Print first few rows to check data
+        logger.debug(f"First 5 rows of VIX CSV:\n{vix.head().to_string()}")
+
+        try:
+            # Try parsing with YYYY-MM-DD format first
+            vix["Date"] = pd.to_datetime(vix["Date"], format="%Y-%m-%d", errors="coerce")
+            invalid_dates = vix["Date"].isna().sum()
+            if invalid_dates > 0:
+                logger.warning(f"Found {invalid_dates} invalid dates in VIX CSV. Attempting alternative format...")
+                # Try alternative format (e.g., DD-MMM-YYYY)
+                vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
+                invalid_dates = vix["Date"].isna().sum()
+                if invalid_dates > 0:
+                    st.error(f"VIX CSV contains {invalid_dates} invalid dates after trying multiple formats.")
+                    logger.error(f"Invalid dates after trying multiple formats: {invalid_dates}")
+                    return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
+        except Exception as e:
+            st.error(f"Failed to parse 'Date' column in india_vix.csv: {str(e)}")
+            logger.error(f"Date parsing error: {str(e)}")
+            return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
+
         vix = vix.dropna(subset=["Date"])
         if vix.empty:
             st.error("VIX data is empty after parsing.")
