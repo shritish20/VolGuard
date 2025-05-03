@@ -203,122 +203,112 @@ cred = {
     "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
 }
 client = FivePaisaClient(cred=cred)
-
 import streamlit as st
 from py5paisa import FivePaisaClient
 import pandas as pd
 
-# ----------------- Configuration -----------------
-#st.set_page_config(page_title="VolGuard: Option Seller Dashboard", layout="wide")
+# ---------------- CONFIG ----------------
+#st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
 
-# ----------------- Sidebar Login -----------------
+# ---------------- SIDEBAR LOGIN (TOTP only) ----------------
 with st.sidebar:
-    st.title("🔐 5paisa Login")
-    st.markdown("**Built by Shritish Shukla & Salman Azim**")
-    st.markdown("Protection First, Edge Always")
-
-    # User inputs for credentials
-    app_name = st.text_input("App Name")
-    app_source = st.text_input("App Source")
-    user_id = st.text_input("User ID")
-    password = st.text_input("Password", type="password")
-    user_key = st.text_input("User Key")
-    encryption_key = st.text_input("Encryption Key")
-    client_code = st.text_input("Client Code")
-    totp = st.text_input("TOTP", type="password")
-    pin = st.text_input("PIN", type="password")
+    st.markdown("### 🔐 5paisa Login (TOTP only)")
+    totp = st.text_input("Enter TOTP from Authenticator App", type="password")
 
     if st.button("Login"):
         try:
             cred = {
-                "APP_NAME": app_name,
-                "APP_SOURCE": app_source,
-                "USER_ID": user_id,
-                "PASSWORD": password,
-                "USER_KEY": user_key,
-                "ENCRYPTION_KEY": encryption_key
+                "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
+                "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
+                "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
+                "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
+                "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
+                "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
             }
             client = FivePaisaClient(cred=cred)
-            client.get_totp_session(client_code, totp, pin)
+            client.get_totp_session(
+                st.secrets["fivepaisa"]["CLIENT_CODE"], totp, st.secrets["fivepaisa"]["PIN"]
+            )
             st.session_state.client = client
             st.session_state.logged_in = True
-            st.success("✅ Logged in successfully.")
+            st.success("✅ Login successful!")
         except Exception as e:
-            st.error(f"Login failed: {e}")
+            st.error(f"Login failed: {str(e)}")
 
-# ----------------- Main Dashboard -----------------
+# ---------------- MAIN DASHBOARD ----------------
 if st.session_state.get("logged_in", False):
     client = st.session_state.client
-    st.title("📊 Option Seller Dashboard")
+    st.title("🛡️ VolGuard Option Seller Dashboard")
 
-    tabs = st.tabs(["💰 Margin & P&L", "📦 Holdings", "📈 Positions", "🧾 Orders", "🔍 Market Feed"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 P&L & Margin", "📦 Holdings", "📝 Orders", "📡 Market Feed"])
 
-    # --- Tab 1: Margin & P&L ---
-    with tabs[0]:
-        st.subheader("💰 Margin Overview")
+    # --- TAB 1 ---
+    with tab1:
+        st.subheader("💰 Margin Info")
         try:
             margin = client.margin()
-            df_margin = pd.DataFrame([margin])
-            st.dataframe(df_margin)
+            st.json(margin)
         except Exception as e:
             st.error(f"Error fetching margin: {e}")
 
-    # --- Tab 2: Holdings ---
-    with tabs[1]:
-        st.subheader("📦 Holdings")
+        st.subheader("📈 Net Positions & P&L")
         try:
-            holdings = client.holdings()
-            df_holdings = pd.DataFrame(holdings)
-            st.dataframe(df_holdings)
-        except Exception as e:
-            st.error(f"Error fetching holdings: {e}")
-
-    # --- Tab 3: Positions ---
-    with tabs[2]:
-        st.subheader("📈 Positions")
-        try:
-            positions = client.positions()
-            df_positions = pd.DataFrame(positions)
-            st.dataframe(df_positions)
+            pos = client.positions()
+            st.json(pos)
         except Exception as e:
             st.error(f"Error fetching positions: {e}")
 
-    # --- Tab 4: Orders ---
-    with tabs[3]:
-        st.subheader("🧾 Order Book")
+    # --- TAB 2 ---
+    with tab2:
+        st.subheader("📦 Current Holdings")
         try:
-            orders = client.order_book()
-            df_orders = pd.DataFrame(orders)
-            st.dataframe(df_orders)
+            holdings = client.holdings()
+            st.json(holdings)
         except Exception as e:
-            st.error(f"Error fetching order book: {e}")
+            st.error(f"Error fetching holdings: {e}")
 
-        st.subheader("📄 Trade Book")
-        try:
-            trades = client.get_tradebook()
-            df_trades = pd.DataFrame(trades)
-            st.dataframe(df_trades)
-        except Exception as e:
-            st.error(f"Error fetching trade book: {e}")
-
-    # --- Tab 5: Market Feed ---
-    with tabs[4]:
-        st.subheader("🔍 Market Feed")
-        scrip_name = st.text_input("Enter Scrip Name (e.g., ITC_EQ)")
-        if st.button("Fetch Market Data"):
+    # --- TAB 3 ---
+    with tab3:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📝 Order Book")
             try:
-                scrip_data = client.search_scrip(scrip_name)
-                if scrip_data:
-                    scrip_code = scrip_data[0]['ScripCode']
-                    req = [{"Exch": "N", "ExchType": "C", "ScripCode": scrip_code}]
-                    market_feed = client.fetch_market_feed_scrip(req)
-                    st.json(market_feed)
+                orders = client.order_book()
+                st.json(orders)
+            except Exception as e:
+                st.error(f"Order Book Error: {e}")
+        with col2:
+            st.subheader("📄 Trade Book")
+            try:
+                trades = client.get_tradebook()
+                st.json(trades)
+            except Exception as e:
+                st.error(f"Trade Book Error: {e}")
+
+    # --- TAB 4 ---
+    with tab4:
+        st.subheader("📡 Market Feed by Scrip Name")
+        scrip_name = st.text_input("Enter Scrip Name (e.g., TATASTEEL, ITC)").upper()
+
+        if st.button("Fetch Live Data"):
+            try:
+                # Get full scrip master list
+                scrip_master = pd.read_csv("https://staticassets.5paisa.com/Downloads/scripmaster-csv-format.csv")
+                scrip_row = scrip_master[scrip_master['Name'].str.upper() == scrip_name]
+
+                if scrip_row.empty:
+                    st.warning("Scrip not found. Please check the spelling.")
                 else:
-                    st.warning("Scrip not found.")
+                    scrip_code = int(scrip_row.iloc[0]["Scripcode"])
+                    req = [{"Exch": "N", "ExchType": "C", "ScripCode": scrip_code}]
+                    data = client.fetch_market_feed_scrip(req)
+                    st.json(data)
+
             except Exception as e:
                 st.error(f"Error fetching market feed: {e}")
 else:
-    st.warning("Please login from the sidebar to access the dashboard.")
+    st.warning("Please login from the sidebar using your TOTP to access dashboard.")
+
 # Sidebar Controls
 with st.sidebar:
     st.header("⚙️ Trading Controls")
