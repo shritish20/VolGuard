@@ -204,15 +204,10 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
-from py5paisa import FivePaisaClient
 import streamlit as st
-import logging
-import time
+from py5paisa import FivePaisaClient
 
-# Set up logging to capture library messages (e.g., "Logged in!!")
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("py5paisa")
-
+# Sidebar Login Panel
 with st.sidebar:
     st.header("🔐 5paisa Login")
 
@@ -220,6 +215,7 @@ with st.sidebar:
 
     if st.button("Login to 5paisa"):
         try:
+            # Credentials from .streamlit/secrets.toml
             cred = {
                 "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
                 "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
@@ -230,37 +226,73 @@ with st.sidebar:
             }
 
             client = FivePaisaClient(cred=cred)
-
             client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
             pin = st.secrets["fivepaisa"]["PIN"]
 
-            # Log inputs (mask sensitive data)
-            st.write(f"Client Code: {client_code[:4]}****")
-            st.write(f"TOTP Code: {totp_code[:2]}****")
-            st.write(f"PIN: {'*' * len(pin)}")
-
-            # Call get_totp_session
             response = client.get_totp_session(client_code, totp_code, pin)
 
-            # Debug: Display response and type
-            st.write(f"Response Type: {type(response)}")
-            st.write(f"Response: {response}")
-
-            # Check access token to confirm login
             access_token = client.get_access_token()
-            st.write(f"Access Token: {access_token}")
 
             if access_token:
                 st.success("✅ Successfully Logged In!")
                 st.session_state.client = client
                 st.session_state.logged_in = True
             else:
-                st.error(f"❌ Login Failed: No access token received. Response: {response}")
+                st.error("❌ Login Failed: No access token received.")
                 st.session_state.logged_in = False
 
         except Exception as e:
             st.error(f"Login Error: {str(e)}")
             st.session_state.logged_in = False
+
+# Main Dashboard
+st.title("📊 5paisa Trading Dashboard")
+
+if st.session_state.get("logged_in", False):
+    client = st.session_state.client
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("👤 Show Profile Info"):
+            try:
+                profile = client.get_user_info()
+                st.json(profile)
+            except Exception as e:
+                st.error(f"Error fetching profile: {e}")
+
+    with col2:
+        if st.button("📋 Show Holdings"):
+            try:
+                holdings = client.holdings()
+                st.json(holdings)
+            except Exception as e:
+                st.error(f"Error fetching holdings: {e}")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        if st.button("📈 Show Open Positions"):
+            try:
+                positions = client.positions()
+                st.json(positions)
+            except Exception as e:
+                st.error(f"Error fetching positions: {e}")
+
+    with col4:
+        if st.button("📑 Show Order Book"):
+            try:
+                orders = client.order_book()
+                st.json(orders)
+            except Exception as e:
+                st.error(f"Error fetching order book: {e}")
+
+    st.markdown("---")
+    if st.button("🚪 Logout"):
+        st.session_state.logged_in = False
+        st.session_state.client = None
+        st.success("Logged out successfully.")
+
+else:
+    st.info("Please login from the sidebar to continue.")
 # Sidebar Controls
 with st.sidebar:
     st.header("⚙️ Trading Controls")
