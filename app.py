@@ -228,6 +228,7 @@ with st.sidebar:
             pin = st.secrets["fivepaisa"]["PIN"]
 
             response = client.get_totp_session(client_code, totp_code, pin)
+st.code(str(response))  # Debug: Show raw response
 
             if response is not None and response.get("Status") == "Success":
                 st.success("✅ Successfully Logged In!")
