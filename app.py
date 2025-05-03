@@ -206,12 +206,12 @@ client = FivePaisaClient(cred=cred)
 
 from py5paisa import FivePaisaClient
 import streamlit as st
-import json
-import jwt
 import logging
+import time
 
-# Set up logging to capture "Logged in!!" message
+# Set up logging to capture library messages (e.g., "Logged in!!")
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("py5paisa")
 
 with st.sidebar:
     st.header("🔐 5paisa Login")
@@ -234,43 +234,28 @@ with st.sidebar:
             client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
             pin = st.secrets["fivepaisa"]["PIN"]
 
+            # Log inputs (mask sensitive data)
+            st.write(f"Client Code: {client_code[:4]}****")
+            st.write(f"TOTP Code: {totp_code[:2]}****")
+            st.write(f"PIN: {'*' * len(pin)}")
+
             # Call get_totp_session
             response = client.get_totp_session(client_code, totp_code, pin)
 
-            # Debug: Display response type and content
+            # Debug: Display response and type
             st.write(f"Response Type: {type(response)}")
             st.write(f"Response: {response}")
 
-            # Check if response is a string
-            if isinstance(response, str):
-                try:
-                    # Try parsing as JSON
-                    response_dict = json.loads(response)
-                    st.write(f"Parsed Response: {response_dict}")
-                except json.JSONDecodeError:
-                    # If not JSON, check if it's a JWT
-                    try:
-                        response_dict = jwt.decode(response, options={"verify_signature": False})
-                        st.write(f"Decoded JWT: {response_dict}")
-                    except jwt.InvalidTokenError:
-                        # Treat as raw string (possibly an error message)
-                        response_dict = {"message": response}
-
-            elif isinstance(response, dict):
-                response_dict = response
-            else:
-                response_dict = None
-
-            # Check for successful login
-            # Since the library prints "Logged in!!" and sets the access token, check the access token
+            # Check access token to confirm login
             access_token = client.get_access_token()
+            st.write(f"Access Token: {access_token}")
+
             if access_token:
                 st.success("✅ Successfully Logged In!")
                 st.session_state.client = client
                 st.session_state.logged_in = True
-                st.write(f"Access Token: {access_token}")
             else:
-                st.error(f"❌ Login Failed: {response_dict or response}")
+                st.error(f"❌ Login Failed: No access token received. Response: {response}")
                 st.session_state.logged_in = False
 
         except Exception as e:
