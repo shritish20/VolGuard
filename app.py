@@ -1,16 +1,22 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import requests
-from statsmodels.tsa.api import GARCH
+from arch import arch_model
 import xgboost as xgb
 from scipy.stats import norm
 from py5paisa import FivePaisaClient
 import time
 import uuid
 import os
+import plotly.express as px
+import plotly.graph_objects as go
+from dotenv import load_dotenv
+import pytz
+
+# Load .env file
+load_dotenv()
 
 # Initialize Streamlit Session State
 if "user_id" not in st.session_state:
@@ -21,12 +27,12 @@ if "client" not in st.session_state:
 # 5paisa API Client Setup
 def initialize_5paisa_client(client_code, totp_code, pin):
     cred = {
-        "APP_NAME": "5P56139858",
-        "APP_SOURCE": "25268",
-        "USER_ID": "kpiO3Nfckot",
-        "PASSWORD": "cvLDUzSKka0",
-        "USER_KEY": "qdgWkql4y2RIPzNvVkuAU8GXDr4K0poo",
-        "ENCRYPTION_KEY": "qc3dezuXampaQncAjs0w0C0HAKS5hMjv"
+        "APP_NAME": os.getenv("APP_NAME"),
+        "APP_SOURCE": os.getenv("APP_SOURCE"),
+        "USER_ID": os.getenv("USER_ID"),
+        "PASSWORD": os.getenv("PASSWORD"),
+        "USER_KEY": os.getenv("USER_KEY"),
+        "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY")
     }
     client = FivePaisaClient(cred=cred)
     client.get_totp_session(client_code, totp_code, pin)
@@ -164,10 +170,10 @@ def fetch_nifty_data(client):
 
 # Volatility Forecasting (GARCH + XGBoost)
 def forecast_volatility(df):
-    returns = df["Returns"].dropna()
-    garch_model = GARCH(returns, p=1, q=1)
+    returns = df["Returns"].dropna() * 100  # Scale for GARCH
+    garch_model = arch_model(returns, vol='Garch', p=1, q=1, dist='Normal')
     garch_fit = garch_model.fit(disp="off")
-    garch_vol = garch_fit.forecast(horizon=7).variance.iloc[-1].mean() * np.sqrt(252) * 100
+    garch_vol = garch_fit.forecast(horizon=7).variance.iloc[-1].mean() * np.sqrt(252)
 
     features = df[["VIX", "ATM_IV", "PCR", "IV_Skew", "Realized_Vol", "Capital_Pressure_Index", "Gamma_Bias"]].dropna()
     target = df["Realized_Vol"].dropna()
@@ -214,9 +220,9 @@ def main():
     if not st.session_state.user_id:
         with st.form("login_form"):
             username = st.text_input("Enter Username (e.g., User1)")
-            client_code = st.text_input("5paisa Client Code (or leave blank for Demo Mode)")
+            client_code = st.text_input("5paisa Client Code", value=os.getenv("CLIENT_CODE"), disabled=True)
             totp_code = st.text_input("5paisa TOTP", type="password")
-            pin = st.text_input("5paisa PIN", type="password")
+            pin = st.text_input("5paisa PIN", value=os.getenv("PIN"), disabled=True)
             submitted = st.form_submit_button("Login")
             if submitted:
                 st.session_state.user_id = username if username else str(uuid.uuid4())
@@ -243,8 +249,9 @@ def main():
     df = load_historical_data()
     df = generate_synthetic_features(df)
 
-    # Check Market Hours (Simplified for Demo: 9:15 AM to 3:30 PM IST, Mon-Fri)
-    now = datetime.now()
+    # Check Market Hours (Using pytz for IST)
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
     is_market_open = (market_open <= now <= market_close) and (now.weekday() < 5)
@@ -284,6 +291,13 @@ def main():
     col1, col2 = st.columns(2)
     col1.metric("Blended Volatility", f"{blended_vol:.2f}%")
     col2.metric("Confidence", f"{confidence:.2%}")
+
+    # Volatility Chart (Using Plotly)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["Realized_Vol"], mode="lines", name="Realized Vol"))
+    fig.add_trace(go.Scatter(x=[df.index[-1], df.index[-1] + pd.Timedelta(days=7)], y=[df["Realized_Vol"].iloc[-1], blended_vol], mode="lines", name="Forecasted Vol", line=dict(dash="dash")))
+    fig.update_layout(title="Volatility Trend", xaxis_title="Date", yaxis_title="Volatility (%)")
+    st.plotly_chart(fig, use_container_width=True)
 
     # Strategy Engine
     if st.session_state.get(f"run_engine_{user_id}", False):
