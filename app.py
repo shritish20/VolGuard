@@ -216,6 +216,8 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("5paisa")
 logging.getLogger("urllib3").setLevel(logging.DEBUG)  # Capture HTTP requests
 
+# Set page config FIRST to avoid StreamlitSetPageConfigMustBeFirstCommandError
+st.set_page_config(page_title="5paisa Option Seller Dashboard", layout="wide")
 
 # ---------------------------- Login Section ----------------------------
 with st.sidebar:
@@ -227,7 +229,7 @@ with st.sidebar:
             cred = {
                 "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
                 "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
-                "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
+                "USER_ID": Taliban secrets["fivepaisa"]["USER_ID"],
                 "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
                 "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
                 "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
@@ -279,7 +281,14 @@ if st.session_state.get("logged_in", False):
     try:
         logger.debug("Fetching margin")
         margin = client.margin()
-        margin_data = margin.get('Data', [{}])[0]  # Handle API response structure
+        logger.debug("Margin response: %s", json.dumps(margin, indent=2))
+
+        # Handle list response
+        if isinstance(margin, list):
+            margin_data = margin[0] if margin else {}
+        else:
+            margin_data = margin.get('Data', [{}])[0]
+
         st.metric("Available Margin", f"₹{margin_data.get('CashMarginAvailable', 0):,.2f}")
         st.metric("Used Margin", f"₹{margin_data.get('MarginUsed', 0):,.2f}")
         st.metric("Net Margin", f"₹{margin_data.get('NetCashAvailable', 0):,.2f}")
@@ -293,7 +302,14 @@ if st.session_state.get("logged_in", False):
     try:
         logger.debug("Fetching holdings")
         holdings = client.holdings()
-        df_hold = pd.DataFrame(holdings.get('Data', []))
+        logger.debug("Holdings response: %s", json.dumps(holdings, indent=2))
+
+        # Handle list response
+        if isinstance(holdings, list):
+            df_hold = pd.DataFrame(holdings)
+        else:
+            df_hold = pd.DataFrame(holdings.get('Data', []))
+
         if not df_hold.empty:
             st.dataframe(
                 df_hold[['ScripName', 'Qty', 'BuyAvgRate', 'LTP', 'CurrentValue']],
@@ -317,11 +333,18 @@ if st.session_state.get("logged_in", False):
     try:
         logger.debug("Fetching positions")
         pos = client.positions()
-        df_pos = pd.DataFrame(pos.get('Data', []))
+        logger.debug("Positions response: %s", json.dumps(pos, indent=2))
+
+        # Handle list response
+        if isinstance(pos, list):
+            df_pos = pd.DataFrame(pos)
+        else:
+            df_pos = pd.DataFrame(pos.get('Data', []))
+
         if not df_pos.empty:
-            df_pos['Unrealized P&L'] = df_pos['MTOM']
-            df_pos['Realized P&L'] = df_pos['BookedPL']
-            df_pos['Total P&L'] = df_pos['MTOM'] + df_pos['BookedPL']
+            df_pos['Unrealized P&L'] = df_pos.get('MTOM', 0)
+            df_pos['Realized P&L'] = df_pos.get('BookedPL', 0)
+            df_pos['Total P&L'] = df_pos['Unrealized P&L'] + df_pos['Realized P&L']
             st.dataframe(
                 df_pos[['ScripName', 'BuyQty', 'SellQty', 'NetQty', 'BuyAvgRate', 'SellAvgRate', 'Unrealized P&L', 'Realized P&L', 'Total P&L']],
                 use_container_width=True,
@@ -349,7 +372,14 @@ if st.session_state.get("logged_in", False):
     try:
         logger.debug("Fetching order book")
         order_book = client.order_book()
-        df_orders = pd.DataFrame(order_book.get('Data', []))
+        logger.debug("Order book response: %s", json.dumps(order_book, indent=2))
+
+        # Handle list response
+        if isinstance(order_book, list):
+            df_orders = pd.DataFrame(order_book)
+        else:
+            df_orders = pd.DataFrame(order_book.get('Data', []))
+
         if not df_orders.empty:
             st.dataframe(
                 df_orders[['ScripName', 'OrderType', 'Qty', 'Rate', 'Status', 'ExchOrderID', 'OrderTime']],
@@ -372,7 +402,14 @@ if st.session_state.get("logged_in", False):
     try:
         logger.debug("Fetching trade book")
         trade_book = client.get_tradebook()
-        df_trades = pd.DataFrame(trade_book.get('Data', []))
+        logger.debug("Trade book response: %s", json.dumps(trade_book, indent=2))
+
+        # Handle list response
+        if isinstance(trade_book, list):
+            df_trades = pd.DataFrame(trade_book)
+        else:
+            df_trades = pd.DataFrame(trade_book.get('Data', []))
+
         if not df_trades.empty:
             st.dataframe(
                 df_trades[['ScripName', 'TradeType', 'Qty', 'Rate', 'TradeID', 'TradeTime']],
@@ -442,7 +479,7 @@ if st.session_state.get("logged_in", False):
     conv_from = st.selectbox("From", ["D", "I"], format_func=lambda x: {"D": "Delivery", "I": "Intraday"}[x])
     conv_to = st.selectbox("To", ["D", "I"], format_func=lambda x: {"D": "Delivery", "I": "Intraday"}[x])
 
-    if st.button("Convert Position"):
+    if st.button("Convert Position'):
         try:
             logger.debug("Converting position: Symbol=%s, Exchange=%s, Qty=%s, Type=%s, From=%s, To=%s",
                          conv_symbol, conv_exchange, conv_qty, conv_type, conv_from, conv_to)
@@ -482,6 +519,7 @@ if st.session_state.get("logged_in", False):
 
 else:
     st.info("Please login from the sidebar to continue.")
+
 
 # Sidebar Controls
 with st.sidebar:
