@@ -212,10 +212,7 @@ import json
 # Set up logging for debugging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("5paisa")
-logging.getLogger("urllib3").setLevel(logging.DEBUG)  # Capture HTTP requests
-
-# Set page config FIRST
-st.set_page_config(page_title="5paisa Option Seller Panel", layout="wide")
+logging.getLogger("urllib3").setLevel(logging.DEBUG)  
 
 # Sidebar Login
 with st.sidebar:
