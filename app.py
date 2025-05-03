@@ -217,7 +217,7 @@ logger = logging.getLogger("5paisa")
 logging.getLogger("urllib3").setLevel(logging.DEBUG)  # Capture HTTP requests
 
 # Set page config FIRST to avoid StreamlitSetPageConfigMustBeFirstCommandError
-st.set_page_config(page_title="5paisa Option Seller Dashboard", layout="wide")
+# st.set_page_config(page_title="5paisa Option Seller Dashboard", layout="wide")
 
 # ---------------------------- Login Section ----------------------------
 with st.sidebar:
