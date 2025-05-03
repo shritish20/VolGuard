@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Page config
-st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
+#st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
 
 # Custom CSS for modern UI (unchanged from your original code)
 st.markdown("""
