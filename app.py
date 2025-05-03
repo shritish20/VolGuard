@@ -229,7 +229,7 @@ with st.sidebar:
             cred = {
                 "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
                 "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
-                "USER_ID": Taliban secrets["fivepaisa"]["USER_ID"],
+                "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
                 "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
                 "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
                 "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
