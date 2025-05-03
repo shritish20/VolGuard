@@ -205,19 +205,24 @@ cred = {
 client = FivePaisaClient(cred=cred)
 
 # TOTP Authentication (Temporary without validation)
-if st.button("Login to 5paisa"):
-    try:
-        response = client.get_totp_session(client_code, totp_code, pin)
-        message = response.get("body", {}).get("Message", "")
-        if message.lower() == "success":
-            st.success("✅ Successfully Logged In!")
-            st.session_state.logged_in = True
-        else:
-            st.error(f"Login Failed: {message or 'Invalid TOTP or credentials'}")
+with st.sidebar:
+    st.header("🔐 5paisa Login")
+    client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
+    totp_code = st.text_input("Enter TOTP Code (from Authenticator App)", type="password")
+    pin = st.secrets["fivepaisa"]["PIN"]
+    
+    if st.button("Login to 5paisa"):
+        try:
+            response = client.get_totp_session(client_code, totp_code, pin)
+            if response.get("Status") == "Success":
+                st.success("✅ Successfully Logged In!")
+                st.session_state.logged_in = True
+            else:
+                st.error("❌ Login Failed: Invalid TOTP or session.")
+                st.session_state.logged_in = False
+        except Exception as e:
+            st.error(f"Login Failed: {str(e)}")
             st.session_state.logged_in = False
-    except Exception as e:
-        st.error(f"Login Failed: {str(e)}")
-        st.session_state.logged_in = False
 
 # Sidebar Controls
 with st.sidebar:
