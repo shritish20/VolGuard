@@ -204,22 +204,40 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
-# TOTP Authentication (Temporary without validation)
+# TOTP Authentication (Secure & Verified)
 with st.sidebar:
     st.header("🔐 5paisa Login")
-    client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
+
     totp_code = st.text_input("Enter TOTP Code (from Authenticator App)", type="password")
-    pin = st.secrets["fivepaisa"]["PIN"]
-    
+
     if st.button("Login to 5paisa"):
         try:
-            response = client.get_totp_session(client_code, totp_code, pin)
+            from py5paisa import FivePaisaClient
+
+            client = FivePaisaClient(
+                app_name=st.secrets["fivepaisa"]["APP_NAME"],
+                app_source=st.secrets["fivepaisa"]["APP_SOURCE"],
+                user_id=st.secrets["fivepaisa"]["USER_ID"],
+                password=st.secrets["fivepaisa"]["PASSWORD"],
+                user_key=st.secrets["fivepaisa"]["USER_KEY"],
+                encryption_key=st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
+            )
+
+            # Use secure login with TOTP + PIN
+            response = client.get_totp_session(
+                client_code=st.secrets["fivepaisa"]["CLIENT_CODE"],
+                totp=totp_code,
+                pin=st.secrets["fivepaisa"]["PIN"]
+            )
+
             if response.get("Status") == "Success":
                 st.success("✅ Successfully Logged In!")
+                st.session_state.client = client
                 st.session_state.logged_in = True
             else:
                 st.error("❌ Login Failed: Invalid TOTP or session.")
                 st.session_state.logged_in = False
+
         except Exception as e:
             st.error(f"Login Failed: {str(e)}")
             st.session_state.logged_in = False
