@@ -204,7 +204,7 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
-# TOTP Authentication
+# TOTP Authentication (Temporary without validation)
 with st.sidebar:
     st.header("🔐 5paisa Login")
     client_code = st.secrets["fivepaisa"]["CLIENT_CODE"]
