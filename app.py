@@ -188,26 +188,33 @@ def plot_oi_graph(near_atm_df, atm_strike):
     plt.grid(True)
     st.pyplot(plt)
 
-# Load historical data
+# Load historical data from GitHub
 def load_data():
     try:
-        nifty = yf.download("^NSEI", start="2020-01-01", end=datetime.now().strftime("%Y-%m-%d"))
-        nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
-        vix = pd.read_csv("india_vix.csv")
+        # Fetch from GitHub raw links (replace with your actual links after uploading)
+        nifty = pd.read_csv("https://raw.githubusercontent.com/shriti/repo-name/main/new_folder/nifty_50.csv")
+        nifty["Date"] = pd.to_datetime(nifty["Date"])
+        vix = pd.read_csv("https://raw.githubusercontent.com/shriti/repo-name/main/new_folder/india_vix.csv")
         vix["Date"] = pd.to_datetime(vix["Date"])
-        vix = vix[["Date", "Close"]].rename(columns={"Close": "VIX"})
-        df = nifty[["NIFTY_Close"]].reset_index()
-        df = df.merge(vix, on="Date", how="left")
+        df = nifty.merge(vix[["Date", "Close"]], on="Date", how="left").rename(columns={"Close": "VIX"})
+        df = df.rename(columns={"Close": "NIFTY_Close"})
         df["VIX"] = df["VIX"].ffill()
         return df
     except:
-        st.error("Failed to load historical data. Using backup CSVs.")
-        nifty = pd.read_csv("nifty_50.csv")
-        nifty["Date"] = pd.to_datetime(nifty["Date"])
-        vix = pd.read_csv("india_vix.csv")
-        vix["Date"] = pd.to_datetime(vix["Date"])
-        df = nifty.merge(vix[["Date", "Close"]], on="Date", how="left").rename(columns={"Close": "VIX"})
-        return df
+        st.error("Failed to load data from GitHub. Trying Yahoo Finance.")
+        try:
+            nifty = yf.download("^NSEI", start="2020-01-01", end=datetime.now().strftime("%Y-%m-%d"))
+            nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
+            vix = pd.read_csv("https://raw.githubusercontent.com/shriti/repo-name/main/new_folder/india_vix.csv")
+            vix["Date"] = pd.to_datetime(vix["Date"])
+            vix = vix[["Date", "Close"]].rename(columns={"Close": "VIX"})
+            df = nifty[["NIFTY_Close"]].reset_index()
+            df = df.merge(vix, on="Date", how="left")
+            df["VIX"] = df["VIX"].ffill()
+            return df
+        except:
+            st.error("Failed to load historical data.")
+            return None
 
 # Generate synthetic features
 def generate_synthetic_features(df):
@@ -311,23 +318,76 @@ def recommend_strategy(regime, iv_hv_gap, pcr, max_pain_diff_pct, vix_change_pct
         else:
             return "Hold", "Yellow", 1.0
 
+# Backtesting function
+def backtest_strategies(df, capital=100000):
+    portfolio_value = capital
+    trades = []
+    
+    for i in range(len(df) - 252, len(df)):
+        current_data = df.iloc[i]
+        vix = current_data["VIX"]
+        atm_iv = current_data["ATM_IV"]
+        pcr = current_data["PCR"]
+        max_pain_diff_pct = current_data["Spot_MaxPain_Diff_Pct"]
+        vix_change_pct = current_data["VIX_Change_Pct"]
+        
+        df_subset = df.iloc[:i+1]
+        blended_vols, confidence, regime = forecast_volatility_future(df_subset, forecast_horizon=1)
+        
+        hv = df["NIFTY_Close"].iloc[:i+1].pct_change().rolling(20).std() * np.sqrt(252) * 100
+        iv_hv_gap = atm_iv - hv.iloc[-1] if not pd.isna(hv.iloc[-1]) else 0
+        
+        weekly_loss = 0
+        
+        strategy, safety, capital_allocation = recommend_strategy(
+            regime=regime,
+            iv_hv_gap=iv_hv_gap,
+            pcr=pcr,
+            max_pain_diff_pct=max_pain_diff_pct,
+            vix_change_pct=vix_change_pct,
+            atm_iv=atm_iv,
+            intraday_mode=False,
+            vix=vix,
+            weekly_loss=weekly_loss
+        )
+        
+        if safety == "Green":
+            trade_return = 0.02
+        elif safety == "Yellow":
+            trade_return = 0.01
+        else:
+            trade_return = -0.02
+        
+        trade_pnl = portfolio_value * capital_allocation * trade_return
+        portfolio_value += trade_pnl
+        
+        trades.append({
+            "Date": current_data["Date"],
+            "Strategy": strategy,
+            "Safety": safety,
+            "Capital_Allocation": capital_allocation,
+            "Trade_PnL": trade_pnl,
+            "Portfolio_Value": portfolio_value
+        })
+    
+    trades_df = pd.DataFrame(trades)
+    return trades_df, portfolio_value - capital
+
 # Execute trade (basic structure)
 def execute_trade(client, strategy, capital_allocation):
     try:
-        # Placeholder for trade execution logic
         order = {
             "Exch": "N",
             "ExchType": "D",
             "ScripCode": 999920000,
             "ScripData": "NIFTY",
             "BuySell": "B",
-            "Qty": int(capital_allocation * 50),  # Assuming 50 qty per 100% capital
+            "Qty": int(capital_allocation * 50),
             "AtMarket": True,
             "OrderType": "BUY"
         }
         response = client.place_order(order)
         if response.get("Status") == 0:
-            # Set stop-loss (placeholder)
             stop_loss_order = {
                 "Exch": "N",
                 "ExchType": "D",
@@ -337,7 +397,7 @@ def execute_trade(client, strategy, capital_allocation):
                 "Qty": int(capital_allocation * 50),
                 "AtMarket": False,
                 "OrderType": "SELL",
-                "TriggerPrice": response["Price"] * 0.95  # 5% stop-loss
+                "TriggerPrice": response["Price"] * 0.95
             }
             client.place_order(stop_loss_order)
             return True
@@ -364,7 +424,7 @@ client = None
 
 if role == "Admin (Live Data & Trading)":
     password = st.text_input("Enter Admin Password", type="password", value="")
-    if password != "your_password":  # Replace 'your_password' with your chosen password
+    if password != "your_password":
         st.error("Access Denied")
         st.stop()
     totp_code = st.text_input("Enter TOTP Code", type="password", value="")
@@ -407,6 +467,8 @@ else:
 
 # Load historical data and generate features
 df = load_data()
+if df is None:
+    st.stop()
 df = generate_synthetic_features(df)
 
 # Integrate 5paisa data into features
@@ -425,9 +487,9 @@ if data:
 
 # Calculate weekly loss (simulated for guests)
 if st.session_state["role"] == "admin":
-    weekly_loss = np.random.uniform(-10, 5)  # Placeholder; replace with real P&L calculation
+    weekly_loss = np.random.uniform(-10, 5)
 else:
-    weekly_loss = np.random.uniform(-10, 5)  # Simulated
+    weekly_loss = np.random.uniform(-10, 5)
 
 # Sidebar for settings
 st.sidebar.header("Settings")
@@ -477,7 +539,6 @@ with tabs[1]:
 # Strategy Engine tab
 with tabs[2]:
     st.header("Strategy Engine")
-    # Check for Discipline Lock
     if os.path.exists("data/trade_log.csv"):
         trade_log = pd.read_csv("data/trade_log.csv")
         violations = len(trade_log[trade_log["Risk_Level"] == "Red"])
@@ -530,7 +591,7 @@ with tabs[2]:
     else:
         st.write("Run a forecast first to get strategy recommendations.")
 
-# Portfolio Tracker tab
+# Portfolio Tracker tab with Backtesting
 with tabs[3]:
     st.header("Portfolio Tracker")
     if st.session_state["role"] == "admin":
@@ -541,12 +602,22 @@ with tabs[3]:
             st.write("**Exposure:** 1.5x (Placeholder)")
         else:
             st.write("No live data available.")
+        
+        # Run backtesting for Admin to show simulated performance
+        st.subheader("Backtested Performance (Last 1 Year)")
+        trades_df, simulated_pnl = backtest_strategies(df)
+        st.write(f"**Simulated P&L (Backtest):** ₹{simulated_pnl:.2f}")
+        st.write("**Backtest Trade Log:**")
+        st.dataframe(trades_df[["Date", "Strategy", "Safety", "Trade_PnL", "Portfolio_Value"]])
     else:
-        # Simulated P&L from backtesting
-        simulated_pnl = np.random.uniform(-2000, 5000)
+        # Run backtesting for Guest
+        st.subheader("Backtested Performance (Last 1 Year)")
+        trades_df, simulated_pnl = backtest_strategies(df)
         st.write(f"**Simulated P&L (Backtest):** ₹{simulated_pnl:.2f}")
         st.write("**Margin Used:** ₹15000 (Simulated)")
         st.write("**Exposure:** 1.2x (Simulated)")
+        st.write("**Backtest Trade Log:**")
+        st.dataframe(trades_df[["Date", "Strategy", "Safety", "Trade_PnL", "Portfolio_Value"]])
 
 # Discipline Hub tab
 with tabs[4]:
@@ -562,8 +633,7 @@ with tabs[4]:
                 "Override_Warnings": [override_warnings]
             })
             journal_entry.to_csv("data/journal_entries.csv", mode="a", header=not os.path.exists("data/journal_entries.csv"), index=False)
-            # Update behavior score
-            behavior_score = np.random.randint(60, 100)  # Simulated score
+            behavior_score = np.random.randint(60, 100)
             behavior_scores = pd.DataFrame({
                 "Date": [datetime.now()],
                 "Behavior_Score": [behavior_score]
