@@ -203,17 +203,17 @@ cred = {
     "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
 }
 client = FivePaisaClient(cred=cred)
+
 import streamlit as st
 from py5paisa import FivePaisaClient
 import pandas as pd
 
-# ---------------- CONFIG ----------------
-#st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
+st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
 
-# ---------------- SIDEBAR LOGIN (TOTP only) ----------------
+# ---------------- Sidebar Login ----------------
 with st.sidebar:
-    st.markdown("### 🔐 5paisa Login (TOTP only)")
-    totp = st.text_input("Enter TOTP from Authenticator App", type="password")
+    st.header("🔐 5paisa Login")
+    totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
 
     if st.button("Login"):
         try:
@@ -225,90 +225,133 @@ with st.sidebar:
                 "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
                 "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
             }
+
             client = FivePaisaClient(cred=cred)
-            client.get_totp_session(
-                st.secrets["fivepaisa"]["CLIENT_CODE"], totp, st.secrets["fivepaisa"]["PIN"]
-            )
-            st.session_state.client = client
-            st.session_state.logged_in = True
-            st.success("✅ Login successful!")
+            response = client.get_totp_session(st.secrets["fivepaisa"]["CLIENT_CODE"], totp_code, st.secrets["fivepaisa"]["PIN"])
+
+            if client.get_access_token():
+                st.session_state.client = client
+                st.session_state.logged_in = True
+                st.success("✅ Logged in successfully.")
+            else:
+                st.error("❌ Login failed.")
         except Exception as e:
-            st.error(f"Login failed: {str(e)}")
+            st.error(f"Error: {str(e)}")
 
-# ---------------- MAIN DASHBOARD ----------------
-if st.session_state.get("logged_in", False):
+# ---------------- Main Dashboard ----------------
+if "logged_in" in st.session_state and st.session_state.logged_in:
     client = st.session_state.client
-    st.title("🛡️ VolGuard Option Seller Dashboard")
+    st.title("📊 Option Seller Dashboard")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["💰 P&L & Margin", "📦 Holdings", "📝 Orders", "📡 Market Feed"])
+    tab1, tab2, tab3, tab4 = st.tabs(["P&L / Margin", "Holdings", "Orders / Trades", "Market Feed"])
 
-    # --- TAB 1 ---
+    # --- TAB 1: P&L & Margin ---
     with tab1:
-        st.subheader("💰 Margin Info")
+        st.subheader("💰 Margin Summary")
         try:
             margin = client.margin()
-            st.json(margin)
+            margin_df = pd.DataFrame([margin["Data"]])
+            st.dataframe(margin_df[["NetMarginAvailable", "MarginUsed", "MtoMLoss"]].rename(columns={
+                "NetMarginAvailable": "Available Margin",
+                "MarginUsed": "Used Margin",
+                "MtoMLoss": "MTM P&L"
+            }), use_container_width=True)
         except Exception as e:
-            st.error(f"Error fetching margin: {e}")
+            st.error(f"Margin Error: {e}")
 
-        st.subheader("📈 Net Positions & P&L")
+        st.subheader("📈 Net Positions")
         try:
             pos = client.positions()
-            st.json(pos)
+            pos_df = pd.DataFrame(pos["Data"])
+            if not pos_df.empty:
+                pos_df = pos_df[["ScripName", "NetQty", "BuyAvgRate", "SellAvgRate", "MTOM", "Product"]]
+                st.dataframe(pos_df.rename(columns={
+                    "ScripName": "Scrip",
+                    "NetQty": "Qty",
+                    "BuyAvgRate": "Buy Avg",
+                    "SellAvgRate": "Sell Avg",
+                    "MTOM": "MTM",
+                    "Product": "Type"
+                }), use_container_width=True)
+            else:
+                st.info("No open positions.")
         except Exception as e:
-            st.error(f"Error fetching positions: {e}")
+            st.error(f"Positions Error: {e}")
 
-    # --- TAB 2 ---
+    # --- TAB 2: Holdings ---
     with tab2:
-        st.subheader("📦 Current Holdings")
+        st.subheader("📦 Holdings (Equity)")
         try:
             holdings = client.holdings()
-            st.json(holdings)
+            hold_df = pd.DataFrame(holdings["Data"])
+            if not hold_df.empty:
+                hold_df = hold_df[["ScripName", "Qty", "BuyRate", "LTP", "CurrentValue", "ProfitLoss"]]
+                st.dataframe(hold_df.rename(columns={
+                    "ScripName": "Scrip",
+                    "Qty": "Quantity",
+                    "BuyRate": "Buy Price",
+                    "LTP": "Last Price",
+                    "CurrentValue": "Value",
+                    "ProfitLoss": "P&L"
+                }), use_container_width=True)
+            else:
+                st.info("No holdings found.")
         except Exception as e:
-            st.error(f"Error fetching holdings: {e}")
+            st.error(f"Holdings Error: {e}")
 
-    # --- TAB 3 ---
+    # --- TAB 3: Orders & Trades ---
     with tab3:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("📝 Order Book")
-            try:
-                orders = client.order_book()
-                st.json(orders)
-            except Exception as e:
-                st.error(f"Order Book Error: {e}")
-        with col2:
-            st.subheader("📄 Trade Book")
-            try:
-                trades = client.get_tradebook()
-                st.json(trades)
-            except Exception as e:
-                st.error(f"Trade Book Error: {e}")
+        st.subheader("📝 Order Book")
+        try:
+            orders = client.order_book()
+            order_df = pd.DataFrame(orders["Data"])
+            if not order_df.empty:
+                st.dataframe(order_df[["ScripName", "OrderQty", "Rate", "Status", "OrderType", "ExchTime"]], use_container_width=True)
+            else:
+                st.info("No recent orders.")
+        except Exception as e:
+            st.error(f"Order Book Error: {e}")
 
-    # --- TAB 4 ---
+        st.subheader("📄 Trade Book")
+        try:
+            trades = client.get_tradebook()
+            trade_df = pd.DataFrame(trades["Data"])
+            if not trade_df.empty:
+                st.dataframe(trade_df[["ScripName", "Qty", "Rate", "BuySell", "TradeDate"]], use_container_width=True)
+            else:
+                st.info("No trades executed.")
+        except Exception as e:
+            st.error(f"Trade Book Error: {e}")
+
+    # --- TAB 4: Market Feed (by name or code) ---
     with tab4:
-        st.subheader("📡 Market Feed by Scrip Name")
-        scrip_name = st.text_input("Enter Scrip Name (e.g., TATASTEEL, ITC)").upper()
-
-        if st.button("Fetch Live Data"):
+        st.subheader("📡 Market Feed")
+        name_or_code = st.text_input("Enter Scrip Name (e.g., ITC) or Scrip Code (e.g., 1660):")
+        if st.button("Fetch Market Data"):
             try:
-                # Get full scrip master list
-                scrip_master = pd.read_csv("https://staticassets.5paisa.com/Downloads/scripmaster-csv-format.csv")
-                scrip_row = scrip_master[scrip_master['Name'].str.upper() == scrip_name]
-
-                if scrip_row.empty:
-                    st.warning("Scrip not found. Please check the spelling.")
+                if name_or_code.isdigit():
+                    scrip_code = int(name_or_code)
                 else:
-                    scrip_code = int(scrip_row.iloc[0]["Scripcode"])
+                    # Name to code mapping — minimal live list
+                    name_map = {
+                        "ITC": 1660,
+                        "RELIANCE": 2885,
+                        "INFY": 1594,
+                        "SBIN": 3045,
+                        "TCS": 11536
+                    }
+                    scrip_code = name_map.get(name_or_code.upper(), None)
+
+                if scrip_code:
                     req = [{"Exch": "N", "ExchType": "C", "ScripCode": scrip_code}]
                     data = client.fetch_market_feed_scrip(req)
                     st.json(data)
-
+                else:
+                    st.warning("Invalid name or code. Try a valid scrip.")
             except Exception as e:
-                st.error(f"Error fetching market feed: {e}")
+                st.error(f"Feed Error: {e}")
 else:
-    st.warning("Please login from the sidebar using your TOTP to access dashboard.")
-
+    st.warning("Please login from sidebar to begin.")
 # Sidebar Controls
 with st.sidebar:
     st.header("⚙️ Trading Controls")
