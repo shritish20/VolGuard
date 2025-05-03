@@ -9,3 +9,4 @@ scikit-learn
 matplotlib
 requests
 py5paisa
+pyjwt
