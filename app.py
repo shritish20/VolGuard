@@ -209,7 +209,7 @@ from py5paisa import FivePaisaClient
 from py5paisa.order import Order
 import pandas as pd
 
-st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
+#st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
 
 # ---------------- Sidebar Login ----------------
 with st.sidebar:
