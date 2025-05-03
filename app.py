@@ -208,7 +208,7 @@ import streamlit as st
 from py5paisa import FivePaisaClient
 import pandas as pd
 
-st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
+# st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
 
 # ---------------- Sidebar Login ----------------
 with st.sidebar:
