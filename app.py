@@ -479,7 +479,7 @@ if st.session_state.get("logged_in", False):
     conv_from = st.selectbox("From", ["D", "I"], format_func=lambda x: {"D": "Delivery", "I": "Intraday"}[x])
     conv_to = st.selectbox("To", ["D", "I"], format_func=lambda x: {"D": "Delivery", "I": "Intraday"}[x])
 
-    if st.button("Convert Position'):
+    if st.button("Convert Position"):
         try:
             logger.debug("Converting position: Symbol=%s, Exchange=%s, Qty=%s, Type=%s, From=%s, To=%s",
                          conv_symbol, conv_exchange, conv_qty, conv_type, conv_from, conv_to)
