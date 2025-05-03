@@ -204,7 +204,8 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
-# TOTP Authentication (Secure & Verified)
+
+# TOTP Authentication (Fixed and Production Ready)
 with st.sidebar:
     st.header("🔐 5paisa Login")
 
@@ -212,18 +213,17 @@ with st.sidebar:
 
     if st.button("Login to 5paisa"):
         try:
-            from py5paisa import FivePaisaClient
+            cred = {
+                "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
+                "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
+                "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
+                "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
+                "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
+                "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
+            }
 
-            client = FivePaisaClient(
-                app_name=st.secrets["fivepaisa"]["APP_NAME"],
-                app_source=st.secrets["fivepaisa"]["APP_SOURCE"],
-                user_id=st.secrets["fivepaisa"]["USER_ID"],
-                password=st.secrets["fivepaisa"]["PASSWORD"],
-                user_key=st.secrets["fivepaisa"]["USER_KEY"],
-                encryption_key=st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
-            )
+            client = FivePaisaClient(cred=cred)
 
-            # Use secure login with TOTP + PIN
             response = client.get_totp_session(
                 client_code=st.secrets["fivepaisa"]["CLIENT_CODE"],
                 totp=totp_code,
