@@ -1310,29 +1310,48 @@ else:
                         st.markdown('</div>', unsafe_allow_html=True)
 
                         # Journaling Section
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📝 Discipline Hub: Trading Journal")
-                        st.markdown("Reflect on your trades to improve discipline and consistency.")
-                        with st.form(key="journal_form"):
-                            reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"], key="journal_reason")
-                            override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"), key="journal_override")
-                            expected_outcome = st.text_area("What is your expected outcome for this trade?", key="journal_outcome")
-                            submit_journal = st.form_submit_button("Submit Journal Entry")
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.subheader("📝 Discipline Hub: Trading Journal")
+st.markdown("Reflect on your trades to improve discipline and consistency.")
+with st.form(key="journal_form"):
+    reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"], key="journal_reason")
+    override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"), key="journal_override")
+    expected_outcome = st.text_area("What is your expected outcome for this trade?", key="journal_outcome")
+    submit_journal = st.form_submit_button("Submit Journal Entry")
 
-                            if submit_journal:
-                                # Calculate Discipline Score
-                                score = 0
-                                if override_risk == "No":
-                                    score += 3
-                                if reason_strategy != "Other":
-                                    score += 3
-                                if expected_outcome:
-                                    score += 3
-                                if portfolio_data["weekly_pnl"] > 0:
-                                    score += 1
-                                score = min(score, 10)
+    if submit_journal:
+        # Calculate Discipline Score
+        score = 0
+        if override_risk == "No":
+            score += 3
+        if reason_strategy != "Other":
+            score += 3
+        if expected_outcome:
+            score += 3
+        if portfolio_data["weekly_pnl"] > 0:
+            score += 1
+        score = min(score, 10)
 
-                                # Save journal entry
-                                journal_entry = {
-                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "Strategy_Reason": reason_strategy
+        # Save journal entry
+        journal_entry = {
+            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Strategy_Reason": reason_strategy,
+            "Override_Risk": override_risk,
+            "Expected_Outcome": expected_outcome,
+            "Discipline_Score": score
+        }
+        # Save to CSV
+        journal_df = pd.DataFrame([journal_entry])
+        journal_file = "journal_log.csv"
+        journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
+        st.success(f"Journal Entry Saved! Discipline Score: {score}/10")
+        st.session_state.journal_complete = True
+        # Reset violations if journaling is complete
+        if st.session_state.violations > 0:
+            st.session_state.violations = 0
+            st.success("✅ Discipline Lock Removed - You can now trade!")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Footer
+st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
