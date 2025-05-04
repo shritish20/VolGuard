@@ -11,3 +11,4 @@ requests
 py5paisa
 pyjwt
 plotly
+functools
