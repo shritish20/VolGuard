@@ -26,128 +26,158 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Page config
-#st.set_page_config(page_title="VolGuard", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
-# Custom CSS for modern UI (unchanged from your original code)
+# Custom CSS for redesigned UI
 st.markdown("""
     <style>
+        /* Base theme */
         .main {
             background: linear-gradient(135deg, #1a1a2e, #0f1c2e);
             color: #e5e5e5;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Inter', 'Roboto', sans-serif;
         }
-        .stButton>button {
-            background: linear-gradient(90deg, #0f3460, #16213e);
+        .stTabs [data-baseweb="tab-list"] {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        .stTabs [data-baseweb="tab"] {
+            color: #a0a0a0;
+            font-weight: 500;
+            padding: 10px 20px;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {
+            background: #e94560;
             color: white;
-            border-radius: 20px;
-            padding: 12px 25px;
-            font-size: 18px;
-            transition: transform 0.3s, box-shadow 0.3s;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            font-weight: 700;
         }
-        .stButton>button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+        .stTabs [data-baseweb="tab"]:hover {
+            background: #2a2a4a;
+            color: white;
         }
-        .stMetric {
-            background: linear-gradient(135deg, rgba(22, 33, 62, 0.9), rgba(15, 52, 96, 0.7));
-            border-radius: 20px;
-            padding: 20px;
-            text-align: center;
-            backdrop-filter: blur(5px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        /* Sidebar */
+        .sidebar .stButton>button {
+            width: 100%;
+            background: #0f3460;
+            color: white;
+            border-radius: 10px;
+            padding: 12px;
+            margin: 5px 0;
             transition: transform 0.3s;
         }
-        .stMetric:hover {
-            transform: translateY(-5px);
+        .sidebar .stButton>button:hover {
+            transform: scale(1.05);
+            background: #e94560;
         }
-        h1 {
-            color: #e94560;
-            font-size: 42px;
-            text-align: center;
-            text-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
-            animation: fadeIn 1s;
-        }
-        h2 {
-            color: #00d4ff;
-            font-size: 26px;
-            margin-bottom: 15px;
-            text-shadow: 0 0 5px rgba(0, 212, 255, 0.5);
-            animation: slideIn 0.8s;
-        }
+        /* Cards */
         .card {
             background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9));
-            border-radius: 20px;
-            padding: 25px;
-            margin: 20px 0;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-            animation: popIn 0.6s;
-            backdrop-filter: blur(5px);
             transition: transform 0.3s;
+            animation: fadeIn 0.6s;
         }
         .card:hover {
             transform: translateY(-5px);
         }
+        /* Strategy carousel */
+        .strategy-carousel {
+            display: flex;
+            overflow-x: auto;
+            gap: 20px;
+            padding: 10px;
+            scrollbar-width: thin;
+        }
+        .strategy-card {
+            flex: 0 0 auto;
+            width: 300px;
+            background: #16213e;
+            border-radius: 15px;
+            padding: 20px;
+            transition: transform 0.3s;
+        }
+        .strategy-card:hover {
+            transform: scale(1.05);
+        }
+        /* Metrics */
+        .stMetric {
+            background: rgba(15, 52, 96, 0.7);
+            border-radius: 15px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+        /* Gauges */
         .gauge {
-            width: 120px;
-            height: 120px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%);
-            display: inline-block;
-            text-align: center;
-            line-height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 20px;
+            font-size: 18px;
             box-shadow: 0 0 15px rgba(233, 69, 96, 0.5);
             animation: rotateIn 1s;
         }
+        /* Progress bars */
         .progress-bar {
             background: #16213e;
             border-radius: 10px;
             height: 20px;
             width: 100%;
             overflow: hidden;
-            box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
         }
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #e94560, #ffcc00);
             transition: width 1s ease-in-out;
         }
+        /* Regime badges */
         .regime-badge {
-            display: inline-block;
             padding: 8px 15px;
             border-radius: 20px;
             font-weight: bold;
             font-size: 14px;
             text-transform: uppercase;
-            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
         }
         .regime-low { background: #28a745; color: white; }
         .regime-medium { background: #ffc107; color: black; }
         .regime-high { background: #dc3545; color: white; }
         .regime-event { background: #ff6f61; color: white; }
-        .signal-box {
-            background: rgba(15, 52, 96, 0.9);
-            border-radius: 15px;
+        /* Alerts */
+        .alert-banner {
+            background: #dc3545;
+            color: white;
             padding: 15px;
-            margin: 10px 0;
-            transition: transform 0.3s;
-            animation: fadeInUp 0.8s;
-        }
-        .signal-box:hover {
-            transform: translateY(-5px);
-        }
-        .risk-flag {
-            color: #e94560;
-            font-size: 20px;
+            border-radius: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
             animation: pulse 1.5s infinite;
         }
-        .sidebar .stButton>button {
-            width: 100%;
-            margin-top: 10px;
+        /* Buttons */
+        .stButton>button {
+            background: #e94560;
+            color: white;
+            border-radius: 10px;
+            padding: 12px 25px;
+            font-size: 16px;
+            transition: transform 0.3s;
         }
+        .stButton>button:hover {
+            transform: scale(1.05);
+            background: #ffcc00;
+        }
+        /* Footer */
         .footer {
             text-align: center;
             padding: 20px;
@@ -156,30 +186,27 @@ st.markdown("""
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             margin-top: 30px;
         }
+        /* Animations */
         @keyframes fadeIn {
-            from {opacity: 0;} to {opacity: 1;}
-        }
-        @keyframes slideIn {
-            from {transform: translateX(-100%);} to {transform: translateX(0);}
-        }
-        @keyframes popIn {
-            from {transform: scale(0); opacity: 0;} to {transform: scale(1); opacity: 1;}
+            from { opacity: 0; } to { opacity: 1; }
         }
         @keyframes rotateIn {
-            from {transform: rotate(-180deg); opacity: 0;} to {transform: rotate(0); opacity: 1;}
-        }
-        @keyframes fadeInUp {
-            from {opacity: 0; transform: translateY(20px);} to {opacity: 1; transform: translateY(0);}
+            from { transform: rotate(-180deg); opacity: 0; } to { transform: rotate(0); opacity: 1; }
         }
         @keyframes pulse {
-            0% {transform: scale(1);} 50% {transform: scale(1.1);} 100% {transform: scale(1);}
+            0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); }
         }
     </style>
+    <script>
+        // Add hover animations for strategy cards
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.strategy-card').forEach(card => {
+                card.addEventListener('mouseenter', () => card.style.transform = 'scale(1.05)');
+                card.addEventListener('mouseleave', () => card.style.transform = 'scale(1)');
+            });
+        });
+    </script>
 """, unsafe_allow_html=True)
-
-# Header
-st.title("🛡️ VolGuard: Your AI Trading Copilot")
-st.markdown("**Protection First, Edge Always** | Built by Shritish Shukla & Salman Azim")
 
 # Initialize session state
 if "backtest_run" not in st.session_state:
@@ -192,8 +219,10 @@ if "journal_complete" not in st.session_state:
     st.session_state.journal_complete = False
 if "trades" not in st.session_state:
     st.session_state.trades = []
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# 5paisa Client Setup (Using Streamlit Secrets)
+# 5paisa Client Setup
 cred = {
     "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
     "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
@@ -204,154 +233,41 @@ cred = {
 }
 client = FivePaisaClient(cred=cred)
 
-import streamlit as st
-from py5paisa import FivePaisaClient
-from py5paisa.order import Order
-import pandas as pd
-
-#st.set_page_config(page_title="Option Seller Dashboard", layout="wide")
-
-# ---------------- Sidebar Login ----------------
+# Sidebar Login and Controls
 with st.sidebar:
     st.header("🔐 5paisa Login")
-
     totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
-
     if st.button("Login"):
         try:
-            cred = {
-                "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
-                "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
-                "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
-                "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
-                "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
-                "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
-            }
-
-            client = FivePaisaClient(cred=cred)
             response = client.get_totp_session(
                 st.secrets["fivepaisa"]["CLIENT_CODE"],
                 totp_code,
                 st.secrets["fivepaisa"]["PIN"]
             )
-
             if client.get_access_token():
                 st.session_state.client = client
                 st.session_state.logged_in = True
-                st.success("✅ Logged in successfully.")
+                st.success("✅ Logged in successfully")
             else:
-                st.error("❌ Login failed.")
+                st.error("❌ Login failed")
         except Exception as e:
             st.error(f"Error: {str(e)}")
 
-# ---------------- Main Dashboard ----------------
-if "logged_in" in st.session_state and st.session_state.logged_in:
-    client = st.session_state.client
-    st.title("📊 Option Seller Dashboard")
+    if st.session_state.logged_in:
+        st.header("⚙️ Trading Controls")
+        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
+        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
+        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
+        dte_preference = st.slider("DTE Preference (days)", 7, 30, 15)
+        st.markdown("**Backtest Parameters**")
+        start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"))
+        end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"))
+        strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"])
+        run_button = st.button("Run Analysis")
+        st.markdown("---")
+        st.markdown("**Motto:** Deploy with edge, survive, outlast.")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["P&L / Margin", "Positions", "Orders", "Market Feed"])
-
-    # --- TAB 1: P&L & Margin ---
-    with tab1:
-        st.subheader("💰 Margin Summary")
-        try:
-            margin = client.margin()
-            if isinstance(margin, dict) and "Data" in margin:
-                margin_df = pd.DataFrame([margin["Data"]])
-            elif isinstance(margin, list):
-                margin_df = pd.DataFrame(margin)
-            else:
-                margin_df = pd.DataFrame([margin])
-            st.dataframe(margin_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Margin Error: {e}")
-
-        st.subheader("📈 Net Positions")
-        try:
-            pos = client.positions()
-            if isinstance(pos, dict) and "Data" in pos:
-                pos_df = pd.DataFrame(pos["Data"])
-            elif isinstance(pos, list):
-                pos_df = pd.DataFrame(pos)
-            else:
-                pos_df = pd.DataFrame([pos])
-            st.dataframe(pos_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Positions Error: {e}")
-
-    # --- TAB 2: Holdings ---
-    with tab2:
-        st.subheader("📦 Holdings")
-        try:
-            holdings = client.holdings()
-            if isinstance(holdings, dict) and "Data" in holdings:
-                hold_df = pd.DataFrame(holdings["Data"])
-            elif isinstance(holdings, list):
-                hold_df = pd.DataFrame(holdings)
-            else:
-                hold_df = pd.DataFrame([holdings])
-            st.dataframe(hold_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Holdings Error: {e}")
-
-    # --- TAB 3: Order/Trade Book ---
-    with tab3:
-        st.subheader("📝 Order Book")
-        try:
-            orders = client.order_book()
-            if isinstance(orders, dict) and "Data" in orders:
-                order_df = pd.DataFrame(orders["Data"])
-            elif isinstance(orders, list):
-                order_df = pd.DataFrame(orders)
-            else:
-                order_df = pd.DataFrame([orders])
-            st.dataframe(order_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Order Book Error: {e}")
-
-        st.subheader("📄 Trade Book")
-        try:
-            trades = client.get_tradebook()
-            if isinstance(trades, dict) and "Data" in trades:
-                trade_df = pd.DataFrame(trades["Data"])
-            elif isinstance(trades, list):
-                trade_df = pd.DataFrame(trades)
-            else:
-                trade_df = pd.DataFrame([trades])
-            st.dataframe(trade_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Trade Book Error: {e}")
-
-    # --- TAB 4: Market Feed / Live Data ---
-    with tab4:
-        st.subheader("📡 Market Feed")
-        scrip_code = st.text_input("Enter Scrip Code (e.g., 1660 for ITC):")
-        if st.button("Fetch Market Data"):
-            try:
-                req = [{"Exch": "N", "ExchType": "C", "ScripCode": int(scrip_code)}]
-                data = client.fetch_market_feed_scrip(req)
-                st.json(data)
-            except Exception as e:
-                st.error(f"Error fetching feed: {e}")
-
-else:
-    st.warning("Please login from sidebar to begin.")
-
-#Sidebar Controls
-with st.sidebar:
-    st.header("⚙️ Trading Controls")
-    forecast_horizon = st.slider("Forecast Horizon (days)", 1, 10, 7, key="horizon_slider")
-    capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, key="capital_input")
-    risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_select")
-    st.markdown("**Backtest Parameters**")
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"), key="start_date")
-    end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"), key="end_date")
-    strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"], key="strategy_select")
-    run_button = st.button("Run Analysis", key="run_button")
-    st.markdown("---")
-    st.markdown("**Motto:** Deploy with edge, survive, outlast.")
-
-# Black-Scholes IV calculation (from your 5paisa script)
+# Black-Scholes IV calculation
 def black_scholes_call(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -373,7 +289,7 @@ def implied_volatility(S, K, T, r, market_price, option_type='call', tol=1e-5, m
         sigma -= diff / vega
     return np.nan
 
-# Max Pain calculation (from your 5paisa script)
+# Max Pain calculation
 def max_pain(df, nifty_spot):
     calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["LastRate"]
     puts = df[df["CPType"] == "PE"].set_index("StrikeRate")["LastRate"]
@@ -391,19 +307,10 @@ def max_pain(df, nifty_spot):
     max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
     return max_pain_strike, max_pain_diff_pct
 
-# Function to fetch real data from 5paisa (modified from your 5paisa script)
+# Fetch real data from 5paisa
 def fetch_nifty_data():
     try:
-        # Fetch NIFTY 50 spot price
-        nifty_req = [{
-            "Exch": "N",
-            "ExchType": "C",
-            "ScripCode": 999920000,
-            "Symbol": "NIFTY",
-            "Expiry": "",
-            "StrikePrice": "0",
-            "OptionType": ""
-        }]
+        nifty_req = [{"Exch": "N", "ExchType": "C", "ScripCode": 999920000, "Symbol": "NIFTY"}]
         nifty_data = client.fetch_market_feed(nifty_req)
         if not nifty_data or "Data" not in nifty_data or not nifty_data["Data"]:
             raise Exception("Failed to fetch Nifty 50 index price")
@@ -411,7 +318,6 @@ def fetch_nifty_data():
         if not nifty_spot:
             raise Exception("Nifty price key not found")
 
-        # Fetch option chain
         expiry_timestamp = 1746694800000  # May 8, 2025
         option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
         if not option_chain or "Options" not in option_chain:
@@ -428,33 +334,24 @@ def fetch_nifty_data():
         atm_put = atm_data[atm_data["CPType"] == "PE"]["LastRate"].iloc[0] if not atm_data[atm_data["CPType"] == "PE"].empty else 0
         straddle_price = atm_call + atm_put
 
-        # Fetch IV for ATM ±100 strikes
         iv_df = df[(df["StrikeRate"] >= atm_strike - 100) & (df["StrikeRate"] <= atm_strike + 100)].copy()
         T = (datetime(2025, 5, 8) - datetime.now()).days / 365.0
         r = 0.06
         iv_df["IV (%)"] = iv_df.apply(
             lambda row: implied_volatility(
-                S=nifty_spot,
-                K=row["StrikeRate"],
-                T=T,
-                r=r,
-                market_price=row["LastRate"],
+                S=nifty_spot, K=row["StrikeRate"], T=T, r=r, market_price=row["LastRate"],
                 option_type='call' if row["CPType"] == "CE" else 'put'
-            ),
-            axis=1
+            ), axis=1
         )
 
-        # Calculate PCR
         calls = df[df["CPType"] == "CE"]
         puts = df[df["CPType"] == "PE"]
         call_oi = calls["OpenInterest"].sum()
         put_oi = puts["OpenInterest"].sum()
         pcr = put_oi / call_oi if call_oi != 0 else float("inf")
 
-        # Calculate Max Pain
         max_pain_strike, max_pain_diff_pct = max_pain(df, nifty_spot)
 
-        # Calculate VIX Change (using ATM IV history)
         atm_iv = iv_df[iv_df["StrikeRate"] == atm_strike]["IV (%)"].mean()
         vix_change_pct = 0
         iv_file = "atm_iv_history.csv"
@@ -479,23 +376,18 @@ def fetch_nifty_data():
         logger.error(f"Error fetching 5paisa data: {str(e)}")
         return None
 
-# Function to load data (updated to prioritize 5paisa data)
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+# Load data
+@st.cache_data(ttl=300)
 def load_data():
     try:
-        # Step 1: Fetch real data from 5paisa
         real_data = fetch_nifty_data()
         if real_data is None:
-            logger.warning("Falling back to GitHub CSV due to 5paisa failure")
-            # Fallback to GitHub-hosted NIFTY CSV
+            logger.warning("Falling back to GitHub CSV")
             nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
             response.raise_for_status()
             nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
             nifty.columns = nifty.columns.str.strip()
-            if "Date" not in nifty.columns or "Close" not in nifty.columns:
-                st.error(f"NIFTY CSV missing required columns 'Date' or 'Close'. Found: {nifty.columns.tolist()}")
-                return None, None
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
             nifty = nifty[["Date", "Close"]].set_index("Date")
@@ -503,15 +395,11 @@ def load_data():
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
             nifty_series = nifty["NIFTY_Close"].squeeze()
 
-            # Fetch India VIX from GitHub
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
             response.raise_for_status()
             vix = pd.read_csv(io.StringIO(response.text))
             vix.columns = vix.columns.str.strip()
-            if "Date" not in vix.columns or "Close" not in vix.columns:
-                st.error(f"india_vix.csv is missing required columns. Found: {vix.columns.tolist()}")
-                return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
@@ -519,29 +407,17 @@ def load_data():
             vix_series = vix["VIX"].squeeze()
 
             common_dates = nifty_series.index.intersection(vix_series.index)
-            if len(common_dates) < 200:
-                st.error(f"Insufficient overlapping dates: {len(common_dates)} found.")
-                return pd.DataFrame({"NIFTY_Close": nifty_series}, index=nifty.index)
-            
             df = pd.DataFrame({
                 "NIFTY_Close": nifty_series.loc[common_dates],
                 "VIX": vix_series.loc[common_dates]
             }, index=common_dates)
-            
-            if df["NIFTY_Close"].isna().sum() > 0 or df["VIX"].isna().sum() > 0:
-                df = df.ffill().bfill()
-            if df.empty:
-                st.error("DataFrame is empty after processing.")
-                return None, None
+            df = df.ffill().bfill()
         else:
-            # Use 5paisa data for latest day
             latest_date = datetime.now().date()
             df = pd.DataFrame({
                 "NIFTY_Close": [real_data["nifty_spot"]],
                 "VIX": [real_data["atm_iv"]]
             }, index=[pd.to_datetime(latest_date)])
-            
-            # Load historical data from GitHub to extend the dataset
             nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
             response.raise_for_status()
@@ -568,7 +444,6 @@ def load_data():
                 "VIX": vix["VIX"]
             }).dropna()
             historical_df = historical_df[historical_df.index < pd.to_datetime(latest_date)]
-            
             df = pd.concat([historical_df, df])
             df = df[~df.index.duplicated(keep='last')]
             df = df.sort_index()
@@ -580,7 +455,7 @@ def load_data():
         logger.error(f"Error loading data: {str(e)}")
         return None, None
 
-# Function to generate synthetic features (calibrated with real data)
+# Generate synthetic features
 @st.cache_data
 def generate_synthetic_features(df, real_data, capital):
     try:
@@ -589,7 +464,6 @@ def generate_synthetic_features(df, real_data, capital):
         risk_free_rate = 0.06
         strike_step = 100
 
-        # Calibrate synthetic data using real data (if available)
         if real_data:
             base_pcr = real_data["pcr"]
             base_iv = real_data["atm_iv"]
@@ -630,8 +504,6 @@ def generate_synthetic_features(df, real_data, capital):
         event_spike = np.where((df.index.month % 3 == 0) & (df.index.day < 5), 1.2, 1.0)
         df["ATM_IV"] = df["VIX"] * (1 + np.random.normal(0, 0.1, n_days)) * event_spike
         df["ATM_IV"] = np.clip(df["ATM_IV"], 5, 50)
-
-        # Calibrate ATM_IV with real data for the latest day
         if real_data:
             df["ATM_IV"].iloc[-1] = base_iv
 
@@ -698,10 +570,9 @@ def generate_synthetic_features(df, real_data, capital):
         logger.error(f"Error generating features: {str(e)}")
         return None
 
-# Function to fetch portfolio data from 5paisa
+# Fetch portfolio data
 def fetch_portfolio_data():
     try:
-        # Fetch positions (open trades)
         positions = client.positions()
         if not positions:
             raise Exception("Failed to fetch positions")
@@ -723,7 +594,7 @@ def fetch_portfolio_data():
         logger.error(f"Error fetching portfolio data: {str(e)}")
         return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
-# Function to forecast volatility (unchanged except for minor optimizations)
+# Forecast volatility
 @st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
     try:
@@ -818,7 +689,7 @@ def forecast_volatility_future(df, forecast_horizon):
         logger.error(f"Error in volatility forecasting: {str(e)}")
         return None, None, None, None, None, None, None, None
 
-# Function to generate trading strategy (added risk checks)
+# Generate trading strategy
 @st.cache_data
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital):
     try:
@@ -832,7 +703,6 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         dte = latest["Days_to_Expiry"]
         event_flag = latest["Event_Flag"]
 
-        # Risk Checks
         risk_flags = []
         if latest["VIX"] > 25:
             risk_flags.append("VIX > 25% - High Volatility Risk")
@@ -937,7 +807,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         logger.error(f"Error generating strategy: {str(e)}")
         return None
 
-# Function for backtesting (unchanged)
+# Backtest function
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
         logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
@@ -1166,12 +1036,14 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
 # Main execution
-if "logged_in" not in st.session_state or not st.session_state.logged_in:
+if not st.session_state.logged_in:
     st.info("Please login to 5paisa from the sidebar to proceed.")
 else:
+    st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
+    tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal"])
+
     if run_button:
         with st.spinner("Running VolGuard Analysis..."):
-            # Reset previous backtest results
             st.session_state.backtest_run = False
             st.session_state.backtest_results = None
             st.session_state.violations = 0
@@ -1181,178 +1053,125 @@ else:
             if df is not None:
                 df = generate_synthetic_features(df, real_data, capital)
                 if df is not None:
-                    # Display Latest Market Data
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
-                    st.subheader("📊 Latest Market Snapshot")
-                    last_date = df.index[-1].strftime("%d-%b-%Y")
-                    last_nifty = df["NIFTY_Close"].iloc[-1]
-                    prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else "N/A"
-                    last_vix = df["VIX"].iloc[-1]
-                    prev_vix = df["VIX"].iloc[-2] if len(df) >= 2 else "N/A"
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        nifty_change = last_nifty - prev_nifty if prev_nifty != "N/A" else "N/A"
-                        nifty_change_display = f"{nifty_change:+,.2f}" if nifty_change != "N/A" else "N/A"
-                        st.metric(
-                            label="NIFTY 50 Last Close",
-                            value=f"{last_nifty:,.2f}",
-                            delta=nifty_change_display,
-                            delta_color="normal",
-                            help="Latest NIFTY 50 closing price"
-                        )
-                    with col2:
-                        vix_change = last_vix - prev_vix if prev_vix != "N/A" else "N/A"
-                        vix_change_display = f"{vix_change:+.2f}" if vix_change != "N/A" else "N/A"
-                        st.metric(
-                            label="India VIX",
-                            value=f"{last_vix:.2f}%",
-                            delta=vix_change_display,
-                            delta_color="normal",
-                            help="Latest India VIX value"
-                        )
-                    st.markdown(f"**Last Updated**: {last_date}")
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    # Snapshot Tab
+                    with tabs[0]:
+                        st.markdown('<div class="card">', unsafe_allow_html=True)
+                        st.subheader("📊 Market Snapshot")
+                        last_date = df.index[-1].strftime("%d-%b-%Y")
+                        last_nifty = df["NIFTY_Close"].iloc[-1]
+                        prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
+                        last_vix = df["VIX"].iloc[-1]
+                        regime = "LOW" if last_vix < 15 else "MEDIUM" if last_vix < 20 else "HIGH"
+                        regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high"}[regime]
+                        st.markdown(f'<div class="gauge">{regime}</div><div style="text-align: center;">Market Regime</div>', unsafe_allow_html=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("NIFTY 50", f"{last_nifty:,.2f}", f"{(last_nifty - prev_nifty)/prev_nifty*100:+.2f}%")
+                        with col2:
+                            st.metric("India VIX", f"{last_vix:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
+                        with col3:
+                            st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
+                        with col4:
+                            st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
+                        st.markdown(f"**Last Updated**: {last_date} {'(LIVE)' if real_data else '(DEMO)'}")
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Portfolio Tracking
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
-                    st.subheader("💼 Portfolio Overview")
-                    portfolio_data = fetch_portfolio_data()
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
-                    with col2:
-                        st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
-                    with col3:
-                        st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    with st.spinner("Predicting market volatility..."):
-                        forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
-
-                    if forecast_log is not None:
-                        # Volatility Forecast Card
+                    # Forecast Tab
+                    with tabs[1]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("📈 Volatility Forecast")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%", help="Weighted average of GARCH and XGBoost forecasts")
-                        with col2:
-                            st.metric("Realized Volatility (5-day)", f"{realized_vol:.2f}%", help="Historical volatility over the last 5 days")
-                        with col3:
-                            st.metric("Model Accuracy (RMSE)", f"{rmse:.2f}%", help="XGBoost model's root mean squared error")
-                            st.markdown(f'<div class="gauge">{int(confidence_score)}%</div>', unsafe_allow_html=True)
-                            st.markdown("**Confidence Score**", unsafe_allow_html=True)
-                            st.markdown(f'<div class="progress-bar"><div class="progress-fill" style="width: {confidence_score}%"></div></div>', unsafe_allow_html=True)
-
-                        # Forecast Chart
-                        st.markdown("### Volatility Forecast Trend")
-                        chart_data = pd.DataFrame({
-                            "Date": forecast_log["Date"],
-                            "GARCH": garch_vols,
-                            "XGBoost": xgb_vols,
-                            "Blended": blended_vols
-                        }).set_index("Date")
-                        st.line_chart(chart_data, color=["#e94560", "#00d4ff", "#ffcc00"], use_container_width=True)
-
-                        # Daily Breakdown
-                        st.markdown("### Daily Volatility Breakdown")
-                        for i in range(forecast_horizon):
-                            date = forecast_log["Date"].iloc[i].strftime("%d-%b-%Y")
-                            st.markdown(f'<div class="signal-box">📡 {date} | GARCH: {garch_vols[i]:.2f}% | XGBoost: {xgb_vols[i]:.2f}% | Blended: {blended_vols[i]:.2f}%</div>', unsafe_allow_html=True)
+                        with st.spinner("Predicting market volatility..."):
+                            forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
+                        if forecast_log is not None:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
+                            with col2:
+                                st.metric("Realized Volatility", f"{realized_vol:.2f}%")
+                            with col3:
+                                st.metric("Model RMSE", f"{rmse:.2f}%")
+                                st.markdown(f'<div class="gauge">{int(confidence_score)}%</div><div style="text-align: center;">Confidence</div>', unsafe_allow_html=True)
+                            st.line_chart(pd.DataFrame({
+                                "GARCH": garch_vols,
+                                "XGBoost": xgb_vols,
+                                "Blended": blended_vols
+                            }, index=forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
+                            st.markdown("### Feature Importance")
+                            feature_importance = pd.DataFrame({
+                                'Feature': feature_cols,
+                                'Importance': feature_importances
+                            }).sort_values(by='Importance', ascending=False)
+                            st.dataframe(feature_importance, use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        # Feature Importance
+                    # Strategy Tab
+                    with tabs[2]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("🔍 Feature Importance")
-                        feature_importance = pd.DataFrame({
-                            'Feature': [
-                                'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-                                'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-                                'FII_Option_Pos'
-                            ],
-                            'Importance': feature_importances
-                        }).sort_values(by='Importance', ascending=False)
-                        st.dataframe(feature_importance, use_container_width=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
-
-                        # Trading Strategy Card
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("🎯 Trading Strategy")
+                        st.subheader("🎯 Trading Strategies")
                         strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
-                        if strategy is not None:
+                        if strategy is None:
+                            st.markdown('<div class="alert-banner">🚨 Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
+                        else:
                             regime_class = {
                                 "LOW": "regime-low",
                                 "MEDIUM": "regime-medium",
                                 "HIGH": "regime-high",
                                 "EVENT-DRIVEN": "regime-event"
                             }.get(strategy["Regime"], "regime-low")
+                            st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
                             st.markdown(f"""
-                                **Volatility Regime**: <span class="regime-badge {regime_class}">{strategy["Regime"]}</span> (Avg Vol: {np.mean(blended_vols):.2f}%)  
-                                **Suggested Strategy**: {strategy["Strategy"]}  
-                                **Reason**: {strategy["Reason"]}  
-                                **Tags**: {', '.join(strategy["Tags"])}  
-                                **Confidence Score**: {strategy["Confidence"]:.2f}  
-                                **Risk-Reward Expectation**: {strategy["Risk_Reward"]:.2f}:1  
-                                **Capital to Deploy**: ₹{strategy["Deploy"]:,.0f}  
-                                **Max Risk Allowed**: ₹{strategy["Max_Loss"]:,.0f}  
-                                **Exposure**: {strategy["Exposure"]*100:.2f}%  
-                                **Risk Flags**: {', '.join(strategy["Risk_Flags"]) if strategy["Risk_Flags"] else "None"}  
-                                **Behavior Score**: {strategy["Behavior_Score"]}/10  
-                                **Behavioral Warnings**: {', '.join(strategy["Behavior_Warnings"]) if strategy["Behavior_Warnings"] else "None"}
+                                <div class="strategy-card">
+                                    <h4>{strategy["Strategy"]}</h4>
+                                    <span class="regime-badge {regime_class}">{strategy["Regime"]}</span>
+                                    <p><b>Reason:</b> {strategy["Reason"]}</p>
+                                    <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
+                                    <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
+                                    <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
+                                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
+                                    <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
+                                </div>
                             """, unsafe_allow_html=True)
-
-                            # Trade Execution
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            if strategy["Risk_Flags"]:
+                                st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
                             if st.button("Trade Now"):
                                 try:
-                                    # Simplified trade execution (Iron Condor example)
                                     option_chain = real_data["option_chain"]
                                     atm_strike = real_data["atm_strike"]
-                                    # Define strikes for Iron Condor
                                     call_sell_strike = atm_strike + 100
                                     call_buy_strike = call_sell_strike + 100
                                     put_sell_strike = atm_strike - 100
                                     put_buy_strike = put_sell_strike - 100
-
-                                    # Place orders
                                     orders = [
                                         {
-                                            "Exch": "N",
-                                            "ExchType": "C",
+                                            "Exch": "N", "ExchType": "C",
                                             "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                            "BuySell": "S",
-                                            "Qty": 25,
+                                            "BuySell": "S", "Qty": 25,
                                             "Price": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
                                             "OrderType": "LIMIT"
                                         },
                                         {
-                                            "Exch": "N",
-                                            "ExchType": "C",
+                                            "Exch": "N", "ExchType": "C",
                                             "ScripCode": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                            "BuySell": "B",
-                                            "Qty": 25,
+                                            "BuySell": "B", "Qty": 25,
                                             "Price": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
                                             "OrderType": "LIMIT"
                                         },
                                         {
-                                            "Exch": "N",
-                                            "ExchType": "C",
+                                            "Exch": "N", "ExchType": "C",
                                             "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                            "BuySell": "S",
-                                            "Qty": 25,
+                                            "BuySell": "S", "Qty": 25,
                                             "Price": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
                                             "OrderType": "LIMIT"
                                         },
                                         {
-                                            "Exch": "N",
-                                            "ExchType": "C",
+                                            "Exch": "N", "ExchType": "C",
                                             "ScripCode": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                            "BuySell": "B",
-                                            "Qty": 25,
+                                            "BuySell": "B", "Qty": 25,
                                             "Price": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
                                             "OrderType": "LIMIT"
                                         }
                                     ]
-
                                     for order in orders:
                                         client.place_order(
                                             OrderType=order["BuySell"],
@@ -1363,8 +1182,6 @@ else:
                                             Price=order["Price"],
                                             IsIntraday=False
                                         )
-
-                                    # Log the trade
                                     trade_log = {
                                         "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                         "Strategy": strategy["Strategy"],
@@ -1374,102 +1191,84 @@ else:
                                     }
                                     st.session_state.trades.append(trade_log)
                                     pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-
                                     st.success("✅ Trade Placed Successfully!")
                                 except Exception as e:
                                     st.error(f"Trade Failed: {str(e)}")
-
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        # Backtest Section
+                    # Portfolio Tab
+                    with tabs[3]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📊 Backtest Performance")
-                        st.markdown(f"Evaluating historical performance for {strategy_choice} from {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')} (Option Selling Strategies Only).")
-                        
-                        with st.spinner("Running backtest..."):
-                            if start_date >= end_date:
-                                st.error("Backtest failed: Start date must be before end date.")
-                            elif start_date < df.index[0].date() or end_date > df.index[-1].date():
-                                st.error("Backtest failed: Selected date range is outside available data.")
+                        st.subheader("💼 Portfolio Overview")
+                        portfolio_data = fetch_portfolio_data()
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
+                        with col2:
+                            st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
+                        with col3:
+                            st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
+                        st.markdown("### Open Positions")
+                        try:
+                            positions = client.positions()
+                            if isinstance(positions, dict) and "Data" in positions:
+                                pos_df = pd.DataFrame(positions["Data"])
+                            elif isinstance(positions, list):
+                                pos_df = pd.DataFrame(positions)
                             else:
-                                st.session_state.backtest_run = True
-                                backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(df, capital, strategy_choice, start_date, end_date)
-                                st.session_state.backtest_results = (backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf)
-
-                        if st.session_state.backtest_run and st.session_state.backtest_results is not None:
-                            backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = st.session_state.backtest_results
-                            if len(backtest_df) == 0:
-                                st.error("No trades generated. Try selecting 'All Strategies' or a wider date range.")
-                            else:
-                                st.success("Backtest completed successfully!")
-                                st.markdown(f"**Period**: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')}")
-                                st.markdown(f"**Strategy Tested**: {strategy_choice}")
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Total P&L", f"₹{total_pnl:,.2f}")
-                                    st.metric("Win Rate", f"{win_rate*100:.2f}%")
-                                with col2:
-                                    st.metric("Max Drawdown", f"₹{max_drawdown:,.2f}")
-                                    st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}")
-                                with col3:
-                                    st.metric("Sortino Ratio", f"{sortino_ratio:.2f}")
-                                    st.metric("Calmar Ratio", f"{calmar_ratio:.2f}")
-
-                                # Performance Charts
-                                st.markdown("### Cumulative P&L Over Time")
-                                cum_pnl = backtest_df["PnL"].cumsum()
-                                st.line_chart(cum_pnl, color="#e94560", use_container_width=True)
-
-                                st.markdown("### Strategy Performance Breakdown")
-                                st.dataframe(strategy_perf, use_container_width=True)
-
-                                st.markdown("### Regime Performance Breakdown")
-                                st.dataframe(regime_perf, use_container_width=True)
+                                pos_df = pd.DataFrame([positions])
+                            st.dataframe(pos_df, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Positions Error: {e}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
-                        # Journaling Section
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("📝 Discipline Hub: Trading Journal")
-st.markdown("Reflect on your trades to improve discipline and consistency.")
-with st.form(key="journal_form"):
-    reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"], key="journal_reason")
-    override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"), key="journal_override")
-    expected_outcome = st.text_area("What is your expected outcome for this trade?", key="journal_outcome")
-    submit_journal = st.form_submit_button("Submit Journal Entry")
+                    # Journal Tab
+                    with tabs[4]:
+                        st.markdown('<div class="card">', unsafe_allow_html=True)
+                        st.subheader("📝 Discipline Hub")
+                        with st.form(key="journal_form"):
+                            reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"])
+                            override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"))
+                            expected_outcome = st.text_area("Expected Outcome")
+                            submit_journal = st.form_submit_button("Submit Journal Entry")
+                            if submit_journal:
+                                score = 0
+                                if override_risk == "No":
+                                    score += 3
+                                if reason_strategy != "Other":
+                                    score += 3
+                                if expected_outcome:
+                                    score += 3
+                                if portfolio_data["weekly_pnl"] > 0:
+                                    score += 1
+                                score = min(score, 10)
+                                journal_entry = {
+                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "Strategy_Reason": reason_strategy,
+                                    "Override_Risk": override_risk,
+                                    "Expected_Outcome": expected_outcome,
+                                    "Discipline_Score": score
+                                }
+                                journal_df = pd.DataFrame([journal_entry])
+                                journal_file = "journal_log.csv"
+                                journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
+                                st.success(f"Journal Entry Saved! Discipline Score: {score}/10")
+                                if score >= 8:
+                                    st.markdown("""
+                                        <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+                                        <script>
+                                            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                                        </script>
+                                    """, unsafe_allow_html=True)
+                                st.session_state.journal_complete = True
+                                if st.session_state.violations > 0:
+                                    st.session_state.violations = 0
+                                    st.success("✅ Discipline Lock Removed")
+                        st.markdown("### Past Entries")
+                        if os.path.exists("journal_log.csv"):
+                            journal_df = pd.read_csv("journal_log.csv")
+                            st.dataframe(journal_df, use_container_width=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-    if submit_journal:
-        # Calculate Discipline Score
-        score = 0
-        if override_risk == "No":
-            score += 3
-        if reason_strategy != "Other":
-            score += 3
-        if expected_outcome:
-            score += 3
-        if portfolio_data["weekly_pnl"] > 0:
-            score += 1
-        score = min(score, 10)
-
-        # Save journal entry
-        journal_entry = {
-            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Strategy_Reason": reason_strategy,
-            "Override_Risk": override_risk,
-            "Expected_Outcome": expected_outcome,
-            "Discipline_Score": score
-        }
-        # Save to CSV
-        journal_df = pd.DataFrame([journal_entry])
-        journal_file = "journal_log.csv"
-        journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
-        st.success(f"Journal Entry Saved! Discipline Score: {score}/10")
-        st.session_state.journal_complete = True
-        # Reset violations if journaling is complete
-        if st.session_state.violations > 0:
-            st.session_state.violations = 0
-            st.success("✅ Discipline Lock Removed - You can now trade!")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Footer
-st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
+    # Footer
+    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
