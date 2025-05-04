@@ -6,7 +6,7 @@ from backtest_portfolio import fetch_portfolio_data, stress_test_portfolio, run_
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
+import numpy as np  # Added to fix np.mean issue
 
 # Initialize session state
 initialize_session_state()
@@ -169,39 +169,75 @@ else:
                                     st.error("🚨 Trading Halted: Risk Limits Breached!")
                                 else:
                                     try:
+                                        if real_data is None or "option_chain" not in real_data or "atm_strike" not in real_data:
+                                            st.error("Cannot place trade: Market data not available. Ensure data is loaded properly.")
+                                            st.stop()
+
+                                        # Strategy se capital deploy aur other details
+                                        capital_deployed = strategy["Deploy"]
+                                        lot_size = 25  # Fixed lot size for NIFTY options
                                         option_chain = real_data["option_chain"]
                                         atm_strike = real_data["atm_strike"]
+
+                                        # Strikes for the trade
                                         call_sell_strike = atm_strike + 100
                                         call_buy_strike = call_sell_strike + 100
                                         put_sell_strike = atm_strike - 100
                                         put_buy_strike = put_sell_strike - 100
+
+                                        # Prices from option chain
+                                        call_sell_price = option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0]
+                                        call_buy_price = option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0]
+                                        put_sell_price = option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0]
+                                        put_buy_price = option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0]
+
+                                        # Calculate quantity (lots) based on capital
+                                        avg_price_per_lot = (call_sell_price + call_buy_price + put_sell_price + put_buy_price) / 4 * lot_size
+                                        num_lots = int(capital_deployed / avg_price_per_lot) if avg_price_per_lot > 0 else 1
+                                        num_lots = max(1, min(num_lots, 10))  # Limit between 1 and 10 lots
+                                        total_quantity = num_lots * lot_size
+                                        total_cost = total_quantity * (call_sell_price + call_buy_price + put_sell_price + put_buy_price) / 4
+
+                                        # Display trade details before execution
+                                        st.markdown("### Trade Details")
+                                        st.write(f"**Strategy:** {strategy['Strategy']}")
+                                        st.write(f"**Capital Deployed:** ₹{capital_deployed:,.2f}")
+                                        st.write(f"**Number of Lots:** {num_lots}")
+                                        st.write(f"**Total Quantity:** {total_quantity} (Lot Size: {lot_size})")
+                                        st.write(f"**Estimated Cost:** ₹{total_cost:,.2f}")
+                                        st.write(f"**Call Sell Strike/Price:** {call_sell_strike}/₹{call_sell_price}")
+                                        st.write(f"**Call Buy Strike/Price:** {call_buy_strike}/₹{call_buy_price}")
+                                        st.write(f"**Put Sell Strike/Price:** {put_sell_strike}/₹{put_sell_price}")
+                                        st.write(f"**Put Buy Strike/Price:** {put_buy_strike}/₹{put_buy_price}")
+
+                                        # Trade execution
                                         orders = [
                                             {
                                                 "Exch": "N", "ExchType": "C",
                                                 "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                                "BuySell": "S", "Qty": 25,
-                                                "Price": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
+                                                "BuySell": "S", "Qty": total_quantity,
+                                                "Price": call_sell_price,
                                                 "OrderType": "LIMIT"
                                             },
                                             {
                                                 "Exch": "N", "ExchType": "C",
                                                 "ScripCode": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                                "BuySell": "B", "Qty": 25,
-                                                "Price": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
+                                                "BuySell": "B", "Qty": total_quantity,
+                                                "Price": call_buy_price,
                                                 "OrderType": "LIMIT"
                                             },
                                             {
                                                 "Exch": "N", "ExchType": "C",
                                                 "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                                "BuySell": "S", "Qty": 25,
-                                                "Price": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
+                                                "BuySell": "S", "Qty": total_quantity,
+                                                "Price": put_sell_price,
                                                 "OrderType": "LIMIT"
                                             },
                                             {
                                                 "Exch": "N", "ExchType": "C",
                                                 "ScripCode": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                                "BuySell": "B", "Qty": 25,
-                                                "Price": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
+                                                "BuySell": "B", "Qty": total_quantity,
+                                                "Price": put_buy_price,
                                                 "OrderType": "LIMIT"
                                             }
                                         ]
@@ -222,7 +258,10 @@ else:
                                             "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
                                             "Outcome": "Pending",
                                             "Stop_Loss": strategy["Stop_Loss"],
-                                            "Take_Profit": strategy["Take_Profit"]
+                                            "Take_Profit": strategy["Take_Profit"],
+                                            "Capital_Deployed": capital_deployed,
+                                            "Quantity": total_quantity,
+                                            "Total_Cost": total_cost
                                         }
                                         st.session_state.trades.append(trade_log)
                                         pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
@@ -290,6 +329,7 @@ else:
                             st.session_state.journal_complete = True
                             st.session_state.violations = 0
                             st.success("✅ Trade logged successfully!")
+                            st.rerun()  # Added to refresh the UI after form submission
                     if st.session_state.trades:
                         st.markdown("### Recent Trades")
                         trades_df = pd.DataFrame(st.session_state.trades)
