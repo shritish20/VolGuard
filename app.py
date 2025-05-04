@@ -63,6 +63,8 @@ else:
                     st.stop()
                 st.session_state.df = df
                 st.session_state.real_data = real_data
+                st.write("Debug: Data loaded successfully.")
+                st.write(f"df: {st.session_state.df is not None}, real_data: {st.session_state.real_data is not None}")
             except Exception as e:
                 st.error(f"Data loading failed: {str(e)}. Check 5paisa API logs for more details.")
                 st.stop()
@@ -74,6 +76,8 @@ else:
                     st.error("Failed to generate synthetic features. Check logs for details.")
                     st.stop()
                 st.session_state.df = df
+                st.write("Debug: Synthetic features generated successfully.")
+                st.write(f"df after synthetic features: {st.session_state.df is not None}")
             except Exception as e:
                 st.error(f"Synthetic features generation failed: {str(e)}. Check logs for more details.")
                 st.stop()
@@ -85,6 +89,8 @@ else:
                     st.error("Failed to fetch portfolio data. Check logs for details.")
                     st.stop()
                 st.session_state.portfolio_data = portfolio_data
+                st.write("Debug: Portfolio data fetched successfully.")
+                st.write(f"portfolio_data: {st.session_state.portfolio_data is not None}")
             except Exception as e:
                 st.error(f"Portfolio data fetch failed: {str(e)}. Check logs for more details.")
                 st.stop()
@@ -109,6 +115,7 @@ else:
                         "strategy_perf": strategy_perf,
                         "regime_perf": regime_perf
                     }
+                st.write("Debug: Backtest completed successfully.")
             except Exception as e:
                 st.error(f"Backtest failed: {str(e)}. Check logs for more details.")
                 st.stop()
@@ -153,6 +160,10 @@ else:
                         st.session_state.forecast_log = forecast_log
                         st.session_state.realized_vol = realized_vol
                         st.session_state.confidence_score = confidence_score
+                        st.write("Debug: Volatility forecast completed successfully.")
+                        st.write(f"forecast_log: {st.session_state.forecast_log is not None}")
+                        st.write(f"realized_vol: {st.session_state.realized_vol is not None}")
+                        st.write(f"confidence_score: {st.session_state.confidence_score is not None}")
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
@@ -181,12 +192,21 @@ else:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("🎯 Trading Strategies")
         try:
-            if (st.session_state.df is None or
-                st.session_state.forecast_log is None or
-                st.session_state.realized_vol is None or
-                st.session_state.portfolio_data is None or
-                st.session_state.confidence_score is None):
-                st.error("Required data not available. Please run analysis first.")
+            # Detailed check for missing variables
+            missing_vars = []
+            if st.session_state.df is None:
+                missing_vars.append("df")
+            if st.session_state.forecast_log is None:
+                missing_vars.append("forecast_log")
+            if st.session_state.realized_vol is None:
+                missing_vars.append("realized_vol")
+            if st.session_state.portfolio_data is None:
+                missing_vars.append("portfolio_data")
+            if st.session_state.confidence_score is None:
+                missing_vars.append("confidence_score")
+
+            if missing_vars:
+                st.error(f"Required data not available. Missing variables: {', '.join(missing_vars)}. Please run analysis first.")
             else:
                 strategy = generate_trading_strategy(
                     st.session_state.df,
