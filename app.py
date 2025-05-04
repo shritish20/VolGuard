@@ -5,7 +5,7 @@ import time
 import logging
 import os
 from datetime import datetime, timedelta
-from pypf import Client
+from py5paisa import FivePaisaClient
 from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
