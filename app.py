@@ -6,6 +6,7 @@ from backtest_portfolio import fetch_portfolio_data, stress_test_portfolio, run_
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Initialize session state
 initialize_session_state()
