@@ -307,8 +307,7 @@ else:
                                         st.stop()
 
                                 # Step 8: Log the trade
-                                try:
-                                    trade_log = {
+                                trade_log = {
                                     "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "Strategy": strategy["Strategy"],
                                     "Regime": strategy["Regime"],
@@ -325,9 +324,12 @@ else:
                                 st.success("✅ Trade Placed Successfully!")
                                 st.rerun()  # Refresh UI after trade
 
-                except Exception as e:
+            except Exception as e:
                 st.error(f"Trade execution failed: {str(e)}. Check logs for more details.")
 
+        except Exception as e:
+            st.error(f"Strategy Tab failed: {str(e)}. Check logs for more details.")
+        
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Portfolio Tab
