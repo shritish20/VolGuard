@@ -135,7 +135,7 @@ else:
                 st.error(f"Analysis failed: {str(e)}. Check logs for more details.")
                 st.stop()
 
-        # Strategy Tab (Moved outside the try-except block to fix syntax error)
+        # Strategy Tab
         with tabs[2]:
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("🎯 Trading Strategies")
@@ -182,7 +182,7 @@ else:
                                         st.error("Cannot place trade: Option chain data missing. Check 5paisa API logs.")
                                         st.stop()
                                     if "atm_strike" not in real_data or real_data["atm_strike"] is None:
-                                        st.error("Cannot place trade: ATM strike price missing. Check 5paisa API logs.")
+                                        st.error("Cannot=Cannot place trade: ATM strike price missing. Check 5paisa API logs.")
                                         st.stop()
 
                                     # Step 2: Extract data
