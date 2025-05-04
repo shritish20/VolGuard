@@ -153,10 +153,10 @@ else:
                 st.error(f"Forecast Tab failed: {str(e)}. Check logs for more details.")
 
     # Strategy Tab
-    try:
-        with tabs[2]:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("🎯 Trading Strategies")
+    with tabs[2]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("🎯 Trading Strategies")
+        try:
             if 'df' not in locals() or 'forecast_log' not in locals() or 'realized_vol' not in locals() or 'portfolio_data' not in locals():
                 st.error("Required data not available. Please run analysis first.")
             else:
@@ -196,7 +196,7 @@ else:
                         else:
                             try:
                                 # Step 1: Check if real_data is available
-                                if real_data is None:
+                                if 'real_data' not in locals() or real_data is None:
                                     st.error("Cannot place trade: Market data (real_data) is not loaded. Run analysis first.")
                                     st.stop()
                                 if "option_chain" not in real_data or real_data["option_chain"] is None:
@@ -324,16 +324,16 @@ else:
                                 st.success("✅ Trade Placed Successfully!")
                                 st.rerun()  # Refresh UI after trade
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Strategy Tab failed: {str(e)}. Check logs for more details.")
+        except Exception as e:
+            st.error(f"Strategy Tab failed: {str(e)}. Check logs for more details.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Portfolio Tab
-    try:
-        with tabs[3]:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("💼 Portfolio Overview")
+    with tabs[3]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("💼 Portfolio Overview")
+        try:
             if 'portfolio_data' not in locals():
                 st.error("Portfolio data not available. Please run analysis first.")
             else:
@@ -370,15 +370,15 @@ else:
                         st.info("No open positions.")
                 except Exception as e:
                     st.error(f"Error fetching positions: {str(e)}")
-            st.markdown('</div>', unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Portfolio Tab failed: {str(e)}. Check logs for more details.")
+        except Exception as e:
+            st.error(f"Portfolio Tab failed: {str(e)}. Check logs for more details.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Journal Tab
-    try:
-        with tabs[4]:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("📝 Trade Journal")
+    with tabs[4]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("📝 Trade Journal")
+        try:
             st.write("Log your trades to unlock disciplined trading.")
             with st.form("journal_form"):
                 trade_date = st.date_input("Trade Date", value=datetime.now())
@@ -403,15 +403,15 @@ else:
                 st.markdown("### Recent Trades")
                 trades_df = pd.DataFrame(st.session_state.trades)
                 st.dataframe(trades_df, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Journal Tab failed: {str(e)}. Check logs for more details.")
+        except Exception as e:
+            st.error(f"Journal Tab failed: {str(e)}. Check logs for more details.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Backtest Tab
-    try:
-        with tabs[5]:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("🔍 Backtest Results")
+    with tabs[5]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("🔍 Backtest Results")
+        try:
             if st.session_state.backtest_run and st.session_state.backtest_results:
                 results = st.session_state.backtest_results
                 col1, col2, col3, col4 = st.columns(4)
@@ -436,6 +436,6 @@ else:
                 st.pyplot(fig)
             else:
                 st.info("Run analysis to see backtest results.")
-            st.markdown('</div>', unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Backtest Tab failed: {str(e)}. Check logs for more details.")
+        except Exception as e:
+            st.error(f"Backtest Tab failed: {str(e)}. Check logs for more details.")
+        st.markdown('</div>', unsafe_allow_html=True)
