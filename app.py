@@ -324,8 +324,8 @@ else:
                                 st.success("✅ Trade Placed Successfully!")
                                 st.rerun()  # Refresh UI after trade
 
-            except Exception as e:
-                st.error(f"Trade execution failed: {str(e)}. Check logs for more details.")
+                            except Exception as e:
+                                st.error(f"Trade execution failed: {str(e)}. Check logs for more details.")
 
         except Exception as e:
             st.error(f"Strategy Tab failed: {str(e)}. Check logs for more details.")
