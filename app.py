@@ -6,7 +6,6 @@ from backtest_portfolio import fetch_portfolio_data, stress_test_portfolio, run_
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-import pandas as pd
 
 # Initialize session state
 initialize_session_state()
@@ -31,277 +30,300 @@ else:
     # Run Analysis Button
     run_button = st.sidebar.button("Run Analysis")
     if run_button:
-        if st.checkbox("Confirm: I understand that running analysis involves market risks and data fetching."):
-            with st.spinner("Running VolGuard Analysis..."):
+        with st.spinner("Running VolGuard Analysis..."):
+            try:
+                # Reset session state
                 st.session_state.backtest_run = False
                 st.session_state.backtest_results = None
                 st.session_state.violations = 0
                 st.session_state.journal_complete = False
                 st.session_state.risk_alerts = []
 
+                # Load data with error handling
                 df, real_data = load_data()
-                if df is not None:
-                    df = generate_synthetic_features(df, real_data, capital)
-                    if df is not None:
-                        portfolio_data = fetch_portfolio_data(client, capital)
-                        backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(
-                            df, capital, strategy_choice, start_date, end_date
-                        )
-                        st.session_state.backtest_run = True
-                        st.session_state.backtest_results = {
-                            "backtest_df": backtest_df,
-                            "total_pnl": total_pnl,
-                            "win_rate": win_rate,
-                            "max_drawdown": max_drawdown,
-                            "sharpe_ratio": sharpe_ratio,
-                            "sortino_ratio": sortino_ratio,
-                            "calmar_ratio": calmar_ratio,
-                            "strategy_perf": strategy_perf,
-                            "regime_perf": regime_perf
-                        }
+                if df is None or real_data is None:
+                    st.error("Failed to load data. Check logs for details or ensure 5paisa API credentials are correct.")
+                    st.stop()
 
-                        # Snapshot Tab
-                        with tabs[0]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("📊 Market Snapshot")
-                            last_date = df.index[-1].strftime("%d-%b-%Y")
-                            last_nifty = df["NIFTY_Close"].iloc[-1]
-                            prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
-                            last_vix = df["VIX"].iloc[-1]
-                            regime = "LOW" if last_vix < 15 else "MEDIUM" if last_vix < 20 else "HIGH"
-                            regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high"}[regime]
-                            st.markdown(f'<div class="gauge">{regime}</div><div style="text-align: center;">Market Regime</div>', unsafe_allow_html=True)
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("NIFTY 50", f"{last_nifty:,.2f}", f"{(last_nifty - prev_nifty)/prev_nifty*100:+.2f}%")
-                            with col2:
-                                st.metric("India VIX", f"{last_vix:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
-                            with col3:
-                                st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
-                            with col4:
-                                st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
-                            st.markdown(f"**Last Updated**: {last_date} {'(LIVE)' if real_data else '(DEMO)'}")
-                            st.markdown('</div>', unsafe_allow_html=True)
+                # Generate synthetic features
+                df = generate_synthetic_features(df, real_data, capital)
+                if df is None:
+                    st.error("Failed to generate synthetic features. Check logs for details.")
+                    st.stop()
 
-                        # Forecast Tab
-                        with tabs[1]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("📈 Volatility Forecast")
-                            with st.spinner("Predicting market volatility..."):
-                                forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
-                            if forecast_log is not None:
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
-                                with col2:
-                                    st.metric("Realized Volatility", f"{realized_vol:.2f}%")
-                                with col3:
-                                    st.metric("Model RMSE", f"{rmse:.2f}%")
-                                    st.markdown(f'<div class="gauge">{int(confidence_score)}%</div><div style="text-align: center;">Confidence</div>', unsafe_allow_html=True)
-                                st.line_chart(pd.DataFrame({
-                                    "GARCH": garch_vols,
-                                    "XGBoost": xgb_vols,
-                                    "Blended": blended_vols
-                                }, index=forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
-                                st.markdown("### Feature Importance")
-                                feature_importance = pd.DataFrame({
-                                    'Feature': ['VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price', 'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos', 'FII_Option_Pos'],
-                                    'Importance': feature_importances
-                                }).sort_values(by='Importance', ascending=False)
-                                st.dataframe(feature_importance, use_container_width=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
+                # Fetch portfolio data
+                portfolio_data = fetch_portfolio_data(client, capital)
+                if portfolio_data is None:
+                    st.error("Failed to fetch portfolio data. Check logs for details.")
+                    st.stop()
 
-                        # Strategy Tab
-                        with tabs[2]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("🎯 Trading Strategies")
-                            strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital, portfolio_data)
-                            if strategy is None:
-                                st.markdown('<div class="alert-banner">🚨 Discipline Lock or Risk Limit Breach: Complete Journaling or Reduce Risk to Unlock Trading</div>', unsafe_allow_html=True)
-                            else:
-                                regime_class = {
-                                    "LOW": "regime-low",
-                                    "MEDIUM": "regime-medium",
-                                    "HIGH": "regime-high",
-                                    "EVENT-DRIVEN": "regime-event"
-                                }.get(strategy["Regime"], "regime-low")
-                                st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
-                                st.markdown(f"""
-                                    <div class="strategy-card">
-                                        <h4>{strategy["Strategy"]}</h4>
-                                        <span class="regime-badge {regime_class}">{strategy["Regime"]}</span>
-                                        <p><b>Reason:</b> {strategy["Reason"]}</p>
-                                        <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
-                                        <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                                        <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
-                                        <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                                        <p><b>Stop Loss:</b> ₹{strategy["Stop_Loss"]:,.0f}</p>
-                                        <p><b>Take Profit:</b> ₹{strategy["Take_Profit"]:,.0f}</p>
-                                        <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
-                                    </div>
-                                """, unsafe_allow_html=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
-                                if strategy["Risk_Flags"]:
-                                    st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
-                                if st.button("Trade Now"):
-                                    if st.checkbox("Confirm: I understand trading involves financial risk and market volatility."):
-                                        if st.session_state.trading_halted:
-                                            st.error("🚨 Trading Halted: Risk Limits Breached!")
-                                        else:
-                                            try:
-                                                option_chain = real_data["option_chain"]
-                                                atm_strike = real_data["atm_strike"]
-                                                call_sell_strike = atm_strike + 100
-                                                call_buy_strike = call_sell_strike + 100
-                                                put_sell_strike = atm_strike - 100
-                                                put_buy_strike = put_sell_strike - 100
-                                                orders = [
-                                                    {
-                                                        "Exch": "N", "ExchType": "C",
-                                                        "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                                        "BuySell": "S", "Qty": 25,
-                                                        "Price": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
-                                                        "OrderType": "LIMIT"
-                                                    },
-                                                    {
-                                                        "Exch": "N", "ExchType": "C",
-                                                        "ScripCode": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
-                                                        "BuySell": "B", "Qty": 25,
-                                                        "Price": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
-                                                        "OrderType": "LIMIT"
-                                                    },
-                                                    {
-                                                        "Exch": "N", "ExchType": "C",
-                                                        "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                                        "BuySell": "S", "Qty": 25,
-                                                        "Price": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
-                                                        "OrderType": "LIMIT"
-                                                    },
-                                                    {
-                                                        "Exch": "N", "ExchType": "C",
-                                                        "ScripCode": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
-                                                        "BuySell": "B", "Qty": 25,
-                                                        "Price": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
-                                                        "OrderType": "LIMIT"
-                                                    }
-                                                ]
-                                                for order in orders:
-                                                    client.place_order(
-                                                        OrderType=order["BuySell"],
-                                                        Exchange=order["Exch"],
-                                                        ExchangeType=order["ExchType"],
-                                                        ScripCode=order["ScripCode"],
-                                                        Qty=order["Qty"],
-                                                        Price=order["Price"],
-                                                        IsIntraday=False
-                                                    )
-                                                trade_log = {
-                                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                                    "Strategy": strategy["Strategy"],
-                                                    "Regime": strategy["Regime"],
-                                                    "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
-                                                    "Outcome": "Pending",
-                                                    "Stop_Loss": strategy["Stop_Loss"],
-                                                    "Take_Profit": strategy["Take_Profit"]
-                                                }
-                                                st.session_state.trades.append(trade_log)
-                                                pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                                st.success("✅ Trade Placed Successfully!")
-                                            except Exception as e:
-                                                st.error(f"Trade Failed: {str(e)}")
-                            st.markdown('</div>', unsafe_allow_html=True)
+                # Run backtest
+                backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(
+                    df, capital, strategy_choice, start_date, end_date
+                )
+                if backtest_df.empty:
+                    st.warning("Backtest did not generate any trades. Try adjusting the date range or strategy.")
+                else:
+                    st.session_state.backtest_run = True
+                    st.session_state.backtest_results = {
+                        "backtest_df": backtest_df,
+                        "total_pnl": total_pnl,
+                        "win_rate": win_rate,
+                        "max_drawdown": max_drawdown,
+                        "sharpe_ratio": sharpe_ratio,
+                        "sortino_ratio": sortino_ratio,
+                        "calmar_ratio": calmar_ratio,
+                        "strategy_perf": strategy_perf,
+                        "regime_perf": regime_perf
+                    }
 
-                        # Portfolio Tab
-                        with tabs[3]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("💼 Portfolio Overview")
-                            col1, col2, col3, col4, col5 = st.columns(5)
-                            with col1:
-                                st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
-                            with col2:
-                                st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
-                            with col3:
-                                st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
-                            with col4:
-                                st.metric("VaR (5%)", f"₹{portfolio_data['var']:,.2f}")
-                            with col5:
-                                st.metric("CVaR (5%)", f"₹{portfolio_data['cvar']:,.2f}")
-                            st.markdown("### Stress Test Results")
-                            stress_results = stress_test_portfolio(df, capital, portfolio_data)
-                            for scenario, result in stress_results.items():
-                                st.markdown(f"**{scenario}**: P&L ₹{result['PnL']:,.2f} ({result['Loss_Pct']:.2f}%)")
-                            st.markdown("### Open Positions")
-                            try:
-                                positions = client.positions()
-                                if isinstance(positions, dict) and "Data" in positions:
-                                    pos_df = pd.DataFrame(positions["Data"])
-                                elif isinstance(positions, list):
-                                    pos_df = pd.DataFrame(positions)
+                # Snapshot Tab
+                with tabs[0]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📊 Market Snapshot")
+                    last_date = df.index[-1].strftime("%d-%b-%Y")
+                    last_nifty = df["NIFTY_Close"].iloc[-1]
+                    prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
+                    last_vix = df["VIX"].iloc[-1]
+                    regime = "LOW" if last_vix < 15 else "MEDIUM" if last_vix < 20 else "HIGH"
+                    regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high"}[regime]
+                    st.markdown(f'<div class="gauge">{regime}</div><div style="text-align: center;">Market Regime</div>', unsafe_allow_html=True)
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("NIFTY 50", f"{last_nifty:,.2f}", f"{(last_nifty - prev_nifty)/prev_nifty*100:+.2f}%")
+                    with col2:
+                        st.metric("India VIX", f"{last_vix:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
+                    with col3:
+                        st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
+                    with col4:
+                        st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
+                    st.markdown(f"**Last Updated**: {last_date} {'(LIVE)' if real_data else '(DEMO)'}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Forecast Tab
+                with tabs[1]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📈 Volatility Forecast")
+                    with st.spinner("Predicting market volatility..."):
+                        forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
+                    if forecast_log is None:
+                        st.error("Volatility forecasting failed. Check logs for details.")
+                    else:
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
+                        with col2:
+                            st.metric("Realized Volatility", f"{realized_vol:.2f}%")
+                        with col3:
+                            st.metric("Model RMSE", f"{rmse:.2f}%")
+                            st.markdown(f'<div class="gauge">{int(confidence_score)}%</div><div style="text-align: center;">Confidence</div>', unsafe_allow_html=True)
+                        st.line_chart(pd.DataFrame({
+                            "GARCH": garch_vols,
+                            "XGBoost": xgb_vols,
+                            "Blended": blended_vols
+                        }, index=forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
+                        st.markdown("### Feature Importance")
+                        feature_importance = pd.DataFrame({
+                            'Feature': ['VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price', 'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos', 'FII_Option_Pos'],
+                            'Importance': feature_importances
+                        }).sort_values(by='Importance', ascending=False)
+                        st.dataframe(feature_importance, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Strategy Tab
+                with tabs[2]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("🎯 Trading Strategies")
+                    strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital, portfolio_data)
+                    if strategy is None:
+                        st.markdown('<div class="alert-banner">🚨 Discipline Lock or Risk Limit Breach: Complete Journaling or Reduce Risk to Unlock Trading</div>', unsafe_allow_html=True)
+                    else:
+                        regime_class = {
+                            "LOW": "regime-low",
+                            "MEDIUM": "regime-medium",
+                            "HIGH": "regime-high",
+                            "EVENT-DRIVEN": "regime-event"
+                        }.get(strategy["Regime"], "regime-low")
+                        st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
+                        st.markdown(f"""
+                            <div class="strategy-card">
+                                <h4>{strategy["Strategy"]}</h4>
+                                <span class="regime-badge {regime_class}">{strategy["Regime"]}</span>
+                                <p><b>Reason:</b> {strategy["Reason"]}</p>
+                                <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
+                                <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
+                                <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
+                                <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
+                                <p><b>Stop Loss:</b> ₹{strategy["Stop_Loss"]:,.0f}</p>
+                                <p><b>Take Profit:</b> ₹{strategy["Take_Profit"]:,.0f}</p>
+                                <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        if strategy["Risk_Flags"]:
+                            st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
+                        if st.button("Trade Now"):
+                            if st.checkbox("Confirm: I understand trading involves financial risk and market volatility."):
+                                if st.session_state.trading_halted:
+                                    st.error("🚨 Trading Halted: Risk Limits Breached!")
                                 else:
-                                    pos_df = pd.DataFrame()
-                                if not pos_df.empty:
-                                    st.dataframe(pos_df[["ScripCode", "BuySell", "Qty", "LastRate", "ProfitLoss"]], use_container_width=True)
-                                else:
-                                    st.info("No open positions.")
-                            except Exception as e:
-                                st.error(f"Error fetching positions: {str(e)}")
-                            st.markdown('</div>', unsafe_allow_html=True)
+                                    try:
+                                        option_chain = real_data["option_chain"]
+                                        atm_strike = real_data["atm_strike"]
+                                        call_sell_strike = atm_strike + 100
+                                        call_buy_strike = call_sell_strike + 100
+                                        put_sell_strike = atm_strike - 100
+                                        put_buy_strike = put_sell_strike - 100
+                                        orders = [
+                                            {
+                                                "Exch": "N", "ExchType": "C",
+                                                "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
+                                                "BuySell": "S", "Qty": 25,
+                                                "Price": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
+                                                "OrderType": "LIMIT"
+                                            },
+                                            {
+                                                "Exch": "N", "ExchType": "C",
+                                                "ScripCode": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0],
+                                                "BuySell": "B", "Qty": 25,
+                                                "Price": option_chain[(option_chain["StrikeRate"] == call_buy_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0],
+                                                "OrderType": "LIMIT"
+                                            },
+                                            {
+                                                "Exch": "N", "ExchType": "C",
+                                                "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
+                                                "BuySell": "S", "Qty": 25,
+                                                "Price": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
+                                                "OrderType": "LIMIT"
+                                            },
+                                            {
+                                                "Exch": "N", "ExchType": "C",
+                                                "ScripCode": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0],
+                                                "BuySell": "B", "Qty": 25,
+                                                "Price": option_chain[(option_chain["StrikeRate"] == put_buy_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0],
+                                                "OrderType": "LIMIT"
+                                            }
+                                        ]
+                                        for order in orders:
+                                            client.place_order(
+                                                OrderType=order["BuySell"],
+                                                Exchange=order["Exch"],
+                                                ExchangeType=order["ExchType"],
+                                                ScripCode=order["ScripCode"],
+                                                Qty=order["Qty"],
+                                                Price=order["Price"],
+                                                IsIntraday=False
+                                            )
+                                        trade_log = {
+                                            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                            "Strategy": strategy["Strategy"],
+                                            "Regime": strategy["Regime"],
+                                            "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
+                                            "Outcome": "Pending",
+                                            "Stop_Loss": strategy["Stop_Loss"],
+                                            "Take_Profit": strategy["Take_Profit"]
+                                        }
+                                        st.session_state.trades.append(trade_log)
+                                        pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+                                        st.success("✅ Trade Placed Successfully!")
+                                    except Exception as e:
+                                        st.error(f"Trade Failed: {str(e)}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                        # Journal Tab
-                        with tabs[4]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("📝 Trade Journal")
-                            st.write("Log your trades to unlock disciplined trading.")
-                            with st.form("journal_form"):
-                                trade_date = st.date_input("Trade Date", value=datetime.now())
-                                trade_strategy = st.selectbox("Strategy", ["Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"])
-                                trade_pnl = st.number_input("P&L (₹)", value=0.0, step=100.0)
-                                trade_notes = st.text_area("Notes", placeholder="What went well? What could be improved?")
-                                submitted = st.form_submit_button("Log Trade")
-                                if submitted:
-                                    journal_entry = {
-                                        "Date": trade_date,
-                                        "Strategy": trade_strategy,
-                                        "P&L": trade_pnl,
-                                        "Notes": trade_notes
-                                    }
-                                    st.session_state.trades.append(journal_entry)
-                                    pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                    st.session_state.journal_complete = True
-                                    st.session_state.violations = 0
-                                    st.success("✅ Trade logged successfully!")
-                            if st.session_state.trades:
-                                st.markdown("### Recent Trades")
-                                trades_df = pd.DataFrame(st.session_state.trades)
-                                st.dataframe(trades_df, use_container_width=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
+                # Portfolio Tab
+                with tabs[3]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("💼 Portfolio Overview")
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
+                    with col2:
+                        st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
+                    with col3:
+                        st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
+                    with col4:
+                        st.metric("VaR (5%)", f"₹{portfolio_data['var']:,.2f}")
+                    with col5:
+                        st.metric("CVaR (5%)", f"₹{portfolio_data['cvar']:,.2f}")
+                    st.markdown("### Stress Test Results")
+                    stress_results = stress_test_portfolio(df, capital, portfolio_data)
+                    for scenario, result in stress_results.items():
+                        st.markdown(f"**{scenario}**: P&L ₹{result['PnL']:,.2f} ({result['Loss_Pct']:.2f}%)")
+                    st.markdown("### Open Positions")
+                    try:
+                        positions = client.positions()
+                        if isinstance(positions, dict) and "Data" in positions:
+                            pos_df = pd.DataFrame(positions["Data"])
+                        elif isinstance(positions, list):
+                            pos_df = pd.DataFrame(positions)
+                        else:
+                            pos_df = pd.DataFrame()
+                        if not pos_df.empty:
+                            st.dataframe(pos_df[["ScripCode", "BuySell", "Qty", "LastRate", "ProfitLoss"]], use_container_width=True)
+                        else:
+                            st.info("No open positions.")
+                    except Exception as e:
+                        st.error(f"Error fetching positions: {str(e)}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                        # Backtest Tab
-                        with tabs[5]:
-                            st.markdown('<div class="card">', unsafe_allow_html=True)
-                            st.subheader("🔍 Backtest Results")
-                            if st.session_state.backtest_run and st.session_state.backtest_results:
-                                results = st.session_state.backtest_results
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
-                                with col2:
-                                    st.metric("Win Rate", f"{results['win_rate']*100:.2f}%")
-                                with col3:
-                                    st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
-                                with col4:
-                                    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
-                                st.markdown("### Strategy Performance")
-                                st.dataframe(results["strategy_perf"], use_container_width=True)
-                                st.markdown("### Regime Performance")
-                                st.dataframe(results["regime_perf"], use_container_width=True)
-                                st.markdown("### Equity Curve")
-                                fig, ax = plt.subplots()
-                                results["backtest_df"]["PnL"].cumsum().plot(ax=ax, color="#e94560")
-                                ax.set_title("Equity Curve")
-                                ax.set_xlabel("Date")
-                                ax.set_ylabel("Cumulative P&L (₹)")
-                                st.pyplot(fig)
-                            else:
-                                st.info("Run analysis to see backtest results.")
-                            st.markdown('</div>', unsafe_allow_html=True)
+                # Journal Tab
+                with tabs[4]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("📝 Trade Journal")
+                    st.write("Log your trades to unlock disciplined trading.")
+                    with st.form("journal_form"):
+                        trade_date = st.date_input("Trade Date", value=datetime.now())
+                        trade_strategy = st.selectbox("Strategy", ["Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"])
+                        trade_pnl = st.number_input("P&L (₹)", value=0.0, step=100.0)
+                        trade_notes = st.text_area("Notes", placeholder="What went well? What could be improved?")
+                        submitted = st.form_submit_button("Log Trade")
+                        if submitted:
+                            journal_entry = {
+                                "Date": trade_date,
+                                "Strategy": trade_strategy,
+                                "P&L": trade_pnl,
+                                "Notes": trade_notes
+                            }
+                            st.session_state.trades.append(journal_entry)
+                            pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+                            st.session_state.journal_complete = True
+                            st.session_state.violations = 0
+                            st.success("✅ Trade logged successfully!")
+                    if st.session_state.trades:
+                        st.markdown("### Recent Trades")
+                        trades_df = pd.DataFrame(st.session_state.trades)
+                        st.dataframe(trades_df, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Backtest Tab
+                with tabs[5]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.subheader("🔍 Backtest Results")
+                    if st.session_state.backtest_run and st.session_state.backtest_results:
+                        results = st.session_state.backtest_results
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
+                        with col2:
+                            st.metric("Win Rate", f"{results['win_rate']*100:.2f}%")
+                        with col3:
+                            st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
+                        with col4:
+                            st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+                        st.markdown("### Strategy Performance")
+                        st.dataframe(results["strategy_perf"], use_container_width=True)
+                        st.markdown("### Regime Performance")
+                        st.dataframe(results["regime_perf"], use_container_width=True)
+                        st.markdown("### Equity Curve")
+                        fig, ax = plt.subplots()
+                        results["backtest_df"]["PnL"].cumsum().plot(ax=ax, color="#e94560")
+                        ax.set_title("Equity Curve")
+                        ax.set_xlabel("Date")
+                        ax.set_ylabel("Cumulative P&L (₹)")
+                        st.pyplot(fig)
+                    else:
+                        st.info("Run analysis to see backtest results.")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Analysis failed: {str(e)}. Check logs for more details.")
