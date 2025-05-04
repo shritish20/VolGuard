@@ -618,7 +618,7 @@ def forecast_volatility_future(df, forecast_horizon):
         garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
         garch_fit = garch_model.fit(disp="off")
         garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
-        garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)
+        garch_vols = np.sqrt(garch_forecast.variance.iloc[-1]. **kwargs).values) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
 
         realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
@@ -648,7 +648,7 @@ def forecast_volatility_future(df, forecast_horizon):
         current_row = df_xgb[feature_cols].iloc[-1].copy()
         for i in range(forecast_horizon):
             current_row_df = pd.DataFrame([current_row], columns=feature_cols)
-            current_row scaled = scaler.transform(current_row_df)
+            current_row_scaled = scaler.transform(current_row_df)
             next_vol = model.predict(current_row_scaled)[0]
             xgb_vols.append(next_vol)
 
@@ -822,7 +822,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         if len(df_backtest) < 50:
             st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days). Need at least 50 days.")
             logger.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
-FUNC            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
         
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
         missing_cols = [col for col in required_cols if col not in df_backtest.columns]
