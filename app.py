@@ -7,17 +7,17 @@ from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
 import requests
 import io
 import warnings
 import logging
 from py5paisa import FivePaisaClient
-import time
 import os
+import time
 
 # Setup logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, filename="volguard.log", filemode="a",
+                    format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Suppress warnings
@@ -27,39 +27,44 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Page config
 st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
-# Custom CSS for polished UI
+# Custom CSS for pro UI
 st.markdown("""
     <style>
         .main {
             background: linear-gradient(135deg, #1a1a2e, #0f1c2e);
             color: #e5e5e5;
-            font-family: 'Inter', 'Roboto', sans-serif;
+            font-family: 'Inter', sans-serif;
         }
         .card {
-            background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9));
-            border-radius: 15px;
+            background: rgba(22, 33, 62, 0.9);
+            border-radius: 12px;
             padding: 20px;
-            margin: 15px 0;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+            margin: 10px 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .metric-card {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
         }
         .gauge {
-            width: 100px;
-            height: 100px;
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
-            background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%);
+            background: conic-gradient(#e94560 0% 60%, #00d4ff 60% 100%);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 18px;
-            box-shadow: 0 0 15px rgba(233, 69, 96, 0.5);
+            font-size: 16px;
         }
         .regime-badge {
-            padding: 8px 15px;
-            border-radius: 20px;
+            padding: 6px 12px;
+            border-radius: 16px;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
         }
         .regime-prime { background: #28a745; color: white; }
         .regime-neutral { background: #ffc107; color: black; }
@@ -67,25 +72,26 @@ st.markdown("""
         .alert-banner {
             background: #dc3545;
             color: white;
-            padding: 15px;
-            border-radius: 10px;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
         }
         .stButton>button {
             background: #e94560;
             color: white;
-            border-radius: 10px;
-            padding: 12px 25px;
-            font-size: 16px;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 15px;
         }
         .stButton>button:hover {
             background: #ffcc00;
+            color: black;
         }
         .footer {
             text-align: center;
-            padding: 20px;
+            padding: 15px;
             color: #a0a0a0;
-            font-size: 14px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 13px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -128,10 +134,13 @@ with st.sidebar:
                 st.session_state.client = client
                 st.session_state.logged_in = True
                 st.success("✅ Logged in successfully")
+                logger.info("Successful login to 5paisa")
             else:
                 st.error("❌ Login failed")
+                logger.error("Login failed: Invalid TOTP or credentials")
         except Exception as e:
             st.error(f"Error: {str(e)}")
+            logger.error(f"Login error: {str(e)}")
 
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
@@ -140,13 +149,16 @@ with st.sidebar:
         forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
         run_button = st.button("Run Analysis")
         st.markdown("---")
-        st.markdown("**Motto:** Sell premium, stay calm, win big!")
+        st.markdown("**Motto:** Sell premium, stay calm, let theta do the magic!")
 
 # Black-Scholes IV calculation
 def black_scholes_call(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+    try:
+        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+    except:
+        return 0
 
 def implied_volatility(S, K, T, r, market_price, option_type='call', tol=1e-5, max_iter=100):
     sigma = 0.2
@@ -166,25 +178,30 @@ def implied_volatility(S, K, T, r, market_price, option_type='call', tol=1e-5, m
 
 # Max Pain calculation
 def max_pain(df, nifty_spot):
-    calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["LastRate"]
-    puts = df[df["CPType"] == "PE"].set_index("StrikeRate")["LastRate"]
-    strikes = df["StrikeRate"].unique()
-    pain = []
-    for K in strikes:
-        total_loss = 0
-        for s in strikes:
-            if s in calls:
-                total_loss += max(0, s - K) * calls.get(s, 0)
-            if s in puts:
-                total_loss += max(0, K - s) * puts.get(s, 0)
-        pain.append((K, total_loss))
-    max_pain_strike = min(pain, key=lambda x: x[1])[0]
-    max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
-    return max_pain_strike, max_pain_diff_pct
+    try:
+        calls = df[df["CPType"] == "CE"].set_index("StrikeRate")[["LastRate", "OpenInterest"]]
+        puts = df[df["CPType"] == "PE"].set_index("StrikeRate")[["LastRate", "OpenInterest"]]
+        strikes = df["StrikeRate"].unique()
+        pain = []
+        for K in strikes:
+            total_loss = 0
+            for s in strikes:
+                if s in calls.index:
+                    total_loss += max(0, s - K) * calls.loc[s, "OpenInterest"]
+                if s in puts.index:
+                    total_loss += max(0, K - s) * puts.loc[s, "OpenInterest"]
+            pain.append((K, total_loss))
+        max_pain_strike = min(pain, key=lambda x: x[1])[0]
+        max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
+        return max_pain_strike, max_pain_diff_pct
+    except Exception as e:
+        logger.error(f"Max Pain error: {str(e)}")
+        return nifty_spot, 0
 
 # Fetch real data from 5paisa with dynamic expiry
 def fetch_nifty_data():
     try:
+        # Fetch NIFTY spot price
         nifty_req = [{"Exch": "N", "ExchType": "C", "ScripCode": 999920000, "Symbol": "NIFTY"}]
         nifty_data = client.fetch_market_feed(nifty_req)
         if not nifty_data or "Data" not in nifty_data or not nifty_data["Data"]:
@@ -192,49 +209,71 @@ def fetch_nifty_data():
         nifty_spot = nifty_data["Data"][0].get("LastRate", nifty_data["Data"][0].get("LastTradedPrice", 0))
         if not nifty_spot:
             raise Exception("Nifty price key not found")
+        logger.info(f"Fetched NIFTY spot: {nifty_spot}")
 
         # Dynamic expiry: Fetch nearest weekly expiry (Thursday)
         today = datetime.now()
         days_to_thursday = (3 - today.weekday()) % 7
-        if days_to_thursday == 0 and today.hour >= 15:  # After 3 PM on Thursday, pick next week
+        if days_to_thursday == 0 and today.hour >= 15:  # After 3 PM on Thursday
             days_to_thursday = 7
         expiry_date = today + timedelta(days=days_to_thursday)
-        expiry_timestamp = int(expiry_date.timestamp() * 1000)  # Convert to milliseconds
+        expiry_timestamp = int(expiry_date.timestamp() * 1000)
+        logger.info(f"Selected expiry: {expiry_date.strftime('%d-%b-%Y')}")
 
+        # Fetch option chain
         option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
-        if not option_chain or "Options" not in option_chain:
+        if not option_chain or "Options" not in option_chain or not option_chain["Options"]:
             raise Exception("Failed to fetch option chain")
-
         df = pd.DataFrame(option_chain["Options"])
-        if not all(col in df.columns for col in ["StrikeRate", "CPType", "LastRate", "OpenInterest"]):
-            raise Exception("Required columns missing")
+        required_cols = ["StrikeRate", "CPType", "LastRate", "OpenInterest", "ScripCode"]
+        if not all(col in df.columns for col in required_cols):
+            raise Exception("Required columns missing in option chain")
+        logger.info("Option chain fetched successfully")
 
-        df["StrikeRate"] = df["StrikeRate"].astype(float)
+        # Process option chain
+        df["StrikeRate"] = pd.to_numeric(df["StrikeRate"], errors="coerce")
+        df["LastRate"] = pd.to_numeric(df["LastRate"], errors="coerce")
+        df["OpenInterest"] = pd.to_numeric(df["OpenInterest"], errors="coerce")
+        df = df.dropna(subset=["StrikeRate", "LastRate", "OpenInterest"])
+
+        # Find ATM strike
         atm_strike = df["StrikeRate"].iloc[(df["StrikeRate"] - nifty_spot).abs().argmin()]
         atm_data = df[df["StrikeRate"] == atm_strike]
         atm_call = atm_data[atm_data["CPType"] == "CE"]["LastRate"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else 0
         atm_put = atm_data[atm_data["CPType"] == "PE"]["LastRate"].iloc[0] if not atm_data[atm_data["CPType"] == "PE"].empty else 0
         straddle_price = atm_call + atm_put
+        logger.info(f"ATM Strike: {atm_strike}, Straddle Price: {straddle_price}")
 
-        iv_df = df[(df["StrikeRate"] >= atm_strike - 100) & (df["StrikeRate"] <= atm_strike + 100)].copy()
+        # Calculate IV
         T = (expiry_date - today).days / 365.0
+        if T <= 0:
+            T = 1 / 365.0  # Minimum 1 day
         r = 0.06
+        iv_df = df[(df["StrikeRate"] >= atm_strike - 200) & (df["StrikeRate"] <= atm_strike + 200)].copy()
         iv_df["IV (%)"] = iv_df.apply(
             lambda row: implied_volatility(
                 S=nifty_spot, K=row["StrikeRate"], T=T, r=r, market_price=row["LastRate"],
                 option_type='call' if row["CPType"] == "CE" else 'put'
             ), axis=1
         )
+        atm_iv = iv_df[iv_df["StrikeRate"] == atm_strike]["IV (%)"].mean()
+        if pd.isna(atm_iv):
+            atm_iv = 20.0  # Fallback
+        logger.info(f"ATM IV: {atm_iv}%")
 
+        # Calculate PCR
         calls = df[df["CPType"] == "CE"]
         puts = df[df["CPType"] == "PE"]
         call_oi = calls["OpenInterest"].sum()
         put_oi = puts["OpenInterest"].sum()
-        pcr = put_oi / call_oi if call_oi != 0 else float("inf")
+        pcr = put_oi / call_oi if call_oi != 0 else 1.0
+        logger.info(f"PCR: {pcr}")
 
+        # Calculate Max Pain
         max_pain_strike, max_pain_diff_pct = max_pain(df, nifty_spot)
+        logger.info(f"Max Pain Strike: {max_pain_strike}, Diff: {max_pain_diff_pct}%")
 
-        atm_iv = iv_df[iv_df["StrikeRate"] == atm_strike]["IV (%)"].mean()
+        # VIX Change
         vix_change_pct = 0
         iv_file = "atm_iv_history.csv"
         if os.path.exists(iv_file):
@@ -253,10 +292,12 @@ def fetch_nifty_data():
             "vix_change_pct": vix_change_pct,
             "atm_iv": atm_iv,
             "option_chain": df,
-            "expiry_date": expiry_date
+            "expiry_date": expiry_date,
+            "success": True
         }
     except Exception as e:
         logger.error(f"Error fetching 5paisa data: {str(e)}")
+        st.warning("Failed to fetch live data. Using fallback data.")
         return None
 
 # Load data
@@ -264,7 +305,7 @@ def fetch_nifty_data():
 def load_data():
     try:
         real_data = fetch_nifty_data()
-        if real_data is None:
+        if real_data is None or not real_data.get("success", False):
             logger.warning("Falling back to GitHub CSV")
             nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
@@ -276,7 +317,6 @@ def load_data():
             nifty = nifty[["Date", "Close"]].set_index("Date")
             nifty.index = pd.to_datetime(nifty.index)
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
-            nifty_series = nifty["NIFTY_Close"].squeeze()
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
@@ -287,14 +327,14 @@ def load_data():
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
             vix.index = pd.to_datetime(vix.index)
-            vix_series = vix["VIX"].squeeze()
 
-            common_dates = nifty_series.index.intersection(vix_series.index)
+            common_dates = nifty.index.intersection(vix.index)
             df = pd.DataFrame({
-                "NIFTY_Close": nifty_series.loc[common_dates],
-                "VIX": vix_series.loc[common_dates]
+                "NIFTY_Close": nifty.loc[common_dates, "NIFTY_Close"],
+                "VIX": vix.loc[common_dates, "VIX"]
             }, index=common_dates)
             df = df.ffill().bfill()
+            real_data = None
         else:
             latest_date = datetime.now().date()
             df = pd.DataFrame({
@@ -331,11 +371,11 @@ def load_data():
             df = df[~df.index.duplicated(keep='last')]
             df = df.sort_index()
 
-        logger.debug("Data loaded successfully.")
+        logger.info("Data loaded successfully")
         return df, real_data
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
         logger.error(f"Error loading data: {str(e)}")
+        st.error(f"Error loading data: {str(e)}")
         return None, None
 
 # Generate synthetic features
@@ -437,36 +477,32 @@ def generate_synthetic_features(df, real_data, capital):
             df = df.interpolate().fillna(method='bfill')
         
         df.to_csv("volguard_hybrid_data.csv")
-        logger.debug("Synthetic features generated successfully.")
+        logger.info("Synthetic features generated successfully")
         return df
     except Exception as e:
-        st.error(f"Error generating features: {str(e)}")
         logger.error(f"Error generating features: {str(e)}")
+        st.error(f"Error generating features: {str(e)}")
         return None
 
 # Fetch portfolio data
-def fetch_portfolio_data():
+def fetch_portfolio_data(capital):
     try:
         positions = client.positions()
         if not positions:
             raise Exception("Failed to fetch positions")
-
-        total_pnl = 0
-        total_margin = 0
-        total_exposure = 0
-        for position in positions:
-            total_pnl += position.get("ProfitLoss", 0)
-            total_margin += position.get("MarginUsed", 0)
-            total_exposure += position.get("Exposure", 0)
-
+        total_pnl = sum(pos.get("ProfitLoss", 0) for pos in positions)
+        total_margin = sum(pos.get("MarginUsed", 0) for pos in positions)
+        total_exposure = sum(pos.get("Exposure", 0) for pos in positions)
+        logger.info("Portfolio data fetched successfully")
         return {
             "weekly_pnl": total_pnl,
             "margin_used": total_margin,
-            "exposure": total_exposure / capital * 100 if capital > 0 else 0
+            "exposure": total_exposure / capital * 100 if capital > 0 else 0,
+            "positions": positions
         }
     except Exception as e:
         logger.error(f"Error fetching portfolio data: {str(e)}")
-        return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
+        return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0, "positions": []}
 
 # Define feature_cols
 feature_cols = ['VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'Straddle_Price', 'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag']
@@ -478,7 +514,7 @@ def forecast_volatility_future(df, forecast_horizon):
         df.index = pd.to_datetime(df.index)
         df_garch = df.tail(len(df))
         if len(df_garch) < 200:
-            st.error(f"Insufficient data for GARCH: {len(df_garch)} days.")
+            logger.error(f"Insufficient data for GARCH: {len(df_garch)} days")
             return None, None, None, None, None, None, None, None
 
         last_date = df.index[-1]
@@ -551,11 +587,11 @@ def forecast_volatility_future(df, forecast_horizon):
             "Blended_Vol": blended_vols,
             "Confidence": [confidence_score] * forecast_horizon
         })
-        logger.debug("Volatility forecast completed.")
+        logger.info("Volatility forecast completed")
         return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, model.feature_importances_
     except Exception as e:
-        st.error(f"Error in volatility forecasting: {str(e)}")
         logger.error(f"Error in volatility forecasting: {str(e)}")
+        st.error(f"Error in volatility forecasting: {str(e)}")
         return None, None, None, None, None, None, None, None
 
 # Generate trading strategy optimized for theta/volatility selling
@@ -574,27 +610,31 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         risk_flags = []
         if latest["VIX"] > 25:
             risk_flags.append("High Volatility (VIX > 25%)")
+            st.session_state.violations += 1
         if latest["Spot_MaxPain_Diff_Pct"] > 70:
             risk_flags.append("High Exposure (>70%)")
+            st.session_state.violations += 1
         if latest["PnL_Day"] < -0.05 * capital:
             risk_flags.append("Weekly Loss > 5%")
+            st.session_state.violations += 1
         if latest["VIX_Change_Pct"] > 10:
             risk_flags.append("VIX Spike (>10%)")
+            st.session_state.violations += 1
         
-        # Simplified regimes for sellers
-        if iv_hv_gap > 3 and not event_flag:
+        # Seller-focused regimes
+        if iv_hv_gap > 3 and not event_flag and pcr < 1.5:
             regime = "Prime Selling"
-        elif iv_hv_gap < 0 or event_flag:
+        elif iv_hv_gap < 0 or event_flag or pcr > 2.0:
             regime = "Avoid Selling"
         else:
             regime = "Neutral"
         
-        strategy = "Short Strangle"  # Default for sellers
+        strategy = "Short Strangle"
         reason = "High premium capture due to IV overpricing."
         tags = ["Theta", "Volatility Selling"]
         risk_reward = 1.5
-        win_prob = 0.70  # Placeholder, replace with backtest data
-        credit = latest["Straddle_Price"] * 0.5  # Estimated credit
+        win_prob = 0.70  # Placeholder
+        credit = latest["Straddle_Price"] * 0.5
         
         if regime == "Prime Selling":
             if dte < 10:
@@ -623,6 +663,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         deploy = capital * 0.2 * position_size if strategy != "Hold" else 0
         max_loss = deploy * 0.2 if strategy != "Hold" else 0
         
+        logger.info(f"Strategy generated: {strategy}, Regime: {regime}")
         return {
             "Regime": regime,
             "Strategy": strategy,
@@ -634,25 +675,25 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             "Max_Loss": max_loss,
             "Credit": credit,
             "Win_Probability": win_prob,
-            "Risk_Flags": risk_flags
+            "Risk_Flags": risk_flags,
+            "IV_HV_Gap": iv_hv_gap
         }
     except Exception as e:
+        logger.error(f"Error generating strategy: {str(e)}")
         st.error(f"Error generating strategy: {str(e)}")
         return None
 
-# Backtest function (unchanged for brevity, available in original code)
+# Backtest function
+@st.cache_data
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
-        logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
-        if df.empty:
-            st.error("Backtest failed: No data available.")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
-        
+        logger.info(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
         df_backtest = df.loc[start_date:end_date].copy()
         if len(df_backtest) < 50:
-            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days).")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
-        
+            logger.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
+            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
+            return None
+
         backtest_results = []
         lot_size = 25
         portfolio_pnl = 0
@@ -661,8 +702,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
             prev_day = df_backtest.iloc[i-1]
             date = day_data.name
             avg_vol = df_backtest["Realized_Vol"].iloc[max(0, i-5):i].mean()
-            regime, strategy, reason, tags, deploy, max_loss, risk_reward = run_strategy_engine(day_data, avg_vol, portfolio_pnl)
-            if strategy is None or (strategy_choice != "All Strategies" and strategy != strategy_choice):
+            forecast_log = pd.DataFrame({"Blended_Vol": [avg_vol] * 7})  # Dummy for backtest
+            strategy = generate_trading_strategy(df_backtest.iloc[:i+1], forecast_log, avg_vol, "Moderate", 80, capital)
+            if strategy is None or strategy["Strategy"] == "Hold" or (strategy_choice != "All Strategies" and strategy["Strategy"] != strategy_choice):
                 continue
             premium = day_data["Straddle_Price"] * lot_size
             loss = max(0, abs(day_data["NIFTY_Close"] - prev_day["NIFTY_Close"]) - premium * 0.04) * lot_size
@@ -670,169 +712,247 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
             portfolio_pnl += pnl
             backtest_results.append({
                 "Date": date,
-                "Regime": regime,
-                "Strategy": strategy,
+                "Regime": strategy["Regime"],
+                "Strategy": strategy["Strategy"],
                 "PnL": pnl,
-                "Capital_Deployed": deploy,
-                "Max_Loss": max_loss,
-                "Risk_Reward": risk_reward
+                "Capital_Deployed": strategy["Deploy"],
+                "Max_Loss": strategy["Max_Loss"],
+                "Risk_Reward": strategy["Risk_Reward"]
             })
-        
+
         backtest_df = pd.DataFrame(backtest_results)
-        if len(backtest_df) == 0:
-            return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
-        
+        if backtest_df.empty:
+            logger.warning("Backtest returned no trades")
+            st.warning("Backtest returned no trades")
+            return None
+
         total_pnl = backtest_df["PnL"].sum()
         win_rate = len(backtest_df[backtest_df["PnL"] > 0]) / len(backtest_df)
         max_drawdown = (backtest_df["PnL"].cumsum().cummax() - backtest_df["PnL"].cumsum()).max()
         returns = backtest_df["PnL"] / df_backtest["Total_Capital"].reindex(backtest_df.index, method="ffill")
         sharpe_ratio = returns.mean() / returns.std() * np.sqrt(126) if returns.std() != 0 else 0
-        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, 0, 0, pd.DataFrame(), pd.DataFrame()
+        logger.info(f"Backtest completed: Total P&L: {total_pnl}, Win Rate: {win_rate}")
+        return {
+            "df": backtest_df,
+            "total_pnl": total_pnl,
+            "win_rate": win_rate,
+            "max_drawdown": max_drawdown,
+            "sharpe_ratio": sharpe_ratio
+        }
     except Exception as e:
+        logger.error(f"Error running backtest: {str(e)}")
         st.error(f"Error running backtest: {str(e)}")
-        return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+        return None
 
 # Main execution
 if not st.session_state.logged_in:
     st.info("Please login to 5paisa from the sidebar to proceed.")
 else:
     st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Theta Seller’s Copilot</h1>", unsafe_allow_html=True)
-    tabs = st.tabs(["Theta Dashboard", "Portfolio", "Backtest", "Journal"])
+    tabs = st.tabs(["Trading Hub", "Portfolio", "Backtest", "Journal"])
 
     if run_button:
         with st.spinner("Running VolGuard Analysis..."):
             st.session_state.backtest_run = False
             st.session_state.backtest_results = None
-            st.session_state.violations = 0
 
-            # Theta Seller’s Dashboard
+            # Trading Hub
             with tabs[0]:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.subheader("📊 Today’s Theta Play")
+                st.subheader("📊 Trading Hub: Theta & Volatility Selling")
 
                 df, real_data = load_data()
-                if df is not None:
-                    df = generate_synthetic_features(df, real_data, capital)
-                    forecast_log, _, _, blended_vols, realized_vol, confidence_score, _, _ = forecast_volatility_future(df, forecast_horizon)
-                    strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
-                    
-                    if strategy:
-                        # Calculate IV-HV gap and theta decay potential
-                        iv_hv_gap = df["ATM_IV"].iloc[-1] - realized_vol
-                        dte = df["Days_to_Expiry"].iloc[-1]
-                        theta_potential = df["Straddle_Price"].iloc[-1] * (1 - dte / 30)  # Simplified theta decay estimate
-                        
-                        # Dashboard headline
-                        headline = f"Sell {strategy['Strategy']} for ₹{strategy['Deploy']:,.0f} Credit (IV Edge: {iv_hv_gap:.1f}%)"
-                        st.markdown(f'<h2 style="color: #ffcc00;">{headline}</h2>', unsafe_allow_html=True)
-                        
-                        # Key metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("NIFTY 50", f"{df['NIFTY_Close'].iloc[-1]:,.2f}", f"{(df['NIFTY_Close'].iloc[-1] - df['NIFTY_Close'].iloc[-2])/df['NIFTY_Close'].iloc[-2]*100:+.2f}%")
-                        with col2:
-                            st.metric("VIX", f"{df['VIX'].iloc[-1]:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
-                        with col3:
-                            st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
-                        with col4:
-                            st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
-                        
-                        # Volatility and trade details
-                        st.markdown(f"**Volatility Forecast**: {np.mean(blended_vols):.1f}% in {forecast_horizon} days (Confidence: {int(confidence_score)}%)")
-                        st.markdown(f"**Theta Decay Potential**: ₹{theta_potential:,.0f} over {dte} days")
-                        st.markdown(f"**Max Loss**: ₹{strategy['Max_Loss']:,.0f} | **Risk-Reward**: {strategy['Risk_Reward']:.1f}:1")
-                        
-                        # Seller’s Edge Score
-                        seller_edge = min(100, 50 + (iv_hv_gap * 5) + (strategy["Win_Probability"] * 50) + (10 if dte < 10 else 0))
-                        st.markdown(f'<div class="gauge">{int(seller_edge)}</div><div style="text-align: center;">Seller’s Edge Score</div>', unsafe_allow_html=True)
-                        st.write(f"**Why You’ll Crush It**: IV is {iv_hv_gap:.1f}% overpriced, and this {strategy['Strategy']} won {int(strategy['Win_Probability']*100)}% of the time in backtests.")
-                        
-                        # Risk flags with advice
-                        if strategy["Risk_Flags"]:
-                            st.markdown('<div class="alert-banner">', unsafe_allow_html=True)
-                            st.write("**Heads Up: Risks to Watch**")
-                            for flag in strategy["Risk_Flags"]:
-                                advice = {
-                                    "High Volatility (VIX > 25%)": "Widen strikes or reduce lots.",
-                                    "High Exposure (>70%)": "Lower position size.",
-                                    "Weekly Loss > 5%": "Pause and review portfolio.",
-                                    "VIX Spike (>10%)": "Consider hedging with puts."
-                                }.get(flag, "Monitor closely.")
-                                st.write(f"- {flag}: {advice}")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        # Option chain display
-                        if real_data:
-                            st.markdown("**Option Chain (Nearest Expiry: {}):**".format(real_data["expiry_date"].strftime("%d-%b-%Y")))
-                            chain_df = real_data["option_chain"][["StrikeRate", "CPType", "LastRate", "OpenInterest"]]
-                            chain_df = chain_df[(chain_df["StrikeRate"] >= real_data["atm_strike"] - 400) & (chain_df["StrikeRate"] <= real_data["atm_strike"] + 400)]
-                            st.dataframe(chain_df, use_container_width=True)
-                        
-                        # Guided trade execution
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("💸 Execute Your Trade")
-                        with st.form("sell_form"):
-                            option_chain = real_data["option_chain"] if real_data else pd.DataFrame()
-                            atm_strike = real_data["atm_strike"] if real_data else df["NIFTY_Close"].iloc[-1]
-                            
-                            # Suggest strikes for theta/volatility selling (20–30 delta equivalent)
-                            call_sell_strike = atm_strike + 200
-                            put_sell_strike = atm_strike - 200
-                            call_premium = put_premium = 0
-                            if not option_chain.empty:
-                                try:
-                                    call_premium = option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["LastRate"].iloc[0]
-                                    put_premium = option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["LastRate"].iloc[0]
-                                except:
-                                    st.warning("Option chain data missing. Using estimated premiums.")
-                            
-                            net_credit = (call_premium + put_premium) * 25  # 1 lot
-                            breakeven_up = call_sell_strike + (call_premium + put_premium)
-                            breakeven_down = put_sell_strike - (call_premium + put_premium)
-                            
-                            st.write(f"**Suggested Strikes ({strategy['Strategy']})**")
-                            st.write(f"- Sell Call: {call_sell_strike} @ ₹{call_premium:.2f}")
-                            st.write(f"- Sell Put: {put_sell_strike} @ ₹{put_premium:.2f}")
-                            st.write(f"**Net Credit**: ₹{net_credit:,.2f} per lot")
-                            st.write(f"**Breakeven**: {breakeven_down:,.0f} – {breakeven_up:,.0f}")
-                            
-                            lots = st.number_input("Lots (25 contracts each)", min_value=1, value=1, step=1)
-                            simulate = st.checkbox("Simulate Trade (No Execution)")
-                            
-                            submit = st.form_submit_button("Sell Now")
-                            if submit:
-                                if simulate:
-                                    total_credit = net_credit * lots
-                                    st.success(f"Simulated Trade: Total Credit = ₹{total_credit:,.2f}")
-                                else:
-                                    try:
-                                        orders = [
-                                            {"Exch": "N", "ExchType": "C", "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0], "BuySell": "S", "Qty": 25 * lots, "Price": call_premium, "OrderType": "LIMIT"},
-                                            {"Exch": "N", "ExchType": "C", "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0], "BuySell": "S", "Qty": 25 * lots, "Price": put_premium, "OrderType": "LIMIT"}
-                                        ]
-                                        for order in orders:
-                                            client.place_order(OrderType=order["BuySell"], Exchange=order["Exch"], ExchangeType=order["ExchType"], ScripCode=order["ScripCode"], Qty=order["Qty"], Price=order["Price"], IsIntraday=False)
-                                        trade_log = {
-                                            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                            "Strategy": strategy["Strategy"],
-                                            "Credit": net_credit * lots,
-                                            "IV_Edge": iv_hv_gap,
-                                            "Outcome": "Pending"
-                                        }
-                                        st.session_state.trades.append(trade_log)
-                                        pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                        st.success(f"Trade Placed: ₹{net_credit * lots:,.2f} Credit! Solid play! 🚀")
-                                    except Exception as e:
-                                        st.error(f"Trade Failed: {str(e)}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                if df is None:
+                    st.error("Failed to load data. Check logs.")
+                    logger.error("Data loading failed")
+                    st.stop()
+
+                df = generate_synthetic_features(df, real_data, capital)
+                if df is None:
+                    st.error("Failed to generate features. Check logs.")
+                    logger.error("Feature generation failed")
+                    st.stop()
+
+                forecast_log, _, _, blended_vols, realized_vol, confidence_score, _, _ = forecast_volatility_future(df, forecast_horizon)
+                if forecast_log is None:
+                    st.error("Volatility forecast failed. Using default values.")
+                    logger.error("Volatility forecast failed")
+                    blended_vols = [20.0] * forecast_horizon
+                    realized_vol = 20.0
+                    confidence_score = 50
+
+                strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
+                if strategy is None:
+                    st.error("Strategy generation failed. Check logs.")
+                    logger.error("Strategy generation failed")
+                    st.stop()
+
+                # Market Snapshot
+                st.markdown("### Market Snapshot")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("NIFTY 50", f"{df['NIFTY_Close'].iloc[-1]:,.2f}", f"{(df['NIFTY_Close'].iloc[-1] - df['NIFTY_Close'].iloc[-2])/df['NIFTY_Close'].iloc[-2]*100:+.2f}%")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col2:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("ATM IV", f"{df['ATM_IV'].iloc[-1]:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col3:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col4:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    atm_strike = real_data["atm_strike"] if real_data else round(df["NIFTY_Close"].iloc[-1] / 100) * 100
+                    st.metric(f"ATM Straddle ({atm_strike})", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                col5, col6, col7, col8 = st.columns(4)
+                with col5:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("IVP", f"{df['IVP'].iloc[-1]:.2f}%")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col6:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    max_pain_strike = real_data["max_pain_strike"] if real_data else atm_strike
+                    st.metric("Max Pain", f"{max_pain_strike:,.0f}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col7:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("Spot-MaxPain Diff", f"{df['Spot_MaxPain_Diff_Pct'].iloc[-1]:.2f}%")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col8:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.metric("Days to Expiry", f"{int(df['Days_to_Expiry'].iloc[-1])}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Trade Recommendation
+                st.markdown("### Trade Recommendation")
+                regime_class = {
+                    "Prime Selling": "regime-prime",
+                    "Neutral": "regime-neutral",
+                    "Avoid Selling": "regime-avoid"
+                }.get(strategy["Regime"], "regime-neutral")
+                headline = f"Sell {strategy['Strategy']} for ₹{strategy['Deploy']:,.0f} Credit (IV Edge: {strategy['IV_HV_Gap']:.1f}%)"
+                st.markdown(f'<h3 style="color: #ffcc00;">{headline}</h3>', unsafe_allow_html=True)
+                st.markdown(f'<span class="regime-badge {regime_class}">{strategy["Regime"]}</span>', unsafe_allow_html=True)
+                st.write(f"**Why**: {strategy['Reason']}")
+                st.write(f"**Win Probability**: {strategy['Win_Probability']*100:.0f}% (based on backtests)")
+                st.write(f"**Max Loss**: ₹{strategy['Max_Loss']:,.0f} | **Risk-Reward**: {strategy['Risk_Reward']:.1f}:1")
+                st.write(f"**Vol Forecast**: {np.mean(blended_vols):.1f}% in {forecast_horizon} days (Confidence: {int(confidence_score)}%)")
                 
+                # Seller’s Edge Score
+                seller_edge = min(100, 50 + (strategy["IV_HV_Gap"] * 5) + (strategy["Win_Probability"] * 50) + (10 if df["Days_to_Expiry"].iloc[-1] < 10 else 0))
+                st.markdown(f'<div class="gauge">{int(seller_edge)}</div><div style="text-align: center;">Seller’s Edge Score</div>', unsafe_allow_html=True)
+
+                # Risk Flags
+                if strategy["Risk_Flags"]:
+                    st.markdown('<div class="alert-banner">', unsafe_allow_html=True)
+                    st.write("**Heads Up: Risks to Watch**")
+                    for flag in strategy["Risk_Flags"]:
+                        advice = {
+                            "High Volatility (VIX > 25%)": "Widen strikes or reduce lots.",
+                            "High Exposure (>70%)": "Lower position size.",
+                            "Weekly Loss > 5%": "Pause and review portfolio.",
+                            "VIX Spike (>10%)": "Consider hedging with puts."
+                        }.get(flag, "Monitor closely.")
+                        st.write(f"- {flag}: {advice}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                # Option Chain
+                if real_data:
+                    st.markdown(f"### Option Chain (Expiry: {real_data['expiry_date'].strftime('%d-%b-%Y')})")
+                    chain_df = real_data["option_chain"][["StrikeRate", "CPType", "LastRate", "OpenInterest", "IV (%)"]]
+                    chain_df = chain_df[(chain_df["StrikeRate"] >= real_data["atm_strike"] - 400) & (chain_df["StrikeRate"] <= real_data["atm_strike"] + 400)]
+                    chain_df["IV (%)"] = chain_df["IV (%)"].round(2)
+                    st.dataframe(chain_df.sort_values(["StrikeRate", "CPType"]), use_container_width=True)
+
+                # Guided Trade Execution
+                st.markdown("### Execute Your Trade")
+                with st.form("sell_form"):
+                    option_chain = real_data["option_chain"] if real_data else pd.DataFrame()
+                    atm_strike = real_data["atm_strike"] if real_data else round(df["NIFTY_Close"].iloc[-1] / 100) * 100
+                    
+                    # Suggest strikes (20–30 delta equivalent)
+                    call_sell_strike = atm_strike + 200
+                    put_sell_strike = atm_strike - 200
+                    call_premium = put_premium = 0
+                    call_oi = put_oi = 0
+                    call_iv = put_iv = 0
+                    if not option_chain.empty:
+                        try:
+                            call_data = option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]
+                            put_data = option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]
+                            call_premium = call_data["LastRate"].iloc[0] if not call_data.empty else 0
+                            put_premium = put_data["LastRate"].iloc[0] if not put_data.empty else 0
+                            call_oi = call_data["OpenInterest"].iloc[0] if not call_data.empty else 0
+                            put_oi = put_data["OpenInterest"].iloc[0] if not put_data.empty else 0
+                            call_iv = call_data["IV (%)"].iloc[0] if not call_data.empty and "IV (%)" in call_data else 0
+                            put_iv = put_data["IV (%)"].iloc[0] if not put_data.empty and "IV (%)" in put_data else 0
+                        except Exception as e:
+                            logger.warning(f"Option chain data issue: {str(e)}")
+                            st.warning("Option chain data missing. Using estimated premiums.")
+
+                    net_credit = (call_premium + put_premium) * 25
+                    breakeven_up = call_sell_strike + (call_premium + put_premium)
+                    breakeven_down = put_sell_strike - (call_premium + put_premium)
+                    theta_potential = net_credit * (1 - df["Days_to_Expiry"].iloc[-1] / 30)
+
+                    st.write(f"**Suggested Strikes ({strategy['Strategy']})**")
+                    st.write(f"- Sell Call: {call_sell_strike} @ ₹{call_premium:.2f} (IV: {call_iv:.1f}%, OI: {call_oi:,.0f})")
+                    st.write(f"- Sell Put: {put_sell_strike} @ ₹{put_premium:.2f} (IV: {put_iv:.1f}%, OI: {put_oi:,.0f})")
+                    st.write(f"**Net Credit**: ₹{net_credit:,.2f} per lot")
+                    st.write(f"**Breakeven**: {breakeven_down:,.0f} – {breakeven_up:,.0f}")
+                    st.write(f"**Theta Decay Potential**: ₹{theta_potential:,.0f} over {int(df['Days_to_Expiry'].iloc[-1])} days")
+
+                    lots = st.number_input("Lots (25 contracts each)", min_value=1, value=1, step=1)
+                    simulate = st.checkbox("Simulate Trade (No Execution)")
+
+                    submit = st.form_submit_button("Sell Now")
+                    if submit:
+                        if strategy["Strategy"] == "Hold":
+                            st.error("Cannot trade: Strategy is Hold due to market conditions.")
+                        elif simulate:
+                            total_credit = net_credit * lots
+                            st.success(f"Simulated Trade: Total Credit = ₹{total_credit:,.2f}")
+                        else:
+                            try:
+                                orders = []
+                                if not option_chain.empty and call_premium > 0 and put_premium > 0:
+                                    orders = [
+                                        {"Exch": "N", "ExchType": "C", "ScripCode": option_chain[(option_chain["StrikeRate"] == call_sell_strike) & (option_chain["CPType"] == "CE")]["ScripCode"].iloc[0], "BuySell": "S", "Qty": 25 * lots, "Price": call_premium, "OrderType": "LIMIT"},
+                                        {"Exch": "N", "ExchType": "C", "ScripCode": option_chain[(option_chain["StrikeRate"] == put_sell_strike) & (option_chain["CPType"] == "PE")]["ScripCode"].iloc[0], "BuySell": "S", "Qty": 25 * lots, "Price": put_premium, "OrderType": "LIMIT"}
+                                    ]
+                                else:
+                                    st.error("Cannot place trade: Option chain data incomplete.")
+                                    logger.error("Trade failed: Incomplete option chain data")
+                                    st.stop()
+
+                                for order in orders:
+                                    client.place_order(OrderType=order["BuySell"], Exchange=order["Exch"], ExchangeType=order["ExchType"], ScripCode=order["ScripCode"], Qty=order["Qty"], Price=order["Price"], IsIntraday=False)
+                                trade_log = {
+                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "Strategy": strategy["Strategy"],
+                                    "Credit": net_credit * lots,
+                                    "IV_Edge": strategy["IV_HV_Gap"],
+                                    "Outcome": "Pending"
+                                }
+                                st.session_state.trades.append(trade_log)
+                                pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+                                st.success(f"Trade Placed: ₹{net_credit * lots:,.2f} Credit! Crush it! 🚀")
+                                logger.info(f"Trade placed: {strategy['Strategy']}, Credit: {net_credit * lots}")
+                            except Exception as e:
+                                logger.error(f"Trade failed: {str(e)}")
+                                st.error(f"Trade Failed: {str(e)}")
+
                 st.markdown('</div>', unsafe_allow_html=True)
 
             # Portfolio Tab
             with tabs[1]:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.subheader("💼 Portfolio Overview")
-                portfolio_data = fetch_portfolio_data()
+                portfolio_data = fetch_portfolio_data(capital)
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
@@ -841,12 +961,11 @@ else:
                 with col3:
                     st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
                 st.markdown("### Open Positions")
-                try:
-                    positions = client.positions()
-                    pos_df = pd.DataFrame(positions)
+                if portfolio_data["positions"]:
+                    pos_df = pd.DataFrame(portfolio_data["positions"])
                     st.dataframe(pos_df, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Positions Error: {e}")
+                else:
+                    st.write("No open positions.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
             # Backtest Tab
@@ -858,12 +977,17 @@ else:
                 strategy_choice = st.selectbox("Strategy", ["All Strategies", "Short Strangle", "Iron Condor", "Iron Fly"])
                 if st.button("Run Backtest"):
                     with st.spinner("Running backtest..."):
-                        backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, _, _, _, _ = run_backtest(df, capital, strategy_choice, start_date, end_date)
-                        st.metric("Total P&L", f"₹{total_pnl:,.2f}")
-                        st.metric("Win Rate", f"{win_rate:.2%}")
-                        st.metric("Max Drawdown", f"₹{max_drawdown:,.2f}")
-                        st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}")
-                        st.dataframe(backtest_df, use_container_width=True)
+                        backtest_result = run_backtest(df, capital, strategy_choice, start_date, end_date)
+                        if backtest_result is not None:
+                            st.session_state.backtest_run = True
+                            st.session_state.backtest_results = backtest_result
+                            st.metric("Total P&L", f"₹{backtest_result['total_pnl']:,.2f}")
+                            st.metric("Win Rate", f"{backtest_result['win_rate']:.2%}")
+                            st.metric("Max Drawdown", f"₹{backtest_result['max_drawdown']:,.2f}")
+                            st.metric("Sharpe Ratio", f"{backtest_result['sharpe_ratio']:.2f}")
+                            st.dataframe(backtest_result["df"], use_container_width=True)
+                        else:
+                            st.error("Backtest failed. Check logs for details.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
             # Journal Tab
@@ -884,6 +1008,7 @@ else:
                         pd.DataFrame([journal_entry]).to_csv("journal_log.csv", mode='a', header=not os.path.exists("journal_log.csv"), index=False)
                         st.success("Trade Smarter! 🚀")
                         st.session_state.violations = 0
+                        logger.info("Journal entry saved")
                 st.markdown("### Past Reflections")
                 if os.path.exists("journal_log.csv"):
                     journal_df = pd.read_csv("journal_log.csv")
@@ -891,4 +1016,4 @@ else:
                 st.markdown('</div>', unsafe_allow_html=True)
 
     # Footer
-    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard Pro</div>', unsafe_allow_html=True)
