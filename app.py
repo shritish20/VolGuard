@@ -281,26 +281,27 @@ else:
                                             st.error(f"Order failed for {order['BuySell']} at strike {order['ScripCode']}: {response.get('Message', 'Unknown error')}")
                                             st.stop()
 
-                                    # Step 8: Log the trade
-                                    trade_log = {
-                                        "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                        "Strategy": strategy["Strategy"],
-                                        "Regime": strategy["Regime"],
-                                        "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
-                                        "Outcome": "Pending",
-                                        "Stop_Loss": strategy["Stop_Loss"],
-                                        "Take_Profit": strategy["Take_Profit"],
-                                        "Capital_Deployed": capital_deployed,
-                                        "Quantity": total_quantity,
-                                        "Total_Cost": total_cost
-                                    }
-                                    st.session_state.trades.append(trade_log)
-                                    pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                    st.success("✅ Trade Placed Successfully!")
-                                    st.rerun()  # Refresh UI after trade
-            except Exception as e:
-                st.error(f"Trade Failed: {str(e)}. Check 5paisa API logs for more details.")
-            st.markdown('</div>', unsafe_allow_html=True)
+                                   # Step 8: Log the trade
+trade_log = {
+    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    "Strategy": strategy["Strategy"],
+    "Regime": strategy["Regime"],
+    "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
+    "Outcome": "Pending",
+    "Stop_Loss": strategy["Stop_Loss"],
+    "Take_Profit": strategy["Take_Profit"],
+    "Capital_Deployed": capital_deployed,
+    "Quantity": total_quantity,
+    "Total_Cost": total_cost
+}
+st.session_state.trades.append(trade_log)
+pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+st.success("✅ Trade Placed Successfully!")
+st.rerun()  # Refresh UI after trade
+# Removed the misplaced 'except' block from here
+except Exception as e:
+    st.error(f"Trade Failed: {str(e)}. Check 5paisa API logs for more details.")
+st.markdown('</div>', unsafe_allow_html=True) 
 
         # Portfolio Tab
         with tabs[3]:
