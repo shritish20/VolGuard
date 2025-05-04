@@ -648,7 +648,7 @@ def forecast_volatility_future(df, forecast_horizon):
         current_row = df_xgb[feature_cols].iloc[-1].copy()
         for i in range(forecast_horizon):
             current_row_df = pd.DataFrame([current_row], columns=feature_cols)
-            current_row_scaled = scaler.transform(current_row_df)
+            current_row scaled = scaler.transform(current_row_df)
             next_vol = model.predict(current_row_scaled)[0]
             xgb_vols.append(next_vol)
 
@@ -822,7 +822,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         if len(df_backtest) < 50:
             st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days). Need at least 50 days.")
             logger.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+FUNC            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
         
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
         missing_cols = [col for col in required_cols if col not in df_backtest.columns]
@@ -1042,7 +1042,7 @@ if not st.session_state.logged_in:
     st.info("Please login to 5paisa from the sidebar to proceed.")
 else:
     st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
-    tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal"])
+    tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal", "Backtest"])  # Added Backtest tab
 
     if run_button:
         with st.spinner("Running VolGuard Analysis..."):
@@ -1055,6 +1055,23 @@ else:
             if df is not None:
                 df = generate_synthetic_features(df, real_data, capital)
                 if df is not None:
+                    # Run backtest and store results
+                    backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(
+                        df, capital, strategy_choice, start_date, end_date
+                    )
+                    st.session_state.backtest_run = True
+                    st.session_state.backtest_results = {
+                        "backtest_df": backtest_df,
+                        "total_pnl": total_pnl,
+                        "win_rate": win_rate,
+                        "max_drawdown": max_drawdown,
+                        "sharpe_ratio": sharpe_ratio,
+                        "sortino_ratio": sortino_ratio,
+                        "calmar_ratio": calmar_ratio,
+                        "strategy_perf": strategy_perf,
+                        "regime_perf": regime_perf
+                    }
+
                     # Snapshot Tab
                     with tabs[0]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -1270,6 +1287,59 @@ else:
                         if os.path.exists("journal_log.csv"):
                             journal_df = pd.read_csv("journal_log.csv")
                             st.dataframe(journal_df, use_container_width=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+                    # Backtest Tab
+                    with tabs[5]:
+                        st.markdown('<div class="card">', unsafe_allow_html=True)
+                        st.subheader("📉 Backtest Results")
+                        if st.session_state.backtest_run and st.session_state.backtest_results is not None:
+                            results = st.session_state.backtest_results
+                            if results["backtest_df"].empty:
+                                st.warning("No trades generated for the selected parameters. Try adjusting the date range or strategy.")
+                            else:
+                                # Metrics
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
+                                with col2:
+                                    st.metric("Win Rate", f"{results['win_rate']*100:.2f}%")
+                                with col3:
+                                    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+                                with col4:
+                                    st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
+
+                                # Cumulative P&L Chart
+                                st.markdown("### Cumulative P&L")
+                                cum_pnl = results["backtest_df"]["PnL"].cumsum()
+                                st.line_chart(cum_pnl, color="#e94560")
+
+                                # Strategy Performance
+                                st.markdown("### Strategy Performance")
+                                st.dataframe(results["strategy_perf"].style.format({
+                                    "sum": "₹{:,.2f}",
+                                    "mean": "₹{:,.2f}",
+                                    "Win_Rate": "{:.2%}"
+                                }), use_container_width=True)
+
+                                # Regime Performance
+                                st.markdown("### Regime Performance")
+                                st.dataframe(results["regime_perf"].style.format({
+                                    "sum": "₹{:,.2f}",
+                                    "mean": "₹{:,.2f}",
+                                    "Win_Rate": "{:.2%}"
+                                }), use_container_width=True)
+
+                                # Detailed Results
+                                st.markdown("### Detailed Backtest Results")
+                                st.dataframe(results["backtest_df"].style.format({
+                                    "PnL": "₹{:,.2f}",
+                                    "Capital_Deployed": "₹{:,.2f}",
+                                    "Max_Loss": "₹{:,.2f}",
+                                    "Risk_Reward": "{:.2f}"
+                                }), use_container_width=True)
+                        else:
+                            st.info("Run the analysis to view backtest results.")
                         st.markdown('</div>', unsafe_allow_html=True)
 
     # Footer
