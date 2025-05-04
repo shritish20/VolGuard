@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Page config
-st.set_page_config(page_title="VolGuard Pro", page_icon="ðŸ›¡ï¸", layout="wide")
+st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
 # Custom CSS for redesigned UI
 st.markdown("""
@@ -235,7 +235,7 @@ client = FivePaisaClient(cred=cred)
 
 # Sidebar Login and Controls
 with st.sidebar:
-    st.header("ðŸ” 5paisa Login")
+    st.header("🔐 5paisa Login")
     totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
     if st.button("Login"):
         try:
@@ -247,15 +247,15 @@ with st.sidebar:
             if client.get_access_token():
                 st.session_state.client = client
                 st.session_state.logged_in = True
-                st.success("âœ… Logged in successfully")
+                st.success("✅ Logged in successfully")
             else:
-                st.error("âŒ Login failed")
+                st.error("❌ Login failed")
         except Exception as e:
             st.error(f"Error: {str(e)}")
 
     if st.session_state.logged_in:
-        st.header("âš™ï¸ Trading Controls")
-        capital = st.number_input("Capital (â‚¹)", min_value=100000, value=1000000, step=100000)
+        st.header("⚙️ Trading Controls")
+        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
         risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
         forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
         dte_preference = st.slider("DTE Preference (days)", 7, 30, 15)
@@ -594,6 +594,13 @@ def fetch_portfolio_data():
         logger.error(f"Error fetching portfolio data: {str(e)}")
         return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
+# Define feature_cols globally (fixes NameError in Forecast Tab)
+feature_cols = [
+    'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+    'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+    'FII_Option_Pos'
+]
+
 # Forecast volatility
 @st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
@@ -620,11 +627,6 @@ def forecast_volatility_future(df, forecast_horizon):
         df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
         df_xgb = df_xgb.dropna()
 
-        feature_cols = [
-            'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-            'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-            'FII_Option_Pos'
-        ]
         X = df_xgb[feature_cols]
         y = df_xgb['Target_Vol']
 
@@ -716,7 +718,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         if risk_flags:
             st.session_state.violations += 1
             if st.session_state.violations >= 2 and not st.session_state.journal_complete:
-                st.error("ðŸš¨ Discipline Lock: Complete Journaling to Unlock Trading")
+                st.error("🚨 Discipline Lock: Complete Journaling to Unlock Trading")
                 return None
 
         if event_flag == 1:
@@ -770,7 +772,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         elif regime == "EVENT-DRIVEN":
             if iv > 30 and dte < 5:
                 strategy = "Calendar Spread"
-                reason = "Event + near expiry + IV spike â†’ term structure opportunity."
+                reason = "Event + near expiry + IV spike → term structure opportunity."
                 tags = ["Volatility", "Event", "Calendar"]
                 risk_reward = 1.5
             else:
@@ -899,7 +901,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 elif regime == "EVENT-DRIVEN":
                     if iv > 30 and dte < 5:
                         strategy = "Calendar Spread"
-                        reason = "Event + near expiry + IV spike â†’ term structure opportunity."
+                        reason = "Event + near expiry + IV spike → term structure opportunity."
                         tags = ["Volatility", "Event", "Calendar"]
                         risk_reward = 1.5
                     else:
@@ -1039,7 +1041,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 if not st.session_state.logged_in:
     st.info("Please login to 5paisa from the sidebar to proceed.")
 else:
-    st.markdown("<h1 style='color: #e94560; text-align: center;'>ðŸ›¡ï¸ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
     tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal"])
 
     if run_button:
@@ -1056,7 +1058,7 @@ else:
                     # Snapshot Tab
                     with tabs[0]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("ðŸ“Š Market Snapshot")
+                        st.subheader("📊 Market Snapshot")
                         last_date = df.index[-1].strftime("%d-%b-%Y")
                         last_nifty = df["NIFTY_Close"].iloc[-1]
                         prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
@@ -1072,14 +1074,14 @@ else:
                         with col3:
                             st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
                         with col4:
-                            st.metric("Straddle Price", f"â‚¹{df['Straddle_Price'].iloc[-1]:,.2f}")
+                            st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
                         st.markdown(f"**Last Updated**: {last_date} {'(LIVE)' if real_data else '(DEMO)'}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
                     # Forecast Tab
                     with tabs[1]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("ðŸ“ˆ Volatility Forecast")
+                        st.subheader("📈 Volatility Forecast")
                         with st.spinner("Predicting market volatility..."):
                             forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
                         if forecast_log is not None:
@@ -1107,10 +1109,10 @@ else:
                     # Strategy Tab
                     with tabs[2]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("ðŸŽ¯ Trading Strategies")
+                        st.subheader("🎯 Trading Strategies")
                         strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
                         if strategy is None:
-                            st.markdown('<div class="alert-banner">ðŸš¨ Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
+                            st.markdown('<div class="alert-banner">🚨 Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
                         else:
                             regime_class = {
                                 "LOW": "regime-low",
@@ -1126,14 +1128,14 @@ else:
                                     <p><b>Reason:</b> {strategy["Reason"]}</p>
                                     <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
                                     <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                                    <p><b>Capital:</b> â‚¹{strategy["Deploy"]:,.0f}</p>
-                                    <p><b>Max Loss:</b> â‚¹{strategy["Max_Loss"]:,.0f}</p>
+                                    <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
+                                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
                                     <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
                                 </div>
                             """, unsafe_allow_html=True)
                             st.markdown('</div>', unsafe_allow_html=True)
                             if strategy["Risk_Flags"]:
-                                st.markdown(f'<div class="alert-banner">âš ï¸ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
                             if st.button("Trade Now"):
                                 try:
                                     option_chain = real_data["option_chain"]
@@ -1191,7 +1193,7 @@ else:
                                     }
                                     st.session_state.trades.append(trade_log)
                                     pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                    st.success("âœ… Trade Placed Successfully!")
+                                    st.success("✅ Trade Placed Successfully!")
                                 except Exception as e:
                                     st.error(f"Trade Failed: {str(e)}")
                         st.markdown('</div>', unsafe_allow_html=True)
@@ -1199,13 +1201,13 @@ else:
                     # Portfolio Tab
                     with tabs[3]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("ðŸ’¼ Portfolio Overview")
+                        st.subheader("💼 Portfolio Overview")
                         portfolio_data = fetch_portfolio_data()
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("Weekly P&L", f"â‚¹{portfolio_data['weekly_pnl']:,.2f}")
+                            st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
                         with col2:
-                            st.metric("Margin Used", f"â‚¹{portfolio_data['margin_used']:,.2f}")
+                            st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
                         with col3:
                             st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
                         st.markdown("### Open Positions")
@@ -1225,7 +1227,7 @@ else:
                     # Journal Tab
                     with tabs[4]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("ðŸ“ Discipline Hub")
+                        st.subheader("📝 Discipline Hub")
                         with st.form(key="journal_form"):
                             reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"])
                             override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"))
@@ -1263,7 +1265,7 @@ else:
                                 st.session_state.journal_complete = True
                                 if st.session_state.violations > 0:
                                     st.session_state.violations = 0
-                                    st.success("âœ… Discipline Lock Removed")
+                                    st.success("✅ Discipline Lock Removed")
                         st.markdown("### Past Entries")
                         if os.path.exists("journal_log.csv"):
                             journal_df = pd.read_csv("journal_log.csv")
@@ -1271,4 +1273,4 @@ else:
                         st.markdown('</div>', unsafe_allow_html=True)
 
     # Footer
-    st.markdown('<div class="footer">Built with â¤ï¸ by Shritish Shukla & Salman Azim | Â© 2025 VolGuard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
