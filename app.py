@@ -308,7 +308,7 @@ else:
 
                                 # Step 8: Log the trade
                                 try:
-                                trade_log = {
+                                    trade_log = {
                                     "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "Strategy": strategy["Strategy"],
                                     "Regime": strategy["Regime"],
