@@ -272,6 +272,9 @@ else:
                                 if option_chain.empty:
                                     st.error("Option chain data is empty. Unable to proceed with trade.")
                                     st.stop()
+                                st.write("Debug: Option chain data available.")
+                                st.write(f"Option chain shape: {option_chain.shape}")
+                                st.write(f"ATM Strike: {atm_strike}")
 
                                 # Step 3: Calculate strikes
                                 call_sell_strike = atm_strike + 100
@@ -294,6 +297,13 @@ else:
                                 put_sell_price = put_sell_data["LastRate"].iloc[0]
                                 put_buy_price = put_buy_data["LastRate"].iloc[0]
 
+                                # Debug: Display prices
+                                st.write("Debug: Strike prices and rates fetched successfully.")
+                                st.write(f"Call Sell Strike/Price: {call_sell_strike}/₹{call_sell_price}")
+                                st.write(f"Call Buy Strike/Price: {call_buy_strike}/₹{call_buy_price}")
+                                st.write(f"Put Sell Strike/Price: {put_sell_strike}/₹{put_sell_price}")
+                                st.write(f"Put Buy Strike/Price: {put_buy_strike}/₹{put_buy_price}")
+
                                 # Step 5: Calculate quantity
                                 avg_price_per_lot = (call_sell_price + call_buy_price + put_sell_price + put_buy_price) / 4 * lot_size
                                 num_lots = int(capital_deployed / avg_price_per_lot) if avg_price_per_lot > 0 else 1
@@ -313,53 +323,76 @@ else:
                                 st.write(f"**Put Sell Strike/Price:** {put_sell_strike}/₹{put_sell_price}")
                                 st.write(f"**Put Buy Strike/Price:** {put_buy_strike}/₹{put_buy_price}")
 
-                                # Step 7: Trade execution
+                                # Step 7: Trade execution with fixed parameters
                                 orders = [
                                     {
-                                        "Exch": "N", "ExchType": "C",
+                                        "Exchange": "N",
+                                        "ExchangeType": "C",
                                         "ScripCode": call_sell_data["ScripCode"].iloc[0],
-                                        "BuySell": "S", "Qty": total_quantity,
+                                        "OrderType": "S",  # Sell
+                                        "Qty": total_quantity,
                                         "Price": call_sell_price,
-                                        "OrderType": "LIMIT"
+                                        "IsIntraday": False
                                     },
                                     {
-                                        "Exch": "N", "ExchType": "C",
+                                        "Exchange": "N",
+                                        "ExchangeType": "C",
                                         "ScripCode": call_buy_data["ScripCode"].iloc[0],
-                                        "BuySell": "B", "Qty": total_quantity,
+                                        "OrderType": "B",  # Buy
+                                        "Qty": total_quantity,
                                         "Price": call_buy_price,
-                                        "OrderType": "LIMIT"
+                                        "IsIntraday": False
                                     },
                                     {
-                                        "Exch": "N", "ExchType": "C",
+                                        "Exchange": "N",
+                                        "ExchangeType": "C",
                                         "ScripCode": put_sell_data["ScripCode"].iloc[0],
-                                        "BuySell": "S", "Qty": total_quantity,
+                                        "OrderType": "S",  # Sell
+                                        "Qty": total_quantity,
                                         "Price": put_sell_price,
-                                        "OrderType": "LIMIT"
+                                        "IsIntraday": False
                                     },
                                     {
-                                        "Exch": "N", "ExchType": "C",
+                                        "Exchange": "N",
+                                        "ExchangeType": "C",
                                         "ScripCode": put_buy_data["ScripCode"].iloc[0],
-                                        "BuySell": "B", "Qty": total_quantity,
+                                        "OrderType": "B",  # Buy
+                                        "Qty": total_quantity,
                                         "Price": put_buy_price,
-                                        "OrderType": "LIMIT"
+                                        "IsIntraday": False
                                     }
                                 ]
                                 for order in orders:
                                     try:
+                                        # Debug: Display order details before placing
+                                        st.write("Debug: Placing order with following details:")
+                                        st.write(order)
+
+                                        # Place order using corrected parameters
                                         response = client.place_order(
-                                            OrderType=order["BuySell"],
-                                            Exchange=order["Exch"],
-                                            ExchangeType=order["ExchType"],
+                                            OrderType=order["OrderType"],
+                                            Exchange=order["Exchange"],
+                                            ExchangeType=order["ExchangeType"],
                                             ScripCode=order["ScripCode"],
                                             Qty=order["Qty"],
                                             Price=order["Price"],
-                                            IsIntraday=False
+                                            IsIntraday=order["IsIntraday"]
                                         )
+
+                                        # Debug: Display API response
+                                        st.write("Debug: Order placement response:")
+                                        st.write(response)
+
+                                        # Check response
                                         if response.get("Status") != 0:  # Assuming 0 means success in 5paisa API
-                                            st.error(f"Order failed for {order['BuySell']} at strike {order['ScripCode']}: {response.get('Message', 'Unknown error')}")
+                                            error_msg = response.get("Message", "Unknown error")
+                                            st.error(f"Order failed for {order['OrderType']} at ScripCode {order['ScripCode']}: {error_msg}")
                                             st.stop()
+                                        else:
+                                            st.write(f"Order placed successfully for {order['OrderType']} at ScripCode {order['ScripCode']}.")
+
                                     except Exception as e:
-                                        st.error(f"Order placement failed for {order['BuySell']}: {str(e)}. Check 5paisa API logs for more details.")
+                                        st.error(f"Order placement failed for {order['OrderType']}: {str(e)}. Check 5paisa API logs for more details.")
                                         st.stop()
 
                                 # Step 8: Log the trade
