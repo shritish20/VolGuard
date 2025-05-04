@@ -618,7 +618,7 @@ def forecast_volatility_future(df, forecast_horizon):
         garch_model = arch_model(df_garch['Log_Returns'].dropna(), vol='Garch', p=1, q=1, rescale=False)
         garch_fit = garch_model.fit(disp="off")
         garch_forecast = garch_fit.forecast(horizon=forecast_horizon, reindex=False)
-        garch_vols = np.sqrt(garch_forecast.variance.iloc[-1]. **kwargs).values) * np.sqrt(252)
+        garch_vols = np.sqrt(garch_forecast.variance.iloc[-1].values) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
 
         realized_vol = df["Realized_Vol"].dropna().iloc[-5:].mean()
