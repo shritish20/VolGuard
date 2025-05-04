@@ -14,6 +14,20 @@ initialize_session_state()
 # Setup client
 client = setup_client()
 
+# Initialize session state variables for data persistence
+if "df" not in st.session_state:
+    st.session_state.df = None
+if "forecast_log" not in st.session_state:
+    st.session_state.forecast_log = None
+if "realized_vol" not in st.session_state:
+    st.session_state.realized_vol = None
+if "portfolio_data" not in st.session_state:
+    st.session_state.portfolio_data = None
+if "confidence_score" not in st.session_state:
+    st.session_state.confidence_score = None
+if "real_data" not in st.session_state:
+    st.session_state.real_data = None
+
 # Render sidebar
 capital, risk_tolerance, forecast_horizon, start_date, end_date, strategy_choice = render_sidebar(client)
 
@@ -30,6 +44,8 @@ else:
 
     # Run Analysis Button
     run_button = st.sidebar.button("Run Analysis")
+    if not run_button and (st.session_state.df is None or st.session_state.forecast_log is None):
+        st.sidebar.info("Click 'Run Analysis' to load data and enable trading.")
     if run_button:
         with st.spinner("Running VolGuard Analysis..."):
             # Reset session state
@@ -45,6 +61,8 @@ else:
                 if df is None or real_data is None:
                     st.error("Failed to load data. Check logs for details or ensure 5paisa API credentials are correct.")
                     st.stop()
+                st.session_state.df = df
+                st.session_state.real_data = real_data
             except Exception as e:
                 st.error(f"Data loading failed: {str(e)}. Check 5paisa API logs for more details.")
                 st.stop()
@@ -55,6 +73,7 @@ else:
                 if df is None:
                     st.error("Failed to generate synthetic features. Check logs for details.")
                     st.stop()
+                st.session_state.df = df
             except Exception as e:
                 st.error(f"Synthetic features generation failed: {str(e)}. Check logs for more details.")
                 st.stop()
@@ -65,6 +84,7 @@ else:
                 if portfolio_data is None:
                     st.error("Failed to fetch portfolio data. Check logs for details.")
                     st.stop()
+                st.session_state.portfolio_data = portfolio_data
             except Exception as e:
                 st.error(f"Portfolio data fetch failed: {str(e)}. Check logs for more details.")
                 st.stop()
@@ -129,6 +149,10 @@ else:
                     if forecast_log is None:
                         st.error("Volatility forecasting failed. Check logs for details.")
                     else:
+                        # Store in session state
+                        st.session_state.forecast_log = forecast_log
+                        st.session_state.realized_vol = realized_vol
+                        st.session_state.confidence_score = confidence_score
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
@@ -157,10 +181,22 @@ else:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("🎯 Trading Strategies")
         try:
-            if 'df' not in locals() or 'forecast_log' not in locals() or 'realized_vol' not in locals() or 'portfolio_data' not in locals():
+            if (st.session_state.df is None or
+                st.session_state.forecast_log is None or
+                st.session_state.realized_vol is None or
+                st.session_state.portfolio_data is None or
+                st.session_state.confidence_score is None):
                 st.error("Required data not available. Please run analysis first.")
             else:
-                strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital, portfolio_data)
+                strategy = generate_trading_strategy(
+                    st.session_state.df,
+                    st.session_state.forecast_log,
+                    st.session_state.realized_vol,
+                    risk_tolerance,
+                    st.session_state.confidence_score,
+                    capital,
+                    st.session_state.portfolio_data
+                )
                 if strategy is None:
                     st.markdown('<div class="alert-banner">🚨 Discipline Lock or Risk Limit Breach: Complete Journaling or Reduce Risk to Unlock Trading</div>', unsafe_allow_html=True)
                 else:
@@ -196,21 +232,21 @@ else:
                         else:
                             try:
                                 # Step 1: Check if real_data is available
-                                if 'real_data' not in locals() or real_data is None:
+                                if st.session_state.real_data is None:
                                     st.error("Cannot place trade: Market data (real_data) is not loaded. Run analysis first.")
                                     st.stop()
-                                if "option_chain" not in real_data or real_data["option_chain"] is None:
+                                if "option_chain" not in st.session_state.real_data or st.session_state.real_data["option_chain"] is None:
                                     st.error("Cannot place trade: Option chain data missing. Check 5paisa API logs.")
                                     st.stop()
-                                if "atm_strike" not in real_data or real_data["atm_strike"] is None:
+                                if "atm_strike" not in st.session_state.real_data or st.session_state.real_data["atm_strike"] is None:
                                     st.error("Cannot place trade: ATM strike price missing. Check 5paisa API logs.")
                                     st.stop()
 
                                 # Step 2: Extract data
                                 capital_deployed = strategy["Deploy"]
                                 lot_size = 25  # Fixed lot size for NIFTY options
-                                option_chain = real_data["option_chain"]
-                                atm_strike = real_data["atm_strike"]
+                                option_chain = st.session_state.real_data["option_chain"]
+                                atm_strike = st.session_state.real_data["atm_strike"]
 
                                 # Debug: Check option chain data
                                 if option_chain.empty:
@@ -337,23 +373,23 @@ else:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("💼 Portfolio Overview")
         try:
-            if 'portfolio_data' not in locals():
+            if st.session_state.portfolio_data is None:
                 st.error("Portfolio data not available. Please run analysis first.")
             else:
                 col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
-                    st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
+                    st.metric("Weekly P&L", f"₹{st.session_state.portfolio_data['weekly_pnl']:,.2f}")
                 with col2:
-                    st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
+                    st.metric("Margin Used", f"₹{st.session_state.portfolio_data['margin_used']:,.2f}")
                 with col3:
-                    st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
+                    st.metric("Exposure", f"{st.session_state.portfolio_data['exposure']:.2f}%")
                 with col4:
-                    st.metric("VaR (5%)", f"₹{portfolio_data['var']:,.2f}")
+                    st.metric("VaR (5%)", f"₹{st.session_state.portfolio_data['var']:,.2f}")
                 with col5:
-                    st.metric("CVaR (5%)", f"₹{portfolio_data['cvar']:,.2f}")
+                    st.metric("CVaR (5%)", f"₹{st.session_state.portfolio_data['cvar']:,.2f}")
                 st.markdown("### Stress Test Results")
-                if 'df' in locals():
-                    stress_results = stress_test_portfolio(df, capital, portfolio_data)
+                if st.session_state.df is not None:
+                    stress_results = stress_test_portfolio(st.session_state.df, capital, st.session_state.portfolio_data)
                     for scenario, result in stress_results.items():
                         st.markdown(f"**{scenario}**: P&L ₹{result['PnL']:,.2f} ({result['Loss_Pct']:.2f}%)")
                 else:
