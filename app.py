@@ -132,7 +132,7 @@ else:
                     st.markdown('</div>', unsafe_allow_html=True)
 
                 ## Strategy Tab
-with tabs[2]:
+    with tabs[2]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🎯 Trading Strategies")
     strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital, portfolio_data)
