@@ -594,6 +594,13 @@ def fetch_portfolio_data():
         logger.error(f"Error fetching portfolio data: {str(e)}")
         return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
+# Define feature_cols globally (fixes NameError in Forecast Tab)
+feature_cols = [
+    'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+    'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+    'FII_Option_Pos'
+]
+
 # Forecast volatility
 @st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
@@ -620,11 +627,6 @@ def forecast_volatility_future(df, forecast_horizon):
         df_xgb['Target_Vol'] = df_xgb['Realized_Vol'].shift(-1)
         df_xgb = df_xgb.dropna()
 
-        feature_cols = [
-            'VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-            'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-            'FII_Option_Pos'
-        ]
         X = df_xgb[feature_cols]
         y = df_xgb['Target_Vol']
 
