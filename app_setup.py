@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# Enhanced logging
+# Enhanced logging (from first code)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -24,7 +24,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS (from original code)
 st.markdown("""
     <style>
         .main {
@@ -152,7 +152,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state (enhanced from first code)
 def initialize_session_state():
     """Robust session state initialization"""
     defaults = {
@@ -171,7 +171,7 @@ def initialize_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
-# 5paisa Client Setup with retry logic
+# 5paisa Client Setup with retry logic (from first code, renamed to setup_client)
 def setup_client():
     """Client setup with auto-retry"""
     max_retries = 3
@@ -203,18 +203,18 @@ def setup_client():
     logger.error("Failed to connect to 5paisa after 3 attempts")
     return None
 
-# Sidebar Login and Controls
+# Sidebar Login and Controls (merges original and first code)
 def render_sidebar(client):
     """Enhanced sidebar with session checks and TOTP login"""
     with st.sidebar:
         st.header("🔐 5paisa Login")
         
-        # Auto-refresh token if >30 mins old
+        # Auto-refresh token if >30 mins old (from first code)
         if st.session_state.logged_in:
             last_success = st.session_state.last_api_success
             if last_success and (datetime.now() - last_success).seconds > 1800:
                 st.warning("Session expired - refreshing...")
-                client = get_client()
+                client = setup_client()
                 if client:
                     st.session_state.client = client
                     st.rerun()
@@ -223,9 +223,9 @@ def render_sidebar(client):
             totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
             if st.button("Login"):
                 try:
-                    client = get_client()
+                    client = setup_client()
                     if client:
-                        # Explicit TOTP login
+                        # TOTP login (from original code)
                         response = client.get_totp_session(
                             st.secrets["fivepaisa"]["CLIENT_CODE"],
                             totp_code,
@@ -251,7 +251,9 @@ def render_sidebar(client):
             risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
             forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
             st.markdown("**Backtest Parameters**")
-            today = st.date_input("Start Date", value=today - timedelta(days=30))
+            # Date validation (from first code)
+            today = datetime.now().date()
+            start_date = st.date_input("Start Date", value=today - timedelta(days=30))
             end_date = st.date_input("End Date", value=today)
             
             if start_date > end_date:
@@ -263,23 +265,23 @@ def render_sidebar(client):
                 "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard"
             ])
             st.markdown("---")
-            st.markdown("**Motto:** Deploy with edge, survive, outlast.")
+            st.markdown("**Motto:** Deploy with edge, survive, outlast.")  # From original code
             return capital, risk_tolerance, forecast_horizon, start_date, end_date, strategy_choice
         return None, None, None, None, None, None
 
-# Main UI Tabs
+# Main UI Tabs (merges original and first code)
 def render_main_ui():
     """UI with status indicators and alert banners"""
     st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
     
-    # Status bar
+    # Status bar (from first code)
     if st.session_state.get("last_api_success"):
         mins_ago = (datetime.now() - st.session_state.last_api_success).seconds // 60
         st.caption(f"🟢 API Connected ({mins_ago} mins ago) | Streamlit Cloud")
     else:
         st.caption("🔴 API Disconnected | Streamlit Cloud")
     
-    # Alert banners
+    # Alert banners (from original code)
     if st.session_state.trading_halted:
         st.markdown('<div class="alert-banner">🚨 Trading Halted: Risk Limits Breached!</div>', unsafe_allow_html=True)
     for alert in st.session_state.risk_alerts:
