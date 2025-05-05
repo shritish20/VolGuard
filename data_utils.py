@@ -4,41 +4,19 @@ import numpy as np
 from scipy.stats import norm
 import requests
 import io
+import os
 import logging
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Constants
-STRIKE_STEP = 50  # Nifty strike multiples
-RISK_FREE_RATE = 0.06
-FALLBACK_DATA_URLS = {
-    "nifty": "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv",
-    "vix": "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
-}
+# Black-Scholes IV calculation
+def black_scholes_call(S, K, T, r, sigma):
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
 
-def get_next_expiry() -> int:
-    """Calculate next Thursday expiry timestamp in 5paisa format"""
-    now = datetime.now()
-    days_to_thursday = (3 - now.weekday()) % 7  # 0=Monday, 3=Thursday
-    if days_to_thursday == 0 and now.hour >= 15:  # After market close on Thursday
-        days_to_thursday = 7
-    expiry_date = (now + timedelta(days=days_to_thursday)).replace(hour=15, minute=30, second=0, microsecond=0)
-    return int(expiry_date.timestamp() * 1000)
-
-def black_scholes_call(S: float, K: float, T: float, r: float, sigma: float) -> float:
-    """Black-Scholes for call options with input validation"""
-    try:
-        T = max(T, 1/252)  # Minimum 1 day
-        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-    except Exception as e:
-        logger.warning(f"Black-Scholes error: {e} (S={S}, K={K}, T={T})")
-        return 0.0
-
-def implied_volatility(S: float, K: float, T: float, r: float, market_price: float, option_type: str = 'call', tol: float = 1e-5, max_iter: int = 100) -> float:
-    """Calculate implied volatility using Newton-Raphson"""
+def implied_volatility(S, K, T, r, market_price, option_type='call', tol=1e-5, max_iter=100):
     sigma = 0.2
     for _ in range(max_iter):
         if option_type == 'call':
@@ -54,8 +32,8 @@ def implied_volatility(S: float, K: float, T: float, r: float, market_price: flo
         sigma -= diff / vega
     return np.nan
 
-def max_pain(df: pd.DataFrame, nifty_spot: float) -> tuple[float, float]:
-    """Calculate max pain strike and difference percentage"""
+# Max Pain calculation
+def max_pain(df, nifty_spot):
     calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["LastRate"]
     puts = df[df["CPType"] == "PE"].set_index("StrikeRate")["LastRate"]
     strikes = df["StrikeRate"].unique()
@@ -72,8 +50,8 @@ def max_pain(df: pd.DataFrame, nifty_spot: float) -> tuple[float, float]:
     max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
     return max_pain_strike, max_pain_diff_pct
 
-def fetch_nifty_data(client) -> dict | None:
-    """Fetch live Nifty data from 5paisa with robust error handling"""
+# Fetch real data from 5paisa
+def fetch_nifty_data(client):
     try:
         nifty_req = [{"Exch": "N", "ExchType": "C", "ScripCode": 999920000, "Symbol": "NIFTY"}]
         nifty_data = client.fetch_market_feed(nifty_req)
@@ -83,33 +61,30 @@ def fetch_nifty_data(client) -> dict | None:
         if not nifty_spot or nifty_spot <= 0:
             raise Exception("Invalid Nifty price")
 
-        expiry_timestamp = get_next_expiry()
+        expiry_timestamp = 1746694800000  # May 8, 2025
         option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
         if not option_chain or "Options" not in option_chain:
             raise Exception("Failed to fetch option chain")
 
         df = pd.DataFrame(option_chain["Options"])
-        required_cols = ["StrikeRate", "CPType", "LastRate", "OpenInterest"]
-        if not all(col in df.columns for col in required_cols):
-            raise Exception(f"Required columns missing: {required_cols}")
+        if not all(col in df.columns for col in ["StrikeRate", "CPType", "LastRate", "OpenInterest"]):
+            raise Exception("Required columns missing")
         if df["LastRate"].min() < 0:
             raise Exception("Negative prices detected in option chain")
 
         df["StrikeRate"] = df["StrikeRate"].astype(float)
         atm_strike = df["StrikeRate"].iloc[(df["StrikeRate"] - nifty_spot).abs().argmin()]
         atm_data = df[df["StrikeRate"] == atm_strike]
-        if atm_data.empty:
-            raise ValueError(f"No ATM strikes found near {atm_strike}")
         atm_call = atm_data[atm_data["CPType"] == "CE"]["LastRate"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else 0
         atm_put = atm_data[atm_data["CPType"] == "PE"]["LastRate"].iloc[0] if not atm_data[atm_data["CPType"] == "PE"].empty else 0
         straddle_price = atm_call + atm_put
 
         iv_df = df[(df["StrikeRate"] >= atm_strike - 100) & (df["StrikeRate"] <= atm_strike + 100)].copy()
-        T = (datetime.fromtimestamp(expiry_timestamp/1000) - datetime.now()).days / 365.0
-        r = RISK_FREE_RATE
+        T = (datetime(2025, 5, 8) - datetime.now()).days / 365.0
+        r = 0.06
         iv_df["IV (%)"] = iv_df.apply(
             lambda row: implied_volatility(
-                S=nifty_spot, K=row["StrikeRate"], T=max(T, 0.002), r=r, market_price=row["LastRate"],
+                S=nifty_spot, K=row["StrikeRate"], T=T, r=r, market_price=row["LastRate"],
                 option_type='call' if row["CPType"] == "CE" else 'put'
             ), axis=1
         )
@@ -124,14 +99,12 @@ def fetch_nifty_data(client) -> dict | None:
 
         atm_iv = iv_df[iv_df["StrikeRate"] == atm_strike]["IV (%)"].mean()
         vix_change_pct = 0
-        if "iv_history" not in st.session_state:
-            st.session_state.iv_history = pd.DataFrame(columns=["Date", "ATM_IV"])
-        prev_atm_iv = st.session_state.iv_history["ATM_IV"].iloc[-1] if not st.session_state.iv_history.empty else atm_iv
-        vix_change_pct = ((atm_iv - prev_atm_iv) / prev_atm_iv * 100) if prev_atm_iv != 0 else 0
-        st.session_state.iv_history = pd.concat([
-            st.session_state.iv_history,
-            pd.DataFrame({"Date": [datetime.now()], "ATM_IV": [atm_iv]})
-        ], ignore_index=True)
+        iv_file = "atm_iv_history.csv"
+        if os.path.exists(iv_file):
+            iv_history = pd.read_csv(iv_file)
+            prev_atm_iv = iv_history["ATM_IV"].iloc[-1] if not iv_history.empty else atm_iv
+            vix_change_pct = ((atm_iv - prev_atm_iv) / prev_atm_iv * 100) if prev_atm_iv != 0 else 0
+        pd.DataFrame({"Date": [datetime.now()], "ATM_IV": [atm_iv]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
 
         return {
             "nifty_spot": nifty_spot,
@@ -148,14 +121,14 @@ def fetch_nifty_data(client) -> dict | None:
         logger.error(f"Error fetching 5paisa data: {str(e)}")
         return None
 
+# Load data
 @st.cache_data(ttl=300)
-def load_data() -> tuple[pd.DataFrame | None, dict | None]:
-    """Load live and historical data with fallback"""
+def load_data():
     try:
         real_data = fetch_nifty_data(st.session_state.client)
         if real_data is None:
             logger.warning("Falling back to GitHub CSV")
-            nifty_url = FALLBACK_DATA_URLS["nifty"]
+            nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
             response.raise_for_status()
             nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
@@ -167,10 +140,10 @@ def load_data() -> tuple[pd.DataFrame | None, dict | None]:
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
             nifty_series = nifty["NIFTY_Close"].squeeze()
 
-            vix_url = FALLBACK_DATA_URLS["vix"]
+            vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
             response.raise_for_status()
-            vix = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
+            vix = pd.read_csv(io.StringIO(response.text))
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
@@ -190,7 +163,7 @@ def load_data() -> tuple[pd.DataFrame | None, dict | None]:
                 "NIFTY_Close": [real_data["nifty_spot"]],
                 "VIX": [real_data["atm_iv"]]
             }, index=[pd.to_datetime(latest_date)])
-            nifty_url = FALLBACK_DATA_URLS["nifty"]
+            nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
             response.raise_for_status()
             nifty = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
@@ -201,10 +174,10 @@ def load_data() -> tuple[pd.DataFrame | None, dict | None]:
             nifty.index = pd.to_datetime(nifty.index)
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
 
-            vix_url = FALLBACK_DATA_URLS["vix"]
+            vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
             response.raise_for_status()
-            vix = pd.read_csv(io.StringIO(response.text), encoding="utf-8-sig")
+            vix = pd.read_csv(io.StringIO(response.text))
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
@@ -227,14 +200,14 @@ def load_data() -> tuple[pd.DataFrame | None, dict | None]:
         logger.error(f"Error loading data: {str(e)}")
         return None, None
 
+# Generate synthetic features
 @st.cache_data
-def generate_synthetic_features(df: pd.DataFrame, real_data: dict | None, capital: float) -> pd.DataFrame | None:
-    """Generate synthetic features for trading analysis"""
+def generate_synthetic_features(df, real_data, capital):
     try:
         n_days = len(df)
         np.random.seed(42)
-        risk_free_rate = RISK_FREE_RATE
-        strike_step = STRIKE_STEP
+        risk_free_rate = 0.06
+        strike_step = 100
 
         if real_data:
             base_pcr = real_data["pcr"]
@@ -259,6 +232,18 @@ def generate_synthetic_features(df: pd.DataFrame, real_data: dict | None, capita
                 dte = (next_expiry - date).days
                 days_to_expiry.append(dte)
             return np.array(days_to_expiry)
+
+        def black_scholes(S, K, T, r, sigma, option_type="call"):
+            try:
+                T = max(T, 1e-6)
+                d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+                d2 = d1 - sigma * np.sqrt(T)
+                if option_type == "call":
+                    return max(S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2), 0)
+                else:
+                    return max(K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1), 0)
+            except:
+                return 0
 
         df["Days_to_Expiry"] = calculate_days_to_expiry(df.index)
         event_spike = np.where((df.index.month % 3 == 0) & (df.index.day < 5), 1.2, 1.0)
@@ -310,8 +295,8 @@ def generate_synthetic_features(df: pd.DataFrame, real_data: dict | None, capita
             K = round(S / strike_step) * strike_step
             T = df["Days_to_Expiry"].iloc[i] / 365
             sigma = df["ATM_IV"].iloc[i] / 100
-            call_price = black_scholes_call(S, K, T, risk_free_rate, sigma)
-            put_price = black_scholes_call(S, K, T, risk_free_rate, sigma) + K * np.exp(-risk_free_rate * T) - S
+            call_price = black_scholes(S, K, T, risk_free_rate, sigma, "call")
+            put_price = black_scholes(S, K, T, risk_free_rate, sigma, "put")
             straddle_price = (call_price + put_price) * (S / 1000)
             straddle_price = np.clip(straddle_price, 50, 400)
             straddle_prices.append(straddle_price)
@@ -321,7 +306,8 @@ def generate_synthetic_features(df: pd.DataFrame, real_data: dict | None, capita
 
         if df.isna().sum().sum() > 0:
             df = df.interpolate().fillna(method='bfill')
-
+        
+        df.to_csv("volguard_hybrid_data.csv")
         logger.debug("Synthetic features generated successfully.")
         return df
     except Exception as e:
