@@ -172,8 +172,6 @@ def load_data(client):
         nifty = nifty[["Date", "Close"]].dropna().set_index("Date").rename(columns={"Close": "NIFTY_Close"})
         vix = vix[["Date", "Close"]].dropna().set_index("Date").rename(columns={"Close": "VIX"})
 
-        if real)}
-
         df_historical = pd.concat([nifty, vix], axis=1).dropna()
         df_historical.index = df_historical.index.normalize()
         if real_data:
