@@ -1313,6 +1313,6 @@ else:
     # Footer
     st.markdown("""
         <div class="footer">
-            © 2025 VolGuard Pro | Powered by xAI | Built for Disciplined Trading
+            © 2025 VolGuard Pro | Built with ❤ by Shritish & Salman | Built for Disciplined Trading
         </div>
     """, unsafe_allow_html=True)
