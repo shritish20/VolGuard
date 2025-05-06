@@ -1666,7 +1666,7 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
-st.markdown('<div class="footer">VolGuard Pro © 2025 | Built with ❤ by Shritish & Salman, unsafe_allow_html=True)
+st.markdown('<div class="footer">VolGuard Pro © 2025 | Built with ❤ by Shritish & Salman</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     st.write("Running VolGuard Pro...")
