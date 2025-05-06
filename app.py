@@ -67,18 +67,18 @@ def initialize_5paisa_client(totp_code):
     try:
         logger.info("Initializing 5paisa client")
         cred = {
-            "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
-            "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
-            "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
-            "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
-            "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
-            "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
+            "APP_NAME": st.secrets["fivepaisa"].get("APP_NAME", ""),
+            "APP_SOURCE": st.secrets["fivepaisa"].get("APP_SOURCE", ""),
+            "USER_ID": st.secrets["fivepaisa"].get("USER_ID", ""),
+            "PASSWORD": st.secrets["fivepaisa"].get("PASSWORD", ""),
+            "USER_KEY": st.secrets["fivepaisa"].get("USER_KEY", ""),
+            "ENCRYPTION_KEY": st.secrets["fivepaisa"].get("ENCRYPTION_KEY", "")
         }
         client = FivePaisaClient(cred=cred)
         client.get_totp_session(
-            st.secrets["fivepaisa"]["CLIENT_CODE"],
+            st.secrets["fivepaisa"].get("CLIENT_CODE", ""),
             totp_code,
-            st.secrets["fivepaisa"]["PIN"]
+            st.secrets["fivepaisa"].get("PIN", "")
         )
         if client.get_access_token():
             logger.info("5paisa client initialized successfully")
@@ -106,7 +106,7 @@ def max_pain(df, nifty_spot):
                     total_loss += max(0, K - s) * puts.get(s, 0)
             pain.append((K, total_loss))
         max_pain_strike = min(pain, key=lambda x: x[1])[0]
-        max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
+        max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100 if nifty_spot != 0 else 0
         return max_pain_strike, max_pain_diff_pct
     except Exception as e:
         logger.error(f"Error calculating max pain: {str(e)}")
@@ -131,7 +131,7 @@ def fetch_nifty_data(client):
             raise Exception("Missing NIFTY or VIX price")
 
         expiries = client.get_expiry("N", "NIFTY")
-        if not expiries or "Data" not in expiries:
+        if not expiries or "Data" not in expiries or not expiries["Data"]:
             raise Exception("Failed to fetch expiries")
         expiry_timestamp = expiries["Data"][0]["Timestamp"]
         option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
@@ -201,7 +201,7 @@ def load_data(client):
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
             nifty = nifty[["Date", "Close"]].set_index("Date")
-            nifty.index = pd.to_datetime(nifty.index)
+            nifty.index = nifty.index.normalize()  # Normalize to date-only
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -212,13 +212,14 @@ def load_data(client):
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = pd.to_datetime(vix.index)
+            vix.index = vix.index.normalize()  # Normalize to date-only
 
             common_dates = nifty.index.intersection(vix.index)
             df = pd.DataFrame({
                 "NIFTY_Close": nifty["NIFTY_Close"].loc[common_dates],
                 "VIX": vix["VIX"].loc[common_dates]
             }, index=common_dates)
+            df = df.loc[~df.index.duplicated(keep='last')]  # Remove duplicates
             df = df.ffill().bfill()
         else:
             latest_date = datetime.now().date()
@@ -235,7 +236,7 @@ def load_data(client):
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
             nifty = nifty[["Date", "Close"]].set_index("Date")
-            nifty.index = pd.to_datetime(nifty.index)
+            nifty.index = nifty.index.normalize()  # Normalize to date-only
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -246,15 +247,25 @@ def load_data(client):
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = pd.to_datetime(vix.index)
+            vix.index = vix.index.normalize()  # Normalize to date-only
 
             historical_df = pd.DataFrame({
                 "NIFTY_Close": nifty["NIFTY_Close"],
                 "VIX": vix["VIX"]
             }).dropna()
             historical_df = historical_df[historical_df.index < pd.to_datetime(latest_date)]
-            df = pd.concat([historical_df, df])
-            df = df[~df.index.duplicated(keep='last')]
+
+            # Ensure indices are date-only
+            historical_df.index = historical_df.index.normalize()
+            df.index = df.index.normalize()
+
+            # Combine historical and real-time data, prioritizing real-time data
+            df = pd.concat([historical_df, df]).sort_index()
+
+            # Remove duplicates, keeping the last entry (real-time data takes precedence)
+            df = df.loc[~df.index.duplicated(keep='last')]
+
+            # Ensure the dataframe is sorted by index
             df = df.sort_index()
 
         logger.debug(f"Data loaded successfully from {data_source}")
@@ -295,6 +306,8 @@ def fetch_portfolio_data(client, capital):
 def generate_features(df, real_data, capital):
     try:
         logger.info("Generating features")
+        df = df.copy()  # Avoid modifying cached dataframe
+        df.index = df.index.normalize()  # Ensure date-only index
         n_days = len(df)
         np.random.seed(42)
         strike_step = 100
@@ -371,7 +384,13 @@ def generate_features(df, real_data, capital):
         if df.isna().sum().sum() > 0:
             df = df.interpolate().fillna(method='bfill')
 
-        df.to_csv("volguard_hybrid_data.csv")
+        # Save to CSV with write permission check
+        try:
+            df.to_csv("volguard_hybrid_data.csv")
+        except PermissionError:
+            logger.error("Permission denied when writing to volguard_hybrid_data.csv")
+            st.error("Cannot save volguard_hybrid_data.csv: Permission denied")
+
         logger.debug("Features generated successfully")
         return df
     except Exception as e:
@@ -390,7 +409,8 @@ feature_cols = [
 def forecast_volatility_future(df, forecast_horizon):
     try:
         logger.info("Forecasting volatility")
-        df.index = pd.to_datetime(df.index)
+        df = df.copy()  # Avoid modifying cached dataframe
+        df.index = pd.to_datetime(df.index).normalize()  # Ensure date-only index
         df_garch = df.tail(len(df))
         if len(df_garch) < 200:
             st.error(f"Insufficient data for GARCH: {len(df_garch)} days")
@@ -484,6 +504,8 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
             st.error("Backtest failed: No data available")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
+        # Ensure unique index
+        df = df.loc[~df.index.duplicated(keep='last')]
         df_backtest = df.loc[start_date:end_date].copy()
         if len(df_backtest) < 50:
             st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
@@ -707,6 +729,8 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital):
     try:
         logger.info("Generating trading strategy")
+        df = df.copy()  # Avoid modifying cached dataframe
+        df.index = df.index.normalize()  # Ensure date-only index
         latest = df.iloc[-1]
         avg_vol = np.mean(forecast_log["Blended_Vol"])
         iv = latest["ATM_IV"]
@@ -1104,7 +1128,11 @@ else:
                                         "Outcome": "Pending"
                                     }
                                     st.session_state.trades.append(trade_log)
-                                    pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+                                    try:
+                                        pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
+                                    except PermissionError:
+                                        logger.error("Permission denied when writing to trade_log.csv")
+                                        st.error("Cannot save trade_log.csv: Permission denied")
                                     st.success(f"✅ {message}")
                                 else:
                                     st.error(f"❌ {message}")
@@ -1160,7 +1188,11 @@ else:
                                 }
                                 journal_df = pd.DataFrame([journal_entry])
                                 journal_file = "journal_log.csv"
-                                journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
+                                try:
+                                    journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
+                                except PermissionError:
+                                    logger.error("Permission denied when writing to journal_log.csv")
+                                    st.error("Cannot save journal_log.csv: Permission denied")
                                 st.success(f"Journal Entry Saved! Discipline Score: {score}/10")
                                 if score >= 8:
                                     st.markdown("""
@@ -1175,8 +1207,11 @@ else:
                                     st.success("✅ Discipline Lock Removed")
                         st.markdown("### Past Entries")
                         if os.path.exists("journal_log.csv"):
-                            journal_df = pd.read_csv("journal_log.csv")
-                            st.dataframe(journal_df, use_container_width=True)
+                            try:
+                                journal_df = pd.read_csv("journal_log.csv")
+                                st.dataframe(journal_df, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Error reading journal_log.csv: {e}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
                     # Backtest Tab
