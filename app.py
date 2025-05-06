@@ -194,34 +194,33 @@ if "logged_in" not in st.session_state:
 if "data_source_info" not in st.session_state:
     st.session_state.data_source_info = {"source": "", "timestamp": ""}
 
+
 # 5paisa Client Initialization
 def initialize_5paisa_client(totp_code):
     try:
         logger.info("Initializing 5paisa client")
         cred = {
-            "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
-            "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
-            "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
-            "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
-            "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
-            "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
+            "APP_NAME": st.secrets["fivepaisa"].get("APP_NAME", ""),
+            "APP_SOURCE": st.secrets["fivepaisa"].get("APP_SOURCE", ""),
+            "USER_ID": st.secrets["fivepaisa"].get("USER_ID", ""),
+            "PASSWORD": st.secrets["fivepaisa"].get("PASSWORD", ""),
+            "USER_KEY": st.secrets["fivepaisa"].get("USER_KEY", ""),
+            "ENCRYPTION_KEY": st.secrets["fivepaisa"].get("ENCRYPTION_KEY", "")
         }
         client = FivePaisaClient(cred=cred)
         client.get_totp_session(
-            st.secrets["fivepaisa"]["CLIENT_CODE"],
+            st.secrets["fivepaisa"].get("CLIENT_CODE", ""),
             totp_code,
-            st.secrets["fivepaisa"]["PIN"]
+            st.secrets["fivepaisa"].get("PIN", "")
         )
         if client.get_access_token():
             logger.info("5paisa client initialized successfully")
             return client
         else:
             logger.error("Failed to get access token")
-            st.error("❌ Failed to initialize 5paisa client: Invalid access token")
             return None
     except Exception as e:
         logger.error(f"Error initializing 5paisa client: {str(e)}")
-        st.error(f"❌ Error initializing 5paisa client: {str(e)}")
         return None
 
 # Data Fetching with Source Tagging
