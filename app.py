@@ -6,7 +6,6 @@ import io
 from datetime import datetime, timedelta
 import logging
 from py5paisa import FivePaisaClient
-from py5paisa.strategy import Strategy
 from arch import arch_model
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
@@ -815,118 +814,98 @@ def place_trade(client, strategy, real_data, capital):
         deploy = strategy["Deploy"]
         max_loss = strategy["Max_Loss"]
         expiry = real_data["expiry"]
-        strategy_obj = Strategy(client)
 
         premium_per_lot = real_data["straddle_price"] * lot_size
         lots = max(1, min(int(deploy / premium_per_lot), int(max_loss / (premium_per_lot * 0.2))))
 
+        orders = []
         if strategy["Strategy"] == "Short Straddle":
-            strategy_obj.short_straddle(
-                symbol="NIFTY",
-                strike_price=str(int(atm_strike)),
-                qty=str(lots * lot_size),
-                expiry=expiry,
-                order_type="D",
-                tag=f"VolGuard_{datetime.now().strftime('%Y%m%d')}"
-            )
-            return True, f"Short Straddle placed: {lots} lots at strike {atm_strike}"
-
+            strikes = [(atm_strike, "CE", "S"), (atm_strike, "PE", "S")]
         elif strategy["Strategy"] == "Short Strangle":
             call_strike = atm_strike + 100
             put_strike = atm_strike - 100
-            strategy_obj.short_strangle(
-                symbol="NIFTY",
-                strike_price=[str(int(call_strike)), str(int(put_strike))],
-                qty=str(lots * lot_size),
-                expiry=expiry,
-                order_type="D",
-                tag=f"VolGuard_{datetime.now().strftime('%Y%m%d')}"
-            )
-            return True, f"Short Strangle placed: {lots} lots at strikes {call_strike}/{put_strike}"
-
+            strikes = [(call_strike, "CE", "S"), (put_strike, "PE", "S")]
+        elif strategy["Strategy"] == "Iron Condor":
+            call_sell_strike = atm_strike + 100
+            call_buy_strike = call_sell_strike + 100
+            put_sell_strike = atm_strike - 100
+            put_buy_strike = put_sell_strike - 100
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
+            ]
+        elif strategy["Strategy"] == "Iron Fly":
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike + 100
+            put_sell_strike = atm_strike
+            put_buy_strike = atm_strike - 100
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
+            ]
+        elif strategy["Strategy"] == "Butterfly Spread":
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike + 200
+            put_buy_strike = atm_strike - 200
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_buy_strike, "PE", "B")
+            ]
+        elif strategy["Strategy"] == "Jade Lizard":
+            call_sell_strike = atm_strike + 100
+            put_sell_strike = atm_strike - 100
+            put_buy_strike = atm_strike - 200
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
+            ]
+        elif strategy["Strategy"] == "Calendar Spread":
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B")
+            ]
         else:
-            orders = []
-            if strategy["Strategy"] == "Iron Condor":
-                call_sell_strike = atm_strike + 100
-                call_buy_strike = call_sell_strike + 100
-                put_sell_strike = atm_strike - 100
-                put_buy_strike = put_sell_strike - 100
-                strikes = [
-                    (call_sell_strike, "CE", "S"),
-                    (call_buy_strike, "CE", "B"),
-                    (put_sell_strike, "PE", "S"),
-                    (put_buy_strike, "PE", "B")
-                ]
-            elif strategy["Strategy"] == "Iron Fly":
-                call_sell_strike = atm_strike
-                call_buy_strike = atm_strike + 100
-                put_sell_strike = atm_strike
-                put_buy_strike = atm_strike - 100
-                strikes = [
-                    (call_sell_strike, "CE", "S"),
-                    (call_buy_strike, "CE", "B"),
-                    (put_sell_strike, "PE", "S"),
-                    (put_buy_strike, "PE", "B")
-                ]
-            elif strategy["Strategy"] == "Butterfly Spread":
-                call_sell_strike = atm_strike
-                call_buy_strike = atm_strike + 200
-                put_buy_strike = atm_strike - 200
-                strikes = [
-                    (call_sell_strike, "CE", "S"),
-                    (call_buy_strike, "CE", "B"),
-                    (put_buy_strike, "PE", "B")
-                ]
-            elif strategy["Strategy"] == "Jade Lizard":
-                call_sell_strike = atm_strike + 100
-                put_sell_strike = atm_strike - 100
-                put_buy_strike = atm_strike - 200
-                strikes = [
-                    (call_sell_strike, "CE", "S"),
-                    (put_sell_strike, "PE", "S"),
-                    (put_buy_strike, "PE", "B")
-                ]
-            elif strategy["Strategy"] == "Calendar Spread":
-                call_sell_strike = atm_strike
-                call_buy_strike = atm_strike
-                strikes = [
-                    (call_sell_strike, "CE", "S"),
-                    (call_buy_strike, "CE", "B")
-                ]
-            else:
-                return False, "Unsupported strategy"
+            return False, "Unsupported strategy"
 
-            for strike, cp_type, buy_sell in strikes:
-                opt_data = option_chain[(option_chain["StrikeRate"] == strike) & (option_chain["CPType"] == cp_type)]
-                if opt_data.empty:
-                    return False, f"No option data for {cp_type} at strike {strike}"
-                scrip_code = int(opt_data["ScripCode"].iloc[0])
-                price = float(opt_data["LastRate"].iloc[0])
-                order = {
-                    "Exchange": "N",
-                    "ExchangeType": "D",
-                    "ScripCode": scrip_code,
-                    "Quantity": lot_size * lots,
-                    "Price": 0,
-                    "OrderType": "SELL" if buy_sell == "S" else "BUY",
-                    "IsIntraday": False
-                }
-                orders.append(order)
+        for strike, cp_type, buy_sell in strikes:
+            opt_data = option_chain[(option_chain["StrikeRate"] == strike) & (option_chain["CPType"] == cp_type)]
+            if opt_data.empty:
+                return False, f"No option data for {cp_type} at strike {strike}"
+            scrip_code = int(opt_data["ScripCode"].iloc[0])
+            price = float(opt_data["LastRate"].iloc[0])
+            order = {
+                "Exchange": "N",
+                "ExchangeType": "D",
+                "ScripCode": scrip_code,
+                "Quantity": lot_size * lots,
+                "Price": 0,
+                "OrderType": "SELL" if buy_sell == "S" else "BUY",
+                "IsIntraday": False
+            }
+            orders.append(order)
 
-            for order in orders:
-                response = client.place_order(
-                    OrderType=order["OrderType"],
-                    Exchange=order["Exchange"],
-                    ExchangeType=order["ExchangeType"],
-                    ScripCode=order["ScripCode"],
-                    Qty=order["Quantity"],
-                    Price=order["Price"],
-                    IsIntraday=order["IsIntraday"]
-                )
-                if response.get("Status") != 0:
-                    return False, f"Order failed for ScripCode {order['ScripCode']}: {response.get('Message', 'Unknown error')}"
+        for order in orders:
+            response = client.place_order(
+                OrderType=order["OrderType"],
+                Exchange=order["Exchange"],
+                ExchangeType=order["ExchangeType"],
+                ScripCode=order["ScripCode"],
+                Qty=order["Quantity"],
+                Price=order["Price"],
+                IsIntraday=order["IsIntraday"]
+            )
+            if response.get("Status") != 0:
+                return False, f"Order failed for ScripCode {order['ScripCode']}: {response.get('Message', 'Unknown error')}"
 
-            return True, f"Trade placed successfully: {strategy['Strategy']} with {lots} lots"
+        return True, f"Trade placed successfully: {strategy['Strategy']} with {lots} lots"
 
     except Exception as e:
         logger.error(f"Error placing trade: {str(e)}")
