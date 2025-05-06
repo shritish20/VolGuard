@@ -11,41 +11,170 @@ from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import os
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Page config
-st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="VolGuard Pro - Option Seller's Copilot", page_icon="🛡️", layout="wide")
 
-# Custom CSS
+# Custom CSS for a Sensibull/Kite-like UI
 st.markdown("""
     <style>
-        .main { background: linear-gradient(135deg, #1a1a2e, #0f1c2e); color: #e5e5e5; font-family: 'Inter', sans-serif; }
-        .stTabs [data-baseweb="tab-list"] { background: #16213e; border-radius: 10px; padding: 10px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
-        .stTabs [data-baseweb="tab"] { color: #a0a0a0; font-weight: 500; padding: 10px 20px; border-radius: 8px; }
-        .stTabs [data-baseweb="tab"][aria-selected="true"] { background: #e94560; color: white; font-weight: 700; }
-        .stTabs [data-baseweb="tab"]:hover { background: #2a2a4a; color: white; }
-        .sidebar .stButton>button { width: 100%; background: #0f3460; color: white; border-radius: 10px; padding: 12px; margin: 5px 0; }
-        .sidebar .stButton>button:hover { transform: scale(1.05); background: #e94560; }
-        .card { background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9)); border-radius: 15px; padding: 20px; margin: 15px 0; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); }
-        .card:hover { transform: translateY(-5px); }
-        .strategy-carousel { display: flex; overflow-x: auto; gap: 20px; padding: 10px; }
-        .strategy-card { flex: 0 0 auto; width: 300px; background: #16213e; border-radius: 15px; padding: 20px; }
-        .strategy-card:hover { transform: scale(1.05); }
-        .stMetric { background: rgba(15, 52, 96, 0.7); border-radius: 15px; padding: 15px; text-align: center; }
-        .gauge { width: 100px; height: 100px; border-radius: 50%; background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; }
-        .regime-badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; text-transform: uppercase; }
-        .regime-low { background: #28a745; color: white; }
-        .regime-medium { background: #ffc107; color: black; }
-        .regime-high { background: #dc3545; color: white; }
-        .regime-event { background: #ff6f61; color: white; }
-        .alert-banner { background: #dc3545; color: white; padding: 15px; border-radius: 10px; position: sticky; top: 0; z-index: 100; }
-        .stButton>button { background: #e94560; color: white; border-radius: 10px; padding: 12px 25px; font-size: 16px; }
-        .stButton>button:hover { transform: scale(1.05); background: #ffcc00; }
-        .footer { text-align: center; padding: 20px; color: #a0a0a0; font-size: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 30px; }
-        .trade-status { background: rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 15px; margin-top: 15px; }
+        .main { 
+            background: #1a1a2e; 
+            color: #e5e5e5; 
+            font-family: 'Inter', sans-serif; 
+        }
+        .stTabs [data-baseweb="tab-list"] { 
+            background: #0f1c2e; 
+            border-radius: 8px; 
+            padding: 10px; 
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); 
+        }
+        .stTabs [data-baseweb="tab"] { 
+            color: #a0a0a0; 
+            font-weight: 500; 
+            padding: 10px 20px; 
+            border-radius: 6px; 
+        }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] { 
+            background: #e94560; 
+            color: white; 
+            font-weight: 700; 
+        }
+        .stTabs [data-baseweb="tab"]:hover { 
+            background: #2a2a4a; 
+            color: white; 
+        }
+        .sidebar .stButton>button { 
+            width: 100%; 
+            background: #0f3460; 
+            color: white; 
+            border-radius: 8px; 
+            padding: 12px; 
+            margin: 5px 0; 
+            transition: all 0.3s ease; 
+        }
+        .sidebar .stButton>button:hover { 
+            transform: scale(1.05); 
+            background: #e94560; 
+        }
+        .card { 
+            background: #16213e; 
+            border-radius: 12px; 
+            padding: 20px; 
+            margin: 15px 0; 
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); 
+            transition: all 0.3s ease; 
+        }
+        .card:hover { 
+            transform: translateY(-5px); 
+        }
+        .strategy-carousel { 
+            display: flex; 
+            overflow-x: auto; 
+            gap: 20px; 
+            padding: 10px; 
+        }
+        .strategy-card { 
+            flex: 0 0 auto; 
+            width: 300px; 
+            background: #1f2a44; 
+            border-radius: 12px; 
+            padding: 20px; 
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); 
+            transition: all 0.3s ease; 
+        }
+        .strategy-card:hover { 
+            transform: scale(1.03); 
+            background: #2a2a4a; 
+        }
+        .stMetric { 
+            background: #0f3460; 
+            border-radius: 12px; 
+            padding: 15px; 
+            text-align: center; 
+        }
+        .regime-badge { 
+            padding: 8px 15px; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            font-size: 14px; 
+            text-transform: uppercase; 
+        }
+        .regime-low { 
+            background: #28a745; 
+            color: white; 
+        }
+        .regime-medium { 
+            background: #ffc107; 
+            color: black; 
+        }
+        .regime-high { 
+            background: #dc3545; 
+            color: white; 
+        }
+        .regime-event { 
+            background: #ff6f61; 
+            color: white; 
+        }
+        .alert-banner { 
+            background: #dc3545; 
+            color: white; 
+            padding: 15px; 
+            border-radius: 10px; 
+            position: sticky; 
+            top: 0; 
+            z-index: 100; 
+        }
+        .stButton>button { 
+            background: #e94560; 
+            color: white; 
+            border-radius: 8px; 
+            padding: 12px 25px; 
+            font-size: 16px; 
+            transition: all 0.3s ease; 
+        }
+        .stButton>button:hover { 
+            transform: scale(1.05); 
+            background: #ffcc00; 
+            color: black; 
+        }
+        .footer { 
+            text-align: center; 
+            padding: 20px; 
+            color: #a0a0a0; 
+            font-size: 14px; 
+            border-top: 1px solid rgba(255, 255, 255, 0.1); 
+            margin-top: 30px; 
+        }
+        .trade-status { 
+            background: rgba(255, 255, 255, 0.1); 
+            border-radius: 10px; 
+            padding: 15px; 
+            margin-top: 15px; 
+        }
+        .data-tag { 
+            font-size: 12px; 
+            color: #a0a0a0; 
+            margin-top: 5px; 
+            font-style: italic; 
+        }
+        .expander-header { 
+            background: #0f3460; 
+            color: white; 
+            padding: 10px; 
+            border-radius: 8px; 
+        }
+        .stDataFrame { 
+            background: #1f2a44; 
+            border-radius: 8px; 
+            padding: 10px; 
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -62,36 +191,40 @@ if "trades" not in st.session_state:
     st.session_state.trades = []
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "data_source_info" not in st.session_state:
+    st.session_state.data_source_info = {"source": "", "timestamp": ""}
 
 # 5paisa Client Initialization
 def initialize_5paisa_client(totp_code):
     try:
         logger.info("Initializing 5paisa client")
         cred = {
-            "APP_NAME": st.secrets["fivepaisa"].get("APP_NAME", ""),
-            "APP_SOURCE": st.secrets["fivepaisa"].get("APP_SOURCE", ""),
-            "USER_ID": st.secrets["fivepaisa"].get("USER_ID", ""),
-            "PASSWORD": st.secrets["fivepaisa"].get("PASSWORD", ""),
-            "USER_KEY": st.secrets["fivepaisa"].get("USER_KEY", ""),
-            "ENCRYPTION_KEY": st.secrets["fivepaisa"].get("ENCRYPTION_KEY", "")
+            "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
+            "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
+            "USER_ID": st.secrets["fivepaisa"]["USER_ID"],
+            "PASSWORD": st.secrets["fivepaisa"]["PASSWORD"],
+            "USER_KEY": st.secrets["fivepaisa"]["USER_KEY"],
+            "ENCRYPTION_KEY": st.secrets["fivepaisa"]["ENCRYPTION_KEY"]
         }
         client = FivePaisaClient(cred=cred)
         client.get_totp_session(
-            st.secrets["fivepaisa"].get("CLIENT_CODE", ""),
+            st.secrets["fivepaisa"]["CLIENT_CODE"],
             totp_code,
-            st.secrets["fivepaisa"].get("PIN", "")
+            st.secrets["fivepaisa"]["PIN"]
         )
         if client.get_access_token():
             logger.info("5paisa client initialized successfully")
             return client
         else:
             logger.error("Failed to get access token")
+            st.error("❌ Failed to initialize 5paisa client: Invalid access token")
             return None
     except Exception as e:
         logger.error(f"Error initializing 5paisa client: {str(e)}")
+        st.error(f"❌ Error initializing 5paisa client: {str(e)}")
         return None
 
-# Data Fetching
+# Data Fetching with Source Tagging
 def max_pain(df, nifty_spot):
     try:
         calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["OpenInterest"]
@@ -107,7 +240,7 @@ def max_pain(df, nifty_spot):
                     total_loss += max(0, K - s) * puts.get(s, 0)
             pain.append((K, total_loss))
         max_pain_strike = min(pain, key=lambda x: x[1])[0]
-        max_pain_diff_pct = abs(nifty_spot - maxEXIT_pain_strike) / nifty_spot * 100 if nifty_spot != 0 else 0
+        max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100 if nifty_spot != 0 else 0
         return max_pain_strike, max_pain_diff_pct
     except Exception as e:
         logger.error(f"Error calculating max pain: {str(e)}")
@@ -116,32 +249,88 @@ def max_pain(df, nifty_spot):
 def fetch_nifty_data(client):
     try:
         logger.info("Fetching real-time data from 5paisa API")
+        if not client.get_access_token():
+            logger.error("Client session invalid or expired")
+            st.error("❌ 5paisa API session invalid. Please re-login.")
+            return None
+
         req_list = [
             {"Exch": "N", "ExchType": "C", "ScripCode": 999920000},  # NIFTY 50
             {"Exch": "N", "ExchType": "C", "ScripCode": 999920005}   # India VIX
         ]
-        market_feed = client.fetch_market_feed(req_list)
-        if not market_feed or "Data" not in market_feed or len(market_feed["Data"]) < 2:
-            raise Exception("Failed to fetch NIFTY 50 or India VIX")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                market_feed = client.fetch_market_feed(req_list)
+                if not market_feed or "Data" not in market_feed:
+                    raise Exception("Empty or invalid market feed response")
+                if len(market_feed["Data"]) < 1:
+                    raise Exception("No data returned for NIFTY 50")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to fetch market feed after {max_retries} attempts: {str(e)}")
+                    st.error(f"❌ Failed to fetch NIFTY 50 and VIX data from 5paisa API: {str(e)}")
+                    return None
+                logger.warning(f"Market feed attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                continue
 
-        nifty_data = market_feed["Data"][0]
-        vix_data = market_feed["Data"][1]
+        nifty_data = next((item for item in market_feed["Data"] if item["ScripCode"] == 999920000), None)
+        vix_data = next((item for item in market_feed["Data"] if item["ScripCode"] == 999920005), None)
+
+        if not nifty_data:
+            logger.error("NIFTY 50 data missing in market feed")
+            st.error("❌ NIFTY 50 data missing in 5paisa API response")
+            return None
+
         nifty_spot = nifty_data.get("LastRate", nifty_data.get("LastTradedPrice", 0))
-        vix = vix_data.get("LastRate", vix_data.get("LastTradedPrice", 0))
-        if not nifty_spot or not vix:
-            raise Exception("Missing NIFTY or VIX price")
+        if not nifty_spot:
+            logger.error("Missing NIFTY 50 price")
+            st.error("❌ Missing NIFTY 50 price in 5paisa API response")
+            return None
 
-        expiries = client.get_expiry("N", "NIFTY")
-        if not expiries or "Data" not in expiries or not expiries["Data"]:
-            raise Exception("Failed to fetch expiries")
+        vix = vix_data.get("LastRate", vix_data.get("LastTradedPrice", 0)) if vix_data else 0
+        if not vix_data:
+            logger.warning("India VIX data missing; setting VIX to 0 and proceeding")
+
+        for attempt in range(max_retries):
+            try:
+                expiries = client.get_expiry("N", "NIFTY")
+                if not expiries or "Data" not in expiries or not expiries["Data"]:
+                    raise Exception("Empty or invalid expiry response")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to fetch expiries after {max_retries} attempts: {str(e)}")
+                    st.error(f"❌ Failed to fetch expiry dates from 5paisa API: {str(e)}")
+                    return None
+                logger.warning(f"Expiry fetch attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                continue
+
         expiry_timestamp = expiries["Data"][0]["Timestamp"]
-        option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
-        if not option_chain or "Options" not in option_chain:
-            raise Exception("Failed to fetch option chain")
+        expiry_date = expiries["Data"][0]["ExpiryDate"]
+
+        for attempt in range(max_retries):
+            try:
+                option_chain = client.get_option_chain("N", "NIFTY", expiry_timestamp)
+                if not option_chain or "Options" not in option_chain:
+                    raise Exception("Empty or invalid option chain response")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to fetch option chain after {max_retries} attempts: {str(e)}")
+                    st.error(f"❌ Failed to fetch NIFTY 50 option chain from 5paisa API: {str(e)}")
+                    return None
+                logger.warning(f"Option chain fetch attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                continue
 
         df = pd.DataFrame(option_chain["Options"])
-        if not all(col in df.columns for col in ["StrikeRate", "CPType", "LastRate", "OpenInterest"]):
-            raise Exception("Required columns missing")
+        required_columns = ["StrikeRate", "CPType", "LastRate", "OpenInterest", "ScripCode"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            logger.error(f"Option chain missing required columns: {missing_columns}")
+            st.error(f"❌ Option chain data missing required columns: {missing_columns}")
+            return None
 
         df["StrikeRate"] = df["StrikeRate"].astype(float)
         atm_strike = df["StrikeRate"].iloc[(df["StrikeRate"] - nifty_spot).abs().argmin()]
@@ -158,7 +347,9 @@ def fetch_nifty_data(client):
 
         max_pain_strike, max_pain_diff_pct = max_pain(df, nifty_spot)
         if max_pain_strike is None:
-            raise Exception("Max pain calculation failed")
+            logger.warning("Max pain calculation failed; setting default values")
+            max_pain_strike = atm_strike
+            max_pain_diff_pct = 0
 
         vix_change_pct = 0
         iv_file = "vix_history.csv"
@@ -167,6 +358,12 @@ def fetch_nifty_data(client):
             prev_vix = iv_history["VIX"].iloc[-1] if not iv_history.empty else vix
             vix_change_pct = ((vix - prev_vix) / prev_vix * 100) if prev_vix != 0 else 0
         pd.DataFrame({"Date": [datetime.now().date()], "VIX": [vix]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.data_source_info = {
+            "source": "5paisa API",
+            "timestamp": timestamp
+        }
 
         logger.info("Real-time data fetched successfully from 5paisa API")
         return {
@@ -179,17 +376,20 @@ def fetch_nifty_data(client):
             "max_pain_diff_pct": max_pain_diff_pct,
             "vix_change_pct": vix_change_pct,
             "option_chain": df,
-            "expiry": expiries["Data"][0]["ExpiryDate"]
+            "expiry": expiry_date
         }
     except Exception as e:
         logger.error(f"Error fetching 5paisa API data: {str(e)}")
+        st.error(f"❌ Error fetching data from 5paisa API: {str(e)}")
         return None
 
 def load_data(client):
     try:
         logger.info("Loading data")
-        real_data = fetch_nifty_data(client) if client else None
-        data_source = "5paisa API (LIVE)" if real_data else "CSV (FALLBACK)"
+        with st.spinner("Fetching market data..."):
+            real_data = fetch_nifty_data(client) if client else None
+        data_source = st.session_state.data_source_info["source"] if real_data else "CSV Fallback"
+        timestamp = st.session_state.data_source_info["timestamp"] if real_data else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f"Data source: {data_source}")
 
         if real_data is None:
@@ -201,7 +401,7 @@ def load_data(client):
             nifty.columns = nifty.columns.str.strip()
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
-            nifty["Date"] = nifty["Date"].dt.normalize()  # Normalize to date-only
+            nifty["Date"] = nifty["Date"].dt.normalize()
             if nifty["Date"].duplicated().sum() > 0:
                 logger.warning(f"Found {nifty['Date'].duplicated().sum()} duplicate dates in nifty_50.csv. Aggregating by last value.")
                 nifty = nifty.groupby("Date").last().reset_index()
@@ -215,7 +415,7 @@ def load_data(client):
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
-            vix["Date"] = vix["Date"].dt.normalize()  # Normalize to date-only
+            vix["Date"] = vix["Date"].dt.normalize()
             if vix["Date"].duplicated().sum() > 0:
                 logger.warning(f"Found {vix['Date'].duplicated().sum()} duplicate dates in india_vix.csv. Aggregating by last value.")
                 vix = vix.groupby("Date").last().reset_index()
@@ -243,7 +443,7 @@ def load_data(client):
             nifty.columns = nifty.columns.str.strip()
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
-            nifty["Date"] = nifty["Date"].dt.normalize()  # Normalize to date-only
+            nifty["Date"] = nifty["Date"].dt.normalize()
             if nifty["Date"].duplicated().sum() > 0:
                 logger.warning(f"Found {nifty['Date'].duplicated().sum()} duplicate dates in nifty_50.csv. Aggregating by last value.")
                 nifty = nifty.groupby("Date").last().reset_index()
@@ -257,7 +457,7 @@ def load_data(client):
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
-            vix["Date"] = vix["Date"].dt.normalize()  # Normalize to date-only
+            vix["Date"] = vix["Date"].dt.normalize()
             if vix["Date"].duplicated().sum() > 0:
                 logger.warning(f"Found {vix['Date'].duplicated().sum()} duplicate dates in india_vix.csv. Aggregating by last value.")
                 vix = vix.groupby("Date").last().reset_index()
@@ -277,19 +477,20 @@ def load_data(client):
             df = df.sort_index()
 
         logger.debug(f"Data loaded successfully from {data_source}. Shape: {df.shape}")
-        return df, real_data, data_source
+        return df, real_data, {"source": data_source, "timestamp": timestamp}
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
+        st.error(f"❌ Error loading data: {str(e)}")
         logger.error(f"Error loading data: {str(e)}")
-        return None, None, None
+        return None, None, {"source": "Error", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 def fetch_portfolio_data(client, capital):
     try:
         logger.info("Fetching portfolio data from 5paisa API")
-        positions = client.positions()
+        with st.spinner("Fetching portfolio data..."):
+            positions = client.positions()
         if not positions:
             logger.warning("No positions found")
-            return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
+            return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0, "source": "5paisa API", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
         total_pnl = 0
         total_margin = 0
@@ -303,11 +504,20 @@ def fetch_portfolio_data(client, capital):
         return {
             "weekly_pnl": total_pnl,
             "margin_used": total_margin,
-            "exposure": total_exposure / capital * 100 if capital > 0 else 0
+            "exposure": total_exposure / capital * 100 if capital > 0 else 0,
+            "source": "5paisa API",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
     except Exception as e:
         logger.error(f"Error fetching portfolio data: {str(e)}")
-        return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
+        st.error(f"❌ Error fetching portfolio data: {str(e)}")
+        return {
+            "weekly_pnl": 0,
+            "margin_used": 0,
+            "exposure": 0,
+            "source": "Error",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
 
 # Feature Generation
 @st.cache_data
@@ -318,7 +528,6 @@ def generate_features(df, real_data, capital):
         df.index = df.index.normalize()
         n_days = len(df)
         np.random.seed(42)
-        strike_step = 100
 
         if real_data:
             base_pcr = real_data["pcr"]
@@ -371,9 +580,7 @@ def generate_features(df, real_data, capital):
             df["Spot_MaxPain_Diff_Pct"].iloc[-1] = base_max_pain_diff_pct
 
         df["Event_Flag"] = np.where((df.index.month % 3 == 0) & (df.index.day < 5) | (df["Days_to_Expiry"] <= 3), 1, 0)
-        fii_trend = np.random.normal(0, 10000, n_days)
-        fii_trend[::30] *= -1
-        df["FII_Index_Fut_Pos"] = np.cumsum(fii_trend).astype(int)
+        df["FII_Index_Fut_Pos"] = np.cumsum(np.random.normal(0, 10000, n_days)).astype(int)
         df["FII_Option_Pos"] = np.cumsum(np.random.normal(0, 5000, n_days)).astype(int)
         df["IV_Skew"] = np.clip(np.random.normal(0, 0.8, n_days) + (df["VIX"] / 15 - 1) * 3, -3, 3)
         df["Realized_Vol"] = df["NIFTY_Close"].pct_change().rolling(5, min_periods=5).std() * np.sqrt(252) * 100
@@ -401,7 +608,7 @@ def generate_features(df, real_data, capital):
         logger.debug("Features generated successfully")
         return df
     except Exception as e:
-        st.error(f"Error generating features: {str(e)}")
+        st.error(f"❌ Error generating features: {str(e)}")
         logger.error(f"Error generating features: {str(e)}")
         return None
 
@@ -499,7 +706,7 @@ def forecast_volatility_future(df, forecast_horizon):
         logger.debug("Volatility forecast completed")
         return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, model.feature_importances_
     except Exception as e:
-        st.error(f"Error in volatility forecasting: {str(e)}")
+        st.error(f"❌ Error in volatility forecasting: {str(e)}")
         logger.error(f"Error in volatility forecasting: {str(e)}")
         return None, None, None, None, None, None, None, None
 
@@ -727,15 +934,15 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         logger.debug("Backtest completed successfully")
         return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
     except Exception as e:
-        st.error(f"Error running backtest: {str(e)}")
+        st.error(f"❌ Error running backtest: {str(e)}")
         logger.error(f"Error running backtest: {str(e)}")
         return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
-# Strategy Generation
+# Strategy Generation (Multiple Strategies)
 @st.cache_data
-def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital):
+def generate_trading_strategies(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital):
     try:
-        logger.info("Generating trading strategy")
+        logger.info("Generating trading strategies")
         df = df.copy()
         df.index = df.index.normalize()
         latest = df.iloc[-1]
@@ -762,7 +969,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             st.session_state.violations += 1
             if st.session_state.violations >= 2 and not st.session_state.journal_complete:
                 st.error("🚨 Discipline Lock: Complete Journaling to Unlock Trading")
-                return None
+                return []
 
         if event_flag == 1:
             regime = "EVENT-DRIVEN"
@@ -773,67 +980,60 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         else:
             regime = "HIGH"
 
-        strategy = "Undefined"
-        reason = "N/A"
-        tags = []
-        risk_reward = 1.0
+        strategies = []
         confidence = 0.5 + 0.5 * (1 - np.abs(forecast_log["GARCH_Vol"].iloc[0] - forecast_log["XGBoost_Vol"].iloc[0]) / max(forecast_log["GARCH_Vol"].iloc[0], forecast_log["XGBoost_Vol"].iloc[0]))
+        capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
+        position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
 
+        # Strategy 1: Primary Strategy
         if regime == "LOW":
+            strategy = "Iron Fly"
+            reason = "Low volatility and time decay favors delta-neutral Iron Fly"
+            tags = ["Neutral", "Theta", "Range Bound"]
+            risk_reward = 1.5
             if iv_hv_gap > 5 and dte < 10:
                 strategy = "Butterfly Spread"
                 reason = "Low vol & short expiry favors pinning strategies"
                 tags = ["Neutral", "Theta", "Expiry Play"]
                 risk_reward = 2.0
-            else:
-                strategy = "Iron Fly"
-                reason = "Low volatility and time decay favors delta-neutral Iron Fly"
-                tags = ["Neutral", "Theta", "Range Bound"]
-
         elif regime == "MEDIUM":
+            strategy = "Short Strangle"
+            reason = "Balanced vol, no events, and premium-rich environment"
+            tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
+            risk_reward = 1.5
             if iv_hv_gap > 3 and iv_skew > 2:
                 strategy = "Iron Condor"
                 reason = "Medium vol and skew favor wide-range Iron Condor"
                 tags = ["Neutral", "Theta", "Range Bound"]
                 risk_reward = 1.8
-            else:
-                strategy = "Short Strangle"
-                reason = "Balanced vol, no events, and premium-rich environment"
-                tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
-
         elif regime == "HIGH":
+            strategy = "Iron Condor"
+            reason = "High vol favors wide-range Iron Condor for premium collection"
+            tags = ["Neutral", "Theta", "Range Bound"]
+            risk_reward = 1.5
             if iv_hv_gap > 10:
                 strategy = "Jade Lizard"
                 reason = "High IV + call skew = Jade Lizard for defined upside risk"
                 tags = ["Skewed", "Volatility", "Defined Risk"]
                 risk_reward = 1.2
-            else:
-                strategy = "Iron Condor"
-                reason = "High vol favors wide-range Iron Condor for premium collection"
-                tags = ["Neutral", "Theta", "Range Bound"]
-
         elif regime == "EVENT-DRIVEN":
+            strategy = "Calendar Spread"
+            reason = "Event-based uncertainty favors term structure opportunity"
+            tags = ["Volatility", "Event", "Calendar"]
+            risk_reward = 1.3
             if iv > 30 and dte < 5:
                 strategy = "Short Straddle"
                 reason = "Event + near expiry + IV spike → high premium capture"
                 tags = ["Volatility", "Event", "Neutral"]
                 risk_reward = 1.5
-            else:
-                strategy = "Calendar Spread"
-                reason = "Event-based uncertainty favors term structure opportunity"
-                tags = ["Volatility", "Event", "Calendar"]
 
-        capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
-        position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
         deploy = capital * capital_alloc.get(regime, 0.2) * position_size
         max_loss = deploy * 0.2
         total_exposure = deploy / capital
-
         behavior_score = 8 if deploy < 0.5 * capital else 6
         behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
 
-        logger.debug("Trading strategy generated successfully")
-        return {
+        strategies.append({
             "Regime": regime,
             "Strategy": strategy,
             "Reason": reason,
@@ -846,20 +1046,113 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             "Risk_Flags": risk_flags,
             "Behavior_Score": behavior_score,
             "Behavior_Warnings": behavior_warnings
-        }
+        })
+
+        # Strategy 2: Alternative for the Regime
+        if regime == "LOW":
+            strategy = "Short Strangle"
+            reason = "Low vol alternative for premium selling"
+            tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
+            risk_reward = 1.4
+        elif regime == "MEDIUM":
+            strategy = "Iron Fly"
+            reason = "Medium vol alternative with tighter range"
+            tags = ["Neutral", "Theta", "Range Bound"]
+            risk_reward = 1.5
+        elif regime == "HIGH":
+            strategy = "Short Straddle"
+            reason = "High vol alternative for aggressive premium capture"
+            tags = ["Volatility", "Neutral"]
+            risk_reward = 1.3
+        elif regime == "EVENT-DRIVEN":
+            strategy = "Jade Lizard"
+            reason = "Event-driven alternative with defined upside risk"
+            tags = ["Skewed", "Volatility", "Defined Risk"]
+            risk_reward = 1.2
+
+        deploy = capital * capital_alloc.get(regime, 0.2) * position_size * 0.8
+        max_loss = deploy * 0.2
+        total_exposure = deploy / capital
+        strategies.append({
+            "Regime": regime,
+            "Strategy": strategy,
+            "Reason": reason,
+            "Tags": tags,
+            "Confidence": confidence * 0.95,
+            "Risk_Reward": risk_reward,
+            "Deploy": deploy,
+            "Max_Loss": max_loss,
+            "Exposure": total_exposure,
+            "Risk_Flags": risk_flags,
+            "Behavior_Score": behavior_score,
+            "Behavior_Warnings": behavior_warnings
+        })
+
+        # Strategy 3: Defensive Option
+        strategy = "Iron Condor"
+        reason = "Defensive strategy with wide range for stability"
+        tags = ["Neutral", "Theta", "Range Bound"]
+        risk_reward = 1.8
+        deploy = capital * capital_alloc.get(regime, 0.2) * position_size * 0.6
+        max_loss = deploy * 0.2
+        total_exposure = deploy / capital
+        strategies.append({
+            "Regime": regime,
+            "Strategy": strategy,
+            "Reason": reason,
+            "Tags": tags,
+            "Confidence": confidence * 0.9,
+            "Risk_Reward": risk_reward,
+            "Deploy": deploy,
+            "Max_Loss": max_loss,
+            "Exposure": total_exposure,
+            "Risk_Flags": risk_flags,
+            "Behavior_Score": behavior_score,
+            "Behavior_Warnings": behavior_warnings
+        })
+
+        # Strategy 4: High Confidence Option (if applicable)
+        if iv_hv_gap > 5:
+            strategy = "Short Straddle"
+            reason = "High IV-HV gap favors aggressive premium capture"
+            tags = ["Volatility", "Neutral"]
+            risk_reward = 1.5
+            deploy = capital * capital_alloc.get(regime, 0.2) * position_size * 0.5
+            max_loss = deploy * 0.2
+            total_exposure = deploy / capital
+            strategies.append({
+                "Regime": regime,
+                "Strategy": strategy,
+                "Reason": reason,
+                "Tags": tags,
+                "Confidence": confidence * 0.85,
+                "Risk_Reward": risk_reward,
+                "Deploy": deploy,
+                "Max_Loss": max_loss,
+                "Exposure": total_exposure,
+                "Risk_Flags": risk_flags,
+                "Behavior_Score": behavior_score,
+                "Behavior_Warnings": behavior_warnings
+            })
+
+        logger.debug(f"Generated {len(strategies)} trading strategies")
+        return strategies
     except Exception as e:
-        st.error(f"Error generating strategy: {str(e)}")
-        logger.error(f"Error generating strategy: {str(e)}")
-        return None
+        st.error(f"❌ Error generating strategies: {str(e)}")
+        logger.error(f"Error generating strategies: {str(e)}")
+        return []
 
 # Trading Functions
 def place_trade(client, strategy, real_data, capital):
     try:
         logger.info(f"Attempting to place trade: {strategy['Strategy']}")
-        # Validate input data
         if not real_data or "option_chain" not in real_data or "atm_strike" not in real_data or "expiry" not in real_data:
             logger.error("Invalid or missing real-time data")
-            return False, "Trade rejected: Invalid or missing real-time data from 5paisa API"
+            return False, "Trade rejected: Invalid or missing market data from 5paisa API"
+
+        if not client.get_access_token():
+            logger.error("Client session invalid or expired")
+            return False, "Trade rejected: 5paisa API session invalid. Please re-login."
 
         option_chain = real_data["option_chain"]
         atm_strike = real_data["atm_strike"]
@@ -868,17 +1161,18 @@ def place_trade(client, strategy, real_data, capital):
         max_loss = strategy["Max_Loss"]
         expiry = real_data["expiry"]
 
-        # Validate option chain DataFrame
         required_columns = ["ScripCode", "StrikeRate", "CPType", "LastRate"]
         if not all(col in option_chain.columns for col in required_columns):
             logger.error(f"Option chain missing required columns: {required_columns}")
             return False, f"Trade rejected: Option chain missing required columns: {required_columns}"
 
-        # Check margin availability
         try:
             margin_data = client.margin()
-            available_margin = margin_data.get("AvailableMargin", 0) if isinstance(margin_data, dict) else 0
-            estimated_margin = deploy * 1.2  # Assume 20% buffer for margin
+            if not isinstance(margin_data, dict):
+                logger.error("Invalid margin data response")
+                return False, "Trade rejected: Unable to fetch margin data"
+            available_margin = margin_data.get("AvailableMargin", 0)
+            estimated_margin = deploy * 1.2
             if available_margin < estimated_margin:
                 logger.error(f"Insufficient margin: Available={available_margin}, Required={estimated_margin}")
                 return False, f"Trade rejected: Insufficient margin (Available: ₹{available_margin:,.2f}, Required: ₹{estimated_margin:,.2f})"
@@ -886,7 +1180,6 @@ def place_trade(client, strategy, real_data, capital):
             logger.error(f"Error checking margin: {str(e)}")
             return False, f"Trade rejected: Unable to verify margin requirements ({str(e)})"
 
-        # Calculate lots
         premium_per_lot = real_data["straddle_price"] * lot_size
         if premium_per_lot <= 0:
             logger.error("Invalid straddle price for lot calculation")
@@ -896,7 +1189,6 @@ def place_trade(client, strategy, real_data, capital):
             logger.error("Calculated lots is zero or negative")
             return False, "Trade rejected: Invalid lot size calculated"
 
-        # Define strikes based on strategy
         orders = []
         strikes = []
         if strategy["Strategy"] == "Short Straddle":
@@ -956,14 +1248,12 @@ def place_trade(client, strategy, real_data, capital):
             logger.error(f"Unsupported strategy: {strategy['Strategy']}")
             return False, f"Trade rejected: Unsupported strategy ({strategy['Strategy']})"
 
-        # Construct orders
         for strike, cp_type, buy_sell in strikes:
             opt_data = option_chain[(option_chain["StrikeRate"] == strike) & (option_chain["CPType"] == cp_type)]
             if opt_data.empty:
                 logger.error(f"No option data for {cp_type} at strike {strike}")
                 return False, f"Trade rejected: No option data for {cp_type} at strike {strike}"
-            
-            # Validate ScripCode and LastRate
+
             scrip_code = opt_data["ScripCode"].iloc[0]
             price = opt_data["LastRate"].iloc[0]
             if not isinstance(scrip_code, (int, float)) or pd.isna(scrip_code):
@@ -978,31 +1268,39 @@ def place_trade(client, strategy, real_data, capital):
                 "ExchangeType": "D",
                 "ScripCode": int(scrip_code),
                 "Quantity": lot_size * lots,
-                "Price": 0,  # Market order
+                "Price": 0,
                 "OrderType": "SELL" if buy_sell == "S" else "BUY",
                 "IsIntraday": False
             }
             orders.append(order)
 
-        # Place orders
+        max_retries = 3
         for order in orders:
-            logger.info(f"Placing order: {order}")
-            response = client.place_order(
-                OrderType=order["OrderType"],
-                Exchange=order["Exchange"],
-                ExchangeType=order["ExchangeType"],
-                ScripCode=order["ScripCode"],
-                Qty=order["Quantity"],
-                Price=order["Price"],
-                IsIntraday=order["IsIntraday"]
-            )
-            if not isinstance(response, dict) or "Status" not in response:
-                logger.error(f"Invalid API response for ScripCode {order['ScripCode']}")
-                return False, f"Trade rejected: Invalid API response for ScripCode {order['ScripCode']}"
-            if response.get("Status") != 0:
-                error_message = response.get("Message", "Unknown error")
-                logger.error(f"Order failed for ScripCode {order['ScripCode']}: {error_message}")
-                return False, f"Trade rejected: Order failed for ScripCode {order['ScripCode']} ({error_message})"
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Placing order: {order}")
+                    response = client.place_order(
+                        OrderType=order["OrderType"],
+                        Exchange=order["Exchange"],
+                        ExchangeType=order["ExchangeType"],
+                        ScripCode=order["ScripCode"],
+                        Qty=order["Quantity"],
+                        Price=order["Price"],
+                        IsIntraday=order["IsIntraday"]
+                    )
+                    if not isinstance(response, dict) or "Status" not in response:
+                        raise Exception(f"Invalid API response for ScripCode {order['ScripCode']}")
+                    if response.get("Status") != 0:
+                        error_message = response.get("Message", "Unknown error")
+                        logger.error(f"Order failed for ScripCode {order['ScripCode']}: {error_message}")
+                        return False, f"Trade rejected: Order failed for ScripCode {order['ScripCode']} ({error_message})"
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Failed to place order for ScripCode {order['ScripCode']} after {max_retries} attempts: {str(e)}")
+                        return False, f"Trade rejected: Failed to place order for ScripCode {order['ScripCode']} ({str(e)})"
+                    logger.warning(f"Order placement attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                    continue
 
         logger.info(f"Trade placed successfully: {strategy['Strategy']} with {lots} lots")
         return True, f"Trade placed successfully: {strategy['Strategy']} with {lots} lots"
@@ -1013,21 +1311,54 @@ def place_trade(client, strategy, real_data, capital):
 def square_off_positions(client):
     try:
         logger.info("Squaring off all positions")
-        response = client.squareoff_all()
-        if response.get("Status") == 0:
+        with st.spinner("Squaring off positions..."):
+            positions = client.positions()
+            if not positions:
+                logger.info("No positions to square off")
+                return True, "No open positions to square off"
+
+            for position in positions:
+                scrip_code = position.get("ScripCode")
+                qty = position.get("OpenQty", 0)
+                if qty == 0:
+                    continue
+
+                order = {
+                    "Exchange": position.get("Exchange", "N"),
+                    "ExchangeType": position.get("ExchangeType", "D"),
+                    "ScripCode": scrip_code,
+                    "Quantity": qty,
+                    "Price": 0,
+                    "OrderType": "SELL" if position.get("BuySell") == "B" else "BUY",
+                    "IsIntraday": False
+                }
+                response = client.place_order(
+                    OrderType=order["OrderType"],
+                    Exchange=order["Exchange"],
+                    ExchangeType=order["ExchangeType"],
+                    ScripCode=order["ScripCode"],
+                    Qty=order["Quantity"],
+                    Price=order["Price"],
+                    IsIntraday=order["IsIntraday"]
+                )
+                if response.get("Status") != 0:
+                    error_message = response.get("Message", "Unknown error")
+                    logger.error(f"Failed to square off position for ScripCode {scrip_code}: {error_message}")
+                    return False, f"Failed to square off position for ScripCode {scrip_code}: {error_message}"
+
             logger.info("All positions squared off successfully")
-            return True
-        else:
-            logger.error(f"Failed to square off positions: {response.get('Message', 'Unknown error')}")
-            return False
+            return True, "All positions squared off successfully"
     except Exception as e:
         logger.error(f"Error squaring off positions: {str(e)}")
-        return False
+        return False, f"Error squaring off positions: {str(e)}"
 
-# Sidebar Login and Controls
+# Main App
+st.title("🛡️ VolGuard Pro - Option Seller's Copilot")
+
+# Sidebar for Authentication and Settings
 with st.sidebar:
-    st.header("🔐 5paisa Login")
-    totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
+    st.header("Account Setup")
+    totp_code = st.text_input("Enter 5paisa TOTP Code", type="password")
     if st.button("Login"):
         client = initialize_5paisa_client(totp_code)
         if client:
@@ -1035,284 +1366,307 @@ with st.sidebar:
             st.session_state.logged_in = True
             st.success("✅ Logged in successfully")
         else:
-            st.error("❌ Login failed")
+            st.session_state.logged_in = False
+            st.session_state.client = None
 
     if st.session_state.logged_in:
-        st.header("⚙️ Trading Controls")
-        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
-        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
-        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
-        dte_preference = st.slider("DTE Preference (days)", 7, 30, 15)
-        st.markdown("**Backtest Parameters**")
-        start_date = st.date_input("Start Date", value=pd.to_datetime("2024-01-01"))
-        end_date = st.date_input("End Date", value=pd.to_datetime("2025-04-29"))
-        strategy_choice = st.selectbox("Strategy", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Short Straddle"])
-        run_button = st.button("Run Analysis")
-        if st.button("Square Off All Positions"):
-            success = square_off_positions(st.session_state.client)
-            if success:
-                st.success("✅ All positions squared off successfully")
-            else:
-                st.error("❌ Failed to square off positions")
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.session_state.client = None
+            st.success("✅ Logged out successfully")
 
-# Main Execution
+    st.header("Settings")
+    capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000)
+    risk_tolerance = st.selectbox("Risk Tolerance", ["Conservative", "Moderate", "Aggressive"])
+    forecast_horizon = st.slider("Forecast Horizon (Days)", 1, 10, 5)
+
+# Main Content
 if not st.session_state.logged_in:
-    st.info("Please login to 5paisa from the sidebar to proceed")
+    st.warning("Please login to continue")
 else:
-    st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
-    tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal", "Backtest"])
+    client = st.session_state.client
+    df, real_data, data_source_info = load_data(client)
+    if df is None:
+        st.error("Failed to load data. Please try again.")
+        st.stop()
 
-    if run_button:
-        with st.spinner("Running VolGuard Analysis..."):
-            st.session_state.backtest_run = False
-            st.session_state.backtest_results = None
-            st.session_state.violations = 0
-            st.session_state.journal_complete = False
+    df = generate_features(df, real_data, capital)
+    if df is None:
+        st.error("Failed to generate features. Please try again.")
+        st.stop()
 
-            df, real_data, data_source = load_data(st.session_state.client)
-            if df is not None:
-                df = generate_features(df, real_data, capital)
-                if df is not None:
-                    backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(
-                        df, capital, strategy_choice, start_date, end_date
-                    )
-                    st.session_state.backtest_run = True
-                    st.session_state.backtest_results = {
-                        "backtest_df": backtest_df,
-                        "total_pnl": total_pnl,
-                        "win_rate": win_rate,
-                        "max_drawdown": max_drawdown,
-                        "sharpe_ratio": sharpe_ratio,
-                        "sortino_ratio": sortino_ratio,
-                        "calmar_ratio": calmar_ratio,
-                        "strategy_perf": strategy_perf,
-                        "regime_perf": regime_perf
-                    }
+    forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
+    if forecast_log is None:
+        st.error("Volatility forecasting failed. Please try again.")
+        st.stop()
 
-                    # Snapshot Tab
-                    with tabs[0]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📊 Market Snapshot")
-                        last_date = df.index[-1].strftime("%d-%b-%Y")
-                        last_nifty = df["NIFTY_Close"].iloc[-1]
-                        prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
-                        last_vix = df["VIX"].iloc[-1]
-                        regime = "LOW" if last_vix < 15 else "MEDIUM" if last_vix < 20 else "HIGH"
-                        regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high"}[regime]
-                        st.markdown(f'<div class="gauge">{regime}</div><div style="text-align: center;">Market Regime</div>', unsafe_allow_html=True)
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("NIFTY 50", f"{last_nifty:,.2f}", f"{(last_nifty - prev_nifty)/prev_nifty*100:+.2f}%")
-                        with col2:
-                            st.metric("India VIX", f"{last_vix:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
-                        with col3:
-                            st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
-                        with col4:
-                            st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
-                        st.markdown(f"**Last Updated**: {last_date} | **Source**: {data_source}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+    portfolio_data = fetch_portfolio_data(client, capital)
 
-                    # Forecast Tab
-                    with tabs[1]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📈 Volatility Forecast")
-                        with st.spinner("Predicting market volatility..."):
-                            forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(df, forecast_horizon)
-                        if forecast_log is not None:
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Avg Blended Volatility", f"{np.mean(blended_vols):.2f}%")
-                            with col2:
-                                st.metric("Realized Volatility", f"{realized_vol:.2f}%")
-                            with col3:
-                                st.metric("Model RMSE", f"{rmse:.2f}%")
-                                st.markdown(f'<div class="gauge">{int(confidence_score)}%</div><div style="text-align: center;">Confidence</div>', unsafe_allow_html=True)
-                            st.line_chart(pd.DataFrame({
-                                "GARCH": garch_vols,
-                                "XGBoost": xgb_vols,
-                                "Blended": blended_vols
-                            }, index=forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
-                            st.markdown("### Feature Importance")
-                            feature_importance = pd.DataFrame({
-                                'Feature': ['VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
-                                            'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
-                                            'FII_Option_Pos'],
-                                'Importance': feature_importances
-                            }).sort_values(by='Importance', ascending=False)
-                            st.dataframe(feature_importance, use_container_width=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
+    # Tabs
+    tabs = st.tabs(["📊 Snapshot", "🔮 Forecast", "🎯 Strategies", "💼 Portfolio", "📓 Journal", "📉 Backtest"])
 
-                    # Strategy Tab
-                    with tabs[2]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("🎯 Trading Strategies")
-                        strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
-                        if strategy is None:
-                            st.markdown('<div class="alert-banner">🚨 Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
+    # Snapshot Tab
+    with tabs[0]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Market Snapshot")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("NIFTY 50", f"₹{df['NIFTY_Close'].iloc[-1]:,.2f}")
+        with col2:
+            st.metric("India VIX", f"{df['VIX'].iloc[-1]:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:.2f}%")
+        with col3:
+            st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
+        with col4:
+            st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
+        st.markdown(f'<div class="data-tag">Data Source: {data_source_info["source"]} | Last Updated: {data_source_info["timestamp"]}</div>',
+        unsafe_allow_html=True
+        )
+
+        col5, col6, col7 = st.columns(3)
+        with col5:
+            st.metric("Max Pain Strike", f"₹{real_data['max_pain_strike']:,.2f}" if real_data else "N/A")
+        with col6:
+            st.metric("Max Pain Diff", f"{real_data['max_pain_diff_pct']:.2f}%" if real_data else "N/A")
+        with col7:
+            st.metric("Days to Expiry", f"{int(df['Days_to_Expiry'].iloc[-1])}")
+
+        st.markdown('<div class="regime-badge regime-' + ('event' if df['Event_Flag'].iloc[-1] == 1 else 'low' if blended_vols[0] < 15 else 'medium' if blended_vols[0] < 20 else 'high') + '">' +
+                    ('Event-Driven' if df['Event_Flag'].iloc[-1] == 1 else 'Low Vol' if blended_vols[0] < 15 else 'Medium Vol' if blended_vols[0] < 20 else 'High Vol') + '</div>',
+                    unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Market Trends")
+        trend_fig = go.Figure()
+        trend_fig.add_trace(go.Scatter(x=df.index[-30:], y=df['NIFTY_Close'].iloc[-30:], mode='lines', name='NIFTY 50', line=dict(color='#e94560')))
+        trend_fig.add_trace(go.Scatter(x=df.index[-30:], y=df['VIX'].iloc[-30:], mode='lines', name='India VIX', line=dict(color='#ffcc00'), yaxis='y2'))
+        trend_fig.update_layout(
+            template='plotly_dark',
+            height=400,
+            margin=dict(l=10, r=10, t=30, b=10),
+            yaxis=dict(title='NIFTY 50', titlefont=dict(color='#e94560'), tickfont=dict(color='#e94560')),
+            yaxis2=dict(title='India VIX', titlefont=dict(color='#ffcc00'), tickfont=dict(color='#ffcc00'), overlaying='y', side='right'),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5)
+        )
+        st.plotly_chart(trend_fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Forecast Tab
+    with tabs[1]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Volatility Forecast")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current Realized Vol", f"{realized_vol:.2f}%")
+        with col2:
+            st.metric("Forecasted Vol (Blended)", f"{blended_vols[0]:.2f}%")
+        with col3:
+            st.metric("Confidence Score", f"{confidence_score:.2f}%")
+
+        forecast_fig = go.Figure()
+        forecast_fig.add_trace(go.Scatter(x=forecast_log['Date'], y=forecast_log['GARCH_Vol'], mode='lines', name='GARCH', line=dict(color='#e94560')))
+        forecast_fig.add_trace(go.Scatter(x=forecast_log['Date'], y=forecast_log['XGBoost_Vol'], mode='lines', name='XGBoost', line=dict(color='#ffcc00')))
+        forecast_fig.add_trace(go.Scatter(x=forecast_log['Date'], y=forecast_log['Blended_Vol'], mode='lines', name='Blended', line=dict(color='#28a745')))
+        forecast_fig.update_layout(
+            title="Volatility Forecast",
+            template='plotly_dark',
+            height=400,
+            margin=dict(l=10, r=10, t=50, b=10),
+            yaxis=dict(title='Volatility (%)'),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5)
+        )
+        st.plotly_chart(forecast_fig, use_container_width=True)
+        st.markdown(f'<div class="data-tag">Model RMSE: {rmse:.2f} | Data Source: {data_source_info["source"]} | Last Updated: {data_source_info["timestamp"]}</div>',
+                    unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Feature Importance")
+        importance_df = pd.DataFrame({'Feature': feature_cols, 'Importance': feature_importances})
+        importance_df = importance_df.sort_values('Importance', ascending=False)
+        importance_fig = px.bar(importance_df, x='Importance', y='Feature', orientation='h', title="XGBoost Feature Importance")
+        importance_fig.update_layout(template='plotly_dark', height=400, margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(importance_fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Strategies Tab
+    with tabs[2]:
+        strategies = generate_trading_strategies(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
+        if not strategies:
+            st.error("No strategies available. Please check your inputs or journal requirements.")
+        else:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Trading Strategies")
+            st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
+            for idx, strategy in enumerate(strategies):
+                with st.container():
+                    st.markdown(f'<div class="strategy-card">', unsafe_allow_html=True)
+                    st.markdown(f"**{strategy['Strategy']}**")
+                    st.markdown(f"**Regime:** {strategy['Regime']}")
+                    st.markdown(f"**Reason:** {strategy['Reason']}")
+                    st.markdown(f"**Tags:** {', '.join(strategy['Tags'])}")
+                    st.markdown(f"**Confidence:** {strategy['Confidence']:.2%}")
+                    st.markdown(f"**Risk/Reward:** {strategy['Risk_Reward']:.2f}")
+                    st.markdown(f"**Capital to Deploy:** ₹{strategy['Deploy']:,.2f}")
+                    st.markdown(f"**Max Loss:** ₹{strategy['Max_Loss']:,.2f}")
+                    st.markdown(f"**Exposure:** {strategy['Exposure']:.2%}")
+                    if strategy['Risk_Flags']:
+                        st.markdown(f"**Risk Flags:** {', '.join(strategy['Risk_Flags'])}")
+                    if strategy['Behavior_Warnings']:
+                        st.markdown(f"**Behavior Warnings:** {', '.join(strategy['Behavior_Warnings'])}")
+                    st.markdown(f"**Behavior Score:** {strategy['Behavior_Score']}/10")
+
+                    if st.button(f"Execute {strategy['Strategy']}", key=f"execute_{idx}"):
+                        success, message = place_trade(client, strategy, real_data, capital)
+                        if success:
+                            st.success(message)
+                            st.session_state.trades.append({
+                                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "Strategy": strategy['Strategy'],
+                                "Capital_Deployed": strategy['Deploy'],
+                                "Max_Loss": strategy['Max_Loss'],
+                                "Status": "Open"
+                            })
                         else:
-                            regime_class = {
-                                "LOW": "regime-low",
-                                "MEDIUM": "regime-medium",
-                                "HIGH": "regime-high",
-                                "EVENT-DRIVEN": "regime-event"
-                            }.get(strategy["Regime"], "regime-low")
-                            st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
-                            st.markdown(f"""
-                                <div class="strategy-card">
-                                    <h4>{strategy["Strategy"]}</h4>
-                                    <span class="regime-badge {regime_class}">{strategy["Regime"]}</span>
-                                    <p><b>Reason:</b> {strategy["Reason"]}</p>
-                                    <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
-                                    <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                                    <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
-                                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                                    <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
-                                </div>
-                            """, unsafe_allow_html=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            if strategy["Risk_Flags"]:
-                                st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
-                            
-                            # Display margin requirements
-                            st.markdown("### Margin Requirements")
-                            try:
-                                margin_data = st.session_state.client.margin()
-                                available_margin = margin_data.get("AvailableMargin", 0) if isinstance(margin_data, dict) else 0
-                                estimated_margin = strategy["Deploy"] * 1.2
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric("Available Margin", f"₹{available_margin:,.2f}")
-                                with col2:
-                                    st.metric("Estimated Margin Required", f"₹{estimated_margin:,.2f}")
-                                if available_margin < estimated_margin:
-                                    st.warning("⚠️ Insufficient margin for this trade")
-                            except Exception as e:
-                                st.error(f"Unable to fetch margin data: {str(e)}")
+                            st.error(message)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-                            # Trade execution button
-                            if st.button("Trade Now"):
-                                with st.spinner("Executing trade..."):
-                                    success, message = place_trade(st.session_state.client, strategy, real_data, capital)
-                                    st.markdown('<div class="trade-status">', unsafe_allow_html=True)
-                                    if success:
-                                        trade_log = {
-                                            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                            "Strategy": strategy["Strategy"],
-                                            "Regime": strategy["Regime"],
-                                            "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
-                                            "Outcome": "Pending"
-                                        }
-                                        st.session_state.trades.append(trade_log)
-                                        try:
-                                            pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
-                                        except PermissionError:
-                                            logger.error("Permission denied when writing to trade_log.csv")
-                                            st.error("Cannot save trade_log.csv: Permission denied")
-                                        st.success(f"✅ {message}")
-                                    else:
-                                        st.error(f"❌ {message}")
-                                    st.markdown('</div>', unsafe_allow_html=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
+            if st.button("Square Off All Positions"):
+                success, message = square_off_positions(client)
+                if success:
+                    st.success(message)
+                    for trade in st.session_state.trades:
+                        trade["Status"] = "Closed"
+                else:
+                    st.error(message)
 
-                    # Portfolio Tab
-                    with tabs[3]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("💼 Portfolio Overview")
-                        portfolio_data = fetch_portfolio_data(st.session_state.client, capital)
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
-                        with col2:
-                            st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
-                        with col3:
-                            st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
-                        st.markdown("### Open Positions")
-                        try:
-                            positions = st.session_state.client.positions()
-                            pos_df = pd.DataFrame(positions) if isinstance(positions, list) else pd.DataFrame([positions])
-                            st.dataframe(pos_df, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Positions Error: {e}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+            if st.session_state.trades:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("Active Trades")
+                trades_df = pd.DataFrame(st.session_state.trades)
+                st.dataframe(trades_df, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Journal Tab
-                    with tabs[4]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📝 Discipline Hub")
-                        with st.form(key="journal_form"):
-                            reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"])
-                            override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"))
-                            expected_outcome = st.text_area("Expected Outcome")
-                            submit_journal = st.form_submit_button("Submit Journal Entry")
-                            if submit_journal:
-                                score = 0
-                                if override_risk == "No":
-                                    score += 3
-                                if reason_strategy != "Other":
-                                    score += 3
-                                if expected_outcome:
-                                    score += 3
-                                if portfolio_data["weekly_pnl"] > 0:
-                                    score += 1
-                                score = min(score, 10)
-                                journal_entry = {
-                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "Strategy_Reason": reason_strategy,
-                                    "Override_Risk": override_risk,
-                                    "Expected_Outcome": expected_outcome,
-                                    "Discipline_Score": score
-                                }
-                                journal_df = pd.DataFrame([journal_entry])
-                                journal_file = "journal_log.csv"
-                                try:
-                                    journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
-                                    st.success(f"✅ Journal entry saved. Discipline Score: {score}/10")
-                                    if score >= 7:
-                                        st.session_state.journal_complete = True
-                                        st.session_state.violations = 0
-                                        st.success("✅ Trading unlocked due to high discipline score")
-                                except PermissionError:
-                                    logger.error("Permission denied when writing to journal_log.csv")
-                                    st.error("Cannot save journal_log.csv: Permission denied")
-                        st.markdown("### Trade Log")
-                        try:
-                            trade_log_df = pd.DataFrame(st.session_state.trades)
-                            st.dataframe(trade_log_df, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Error displaying trade log: {str(e)}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+    # Portfolio Tab
+    with tabs[3]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Portfolio Overview")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Weekly PnL", f"₹{portfolio_data['weekly_pnl']:,.2f}")
+        with col2:
+            st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
+        with col3:
+            st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
+        st.markdown(f'<div class="data-tag">Data Source: {portfolio_data["source"]} | Last Updated: {portfolio_data["timestamp"]}</div>',
+                    unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Backtest Tab
-                    with tabs[5]:
-                        st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📉 Backtest Results")
-                        if st.session_state.backtest_run and st.session_state.backtest_results:
-                            backtest_results = st.session_state.backtest_results
-                            backtest_df = backtest_results["backtest_df"]
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Total PnL", f"₹{backtest_results['total_pnl']:,.2f}")
-                                st.metric("Win Rate", f"{backtest_results['win_rate']*100:.2f}%")
-                            with col2:
-                                st.metric("Max Drawdown", f"₹{backtest_results['max_drawdown']:,.2f}")
-                                st.metric("Sharpe Ratio", f"{backtest_results['sharpe_ratio']:.2f}")
-                            with col3:
-                                st.metric("Sortino Ratio", f"{backtest_results['sortino_ratio']:.2f}")
-                                st.metric("Calmar Ratio", f"{backtest_results['calmar_ratio']:.2f}")
-                            st.markdown("### Performance by Strategy")
-                            st.dataframe(backtest_results["strategy_perf"], use_container_width=True)
-                            st.markdown("### Performance by Regime")
-                            st.dataframe(backtest_results["regime_perf"], use_container_width=True)
-                            if not backtest_df.empty:
-                                st.markdown("### PnL Over Time")
-                                st.line_chart(backtest_df["PnL"].cumsum(), color="#e94560")
-                        else:
-                            st.info("Run analysis to view backtest results")
-                        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("PnL Trend")
+        if st.session_state.trades:
+            trades_df = pd.DataFrame(st.session_state.trades)
+            trades_df['Timestamp'] = pd.to_datetime(trades_df['Timestamp'])
+            trades_df = trades_df.sort_values('Timestamp')
+            trades_df['Cumulative_PnL'] = trades_df['Capital_Deployed'].cumsum() - trades_df['Max_Loss'].cumsum()
+            pnl_fig = go.Figure()
+            pnl_fig.add_trace(go.Scatter(x=trades_df['Timestamp'], y=trades_df['Cumulative_PnL'], mode='lines', name='Cumulative PnL', line=dict(color='#e94560')))
+            pnl_fig.update_layout(
+                title="Cumulative PnL Over Time",
+                template='plotly_dark',
+                height=400,
+                margin=dict(l=10, r=10, t=50, b=10),
+                yaxis=dict(title='PnL (₹)'),
+            )
+            st.plotly_chart(pnl_fig, use_container_width=True)
+        else:
+            st.info("No trades executed yet.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # Footer
-    st.markdown("""
-        <div class="footer">
-            © 2025 VolGuard Pro | Built with ❤ by Shritish & Salman | Built for Disciplined Trading
-        </div>
-    """, unsafe_allow_html=True)
+    # Journal Tab
+    with tabs[4]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Trading Journal")
+        with st.form("journal_form"):
+            trade_reflection = st.text_area("Reflect on your recent trade: What went well? What could be improved?")
+            lessons_learned = st.text_area("Lessons Learned from this Trade")
+            emotional_state = st.selectbox("Emotional State During Trade", ["Calm", "Stressed", "Excited", "Anxious"])
+            discipline_score = st.slider("Discipline Score (1-10)", 1, 10, 5)
+            submitted = st.form_submit_button("Submit Journal Entry")
+            if submitted:
+                st.session_state.journal_complete = True
+                st.session_state.violations = 0
+                st.success("Journal entry submitted successfully! Trading unlocked.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Backtest Tab
+    with tabs[5]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Backtest Strategies")
+        strategy_choice = st.selectbox("Select Strategy to Backtest", ["All Strategies", "Iron Condor", "Iron Fly", "Short Strangle", "Short Straddle", "Butterfly Spread", "Jade Lizard", "Calendar Spread"])
+        start_date = st.date_input("Start Date", value=df.index.min().date(), min_value=df.index.min().date(), max_value=df.index.max().date())
+        end_date = st.date_input("End Date", value=df.index.max().date(), min_value=df.index.min().date(), max_value=df.index.max().date())
+
+        if st.button("Run Backtest"):
+            with st.spinner("Running backtest..."):
+                backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf = run_backtest(
+                    df, capital, strategy_choice, pd.Timestamp(start_date), pd.Timestamp(end_date)
+                )
+                st.session_state.backtest_run = True
+                st.session_state.backtest_results = {
+                    "backtest_df": backtest_df,
+                    "total_pnl": total_pnl,
+                    "win_rate": win_rate,
+                    "max_drawdown": max_drawdown,
+                    "sharpe_ratio": sharpe_ratio,
+                    "sortino_ratio": sortino_ratio,
+                    "calmar_ratio": calmar_ratio,
+                    "strategy_perf": strategy_perf,
+                    "regime_perf": regime_perf
+                }
+
+        if st.session_state.backtest_run and st.session_state.backtest_results:
+            results = st.session_state.backtest_results
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total PnL", f"₹{results['total_pnl']:,.2f}")
+            with col2:
+                st.metric("Win Rate", f"{results['win_rate']:.2%}")
+            with col3:
+                st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
+            with col4:
+                st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+
+            col5, col6 = st.columns(2)
+            with col5:
+                st.metric("Sortino Ratio", f"{results['sortino_ratio']:.2f}")
+            with col6:
+                st.metric("Calmar Ratio", f"{results['calmar_ratio']:.2f}")
+
+            st.markdown('<div class="expander-header">Backtest PnL Trend</div>', unsafe_allow_html=True)
+            backtest_fig = go.Figure()
+            backtest_fig.add_trace(go.Scatter(x=results['backtest_df'].index, y=results['backtest_df']['PnL'].cumsum(), mode='lines', name='Cumulative PnL', line=dict(color='#e94560')))
+            backtest_fig.update_layout(
+                title="Backtest Cumulative PnL",
+                template='plotly_dark',
+                height=400,
+                margin=dict(l=10, r=10, t=50, b=10),
+                yaxis=dict(title='PnL (₹)'),
+            )
+            st.plotly_chart(backtest_fig, use_container_width=True)
+
+            st.markdown('<div class="expander-header">Strategy Performance</div>', unsafe_allow_html=True)
+            st.dataframe(results['strategy_perf'], use_container_width=True)
+
+            st.markdown('<div class="expander-header">Regime Performance</div>', unsafe_allow_html=True)
+            st.dataframe(results['regime_perf'], use_container_width=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# Footer
+st.markdown('<div class="footer">VolGuard Pro © 2025 | Built with ❤ by Shritish & Salman, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    st.write("Running VolGuard Pro...")
