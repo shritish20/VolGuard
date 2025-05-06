@@ -1,3 +1,4 @@
+
 streamlit
 pandas
 numpy
@@ -11,6 +12,6 @@ requests
 py5paisa
 pyjwt
 plotly
-
-
+py5paisa.strategy
+py5paisa==0.7.4
 
