@@ -132,9 +132,7 @@ def fetch_nifty_data(client):
         if not nifty_spot or not vix:
             raise Exception("Missing NIFTY or VIX price")
 
-        expiries = client.get_expiry("N", "N
-
-IFTY")
+        expiries = client.get_expiry("N", "NIFTY")
         if not expiries or "Data" not in expiries or not expiries["Data"]:
             raise Exception("Failed to fetch expiries")
         expiry_timestamp = expiries["Data"][0]["Timestamp"]
