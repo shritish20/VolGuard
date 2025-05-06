@@ -65,6 +65,7 @@ if "logged_in" not in st.session_state:
 # 5paisa Client Initialization
 def initialize_5paisa_client(totp_code):
     try:
+        logger.info("Initializing 5paisa client")
         cred = {
             "APP_NAME": st.secrets["fivepaisa"]["APP_NAME"],
             "APP_SOURCE": st.secrets["fivepaisa"]["APP_SOURCE"],
@@ -80,6 +81,7 @@ def initialize_5paisa_client(totp_code):
             st.secrets["fivepaisa"]["PIN"]
         )
         if client.get_access_token():
+            logger.info("5paisa client initialized successfully")
             return client
         else:
             logger.error("Failed to get access token")
@@ -90,24 +92,29 @@ def initialize_5paisa_client(totp_code):
 
 # Data Fetching
 def max_pain(df, nifty_spot):
-    calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["OpenInterest"]
-    puts = df[df["CPType"] == "PE"].set_index("StrikeRate")["OpenInterest"]
-    strikes = df["StrikeRate"].unique()
-    pain = []
-    for K in strikes:
-        total_loss = 0
-        for s in strikes:
-            if s in calls:
-                total_loss += max(0, s - K) * calls.get(s, 0)
-            if s in puts:
-                total_loss += max(0, K - s) * puts.get(s, 0)
-        pain.append((K, total_loss))
-    max_pain_strike = min(pain, key=lambda x: x[1])[0]
-    max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
-    return max_pain_strike, max_pain_diff_pct
+    try:
+        calls = df[df["CPType"] == "CE"].set_index("StrikeRate")["OpenInterest"]
+        puts = df[df["CPType"] == "PE"].set_index("StrikeRate")["OpenInterest"]
+        strikes = df["StrikeRate"].unique()
+        pain = []
+        for K in strikes:
+            total_loss = 0
+            for s in strikes:
+                if s in calls:
+                    total_loss += max(0, s - K) * calls.get(s, 0)
+                if s in puts:
+                    total_loss += max(0, K - s) * puts.get(s, 0)
+            pain.append((K, total_loss))
+        max_pain_strike = min(pain, key=lambda x: x[1])[0]
+        max_pain_diff_pct = abs(nifty_spot - max_pain_strike) / nifty_spot * 100
+        return max_pain_strike, max_pain_diff_pct
+    except Exception as e:
+        logger.error(f"Error calculating max pain: {str(e)}")
+        return None, None
 
 def fetch_nifty_data(client):
     try:
+        logger.info("Fetching real-time data from 5paisa API")
         req_list = [
             {"Exch": "N", "ExchType": "C", "ScripCode": 999920000},  # NIFTY 50
             {"Exch": "N", "ExchType": "C", "ScripCode": 999920005}   # India VIX
@@ -149,6 +156,8 @@ def fetch_nifty_data(client):
         pcr = put_oi / call_oi if call_oi != 0 else float("inf")
 
         max_pain_strike, max_pain_diff_pct = max_pain(df, nifty_spot)
+        if max_pain_strike is None:
+            raise Exception("Max pain calculation failed")
 
         vix_change_pct = 0
         iv_file = "vix_history.csv"
@@ -158,6 +167,7 @@ def fetch_nifty_data(client):
             vix_change_pct = ((vix - prev_vix) / prev_vix * 100) if prev_vix != 0 else 0
         pd.DataFrame({"Date": [datetime.now()], "VIX": [vix]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
 
+        logger.info("Real-time data fetched successfully from 5paisa API")
         return {
             "nifty_spot": nifty_spot,
             "vix": vix,
@@ -171,13 +181,16 @@ def fetch_nifty_data(client):
             "expiry": expiries["Data"][0]["ExpiryDate"]
         }
     except Exception as e:
-        logger.error(f"Error fetching 5paisa data: {str(e)}")
+        logger.error(f"Error fetching 5paisa API data: {str(e)}")
         return None
 
-@st.cache_data(ttl=300)
 def load_data(client):
     try:
+        logger.info("Loading data")
         real_data = fetch_nifty_data(client) if client else None
+        data_source = "5paisa API (LIVE)" if real_data else "CSV (FALLBACK)"
+        logger.info(f"Data source: {data_source}")
+
         if real_data is None:
             logger.warning("Falling back to GitHub CSV")
             nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
@@ -244,17 +257,19 @@ def load_data(client):
             df = df[~df.index.duplicated(keep='last')]
             df = df.sort_index()
 
-        logger.debug("Data loaded successfully.")
-        return df, real_data
+        logger.debug(f"Data loaded successfully from {data_source}")
+        return df, real_data, data_source
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         logger.error(f"Error loading data: {str(e)}")
-        return None, None
+        return None, None, None
 
 def fetch_portfolio_data(client, capital):
     try:
+        logger.info("Fetching portfolio data from 5paisa API")
         positions = client.positions()
         if not positions:
+            logger.warning("No positions found")
             return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
         total_pnl = 0
@@ -265,6 +280,7 @@ def fetch_portfolio_data(client, capital):
             total_margin += position.get("MarginUsed", 0)
             total_exposure += position.get("Exposure", 0)
 
+        logger.info("Portfolio data fetched successfully")
         return {
             "weekly_pnl": total_pnl,
             "margin_used": total_margin,
@@ -278,6 +294,7 @@ def fetch_portfolio_data(client, capital):
 @st.cache_data
 def generate_features(df, real_data, capital):
     try:
+        logger.info("Generating features")
         n_days = len(df)
         np.random.seed(42)
         strike_step = 100
@@ -355,7 +372,7 @@ def generate_features(df, real_data, capital):
             df = df.interpolate().fillna(method='bfill')
 
         df.to_csv("volguard_hybrid_data.csv")
-        logger.debug("Features generated successfully.")
+        logger.debug("Features generated successfully")
         return df
     except Exception as e:
         st.error(f"Error generating features: {str(e)}")
@@ -372,10 +389,11 @@ feature_cols = [
 @st.cache_data
 def forecast_volatility_future(df, forecast_horizon):
     try:
+        logger.info("Forecasting volatility")
         df.index = pd.to_datetime(df.index)
         df_garch = df.tail(len(df))
         if len(df_garch) < 200:
-            st.error(f"Insufficient data for GARCH: {len(df_garch)} days.")
+            st.error(f"Insufficient data for GARCH: {len(df_garch)} days")
             return None, None, None, None, None, None, None, None
 
         last_date = df.index[-1]
@@ -451,7 +469,7 @@ def forecast_volatility_future(df, forecast_horizon):
             "Blended_Vol": blended_vols,
             "Confidence": [confidence_score] * forecast_horizon
         })
-        logger.debug("Volatility forecast completed.")
+        logger.debug("Volatility forecast completed")
         return forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, model.feature_importances_
     except Exception as e:
         st.error(f"Error in volatility forecasting: {str(e)}")
@@ -461,14 +479,14 @@ def forecast_volatility_future(df, forecast_horizon):
 # Backtesting
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
-        logger.debug(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
+        logger.info(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
         if df.empty:
-            st.error("Backtest failed: No data available.")
+            st.error("Backtest failed: No data available")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         df_backtest = df.loc[start_date:end_date].copy()
         if len(df_backtest) < 50:
-            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days).")
+            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
@@ -514,45 +532,45 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 if regime == "LOW":
                     if iv_hv_gap > 5 and dte < 10:
                         strategy = "Butterfly Spread"
-                        reason = "Low vol & short expiry favors pinning strategies."
+                        reason = "Low vol & short expiry favors pinning strategies"
                         tags = ["Neutral", "Theta", "Expiry Play"]
                         risk_reward = 2.0
                     else:
                         strategy = "Iron Fly"
-                        reason = "Low volatility and time decay favors delta-neutral Iron Fly."
+                        reason = "Low volatility and time decay favors delta-neutral Iron Fly"
                         tags = ["Neutral", "Theta", "Range Bound"]
 
                 elif regime == "MEDIUM":
                     if iv_hv_gap > 3 and iv_skew > 2:
                         strategy = "Iron Condor"
-                        reason = "Medium vol and skew favor wide-range Iron Condor."
+                        reason = "Medium vol and skew favor wide-range Iron Condor"
                         tags = ["Neutral", "Theta", "Range Bound"]
                         risk_reward = 1.8
                     else:
                         strategy = "Short Strangle"
-                        reason = "Balanced vol, premium-rich environment for Short Strangle."
+                        reason = "Balanced vol, premium-rich environment for Short Strangle"
                         tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
                 elif regime == "HIGH":
                     if iv_hv_gap > 10:
                         strategy = "Jade Lizard"
-                        reason = "High IV + call skew = Jade Lizard for defined upside risk."
+                        reason = "High IV + call skew = Jade Lizard for defined upside risk"
                         tags = ["Skewed", "Volatility", "Defined Risk"]
                         risk_reward = 1.2
                     else:
                         strategy = "Iron Condor"
-                        reason = "High vol favors wide-range Iron Condor for premium collection."
+                        reason = "High vol favors wide-range Iron Condor for premium collection"
                         tags = ["Neutral", "Theta", "Range Bound"]
 
                 elif regime == "EVENT-DRIVEN":
                     if iv > 30 and dte < 5:
                         strategy = "Short Straddle"
-                        reason = "Event + near expiry + IV spike → high premium capture."
+                        reason = "Event + near expiry + IV spike → high premium capture"
                         tags = ["Volatility", "Event", "Neutral"]
                         risk_reward = 1.5
                     else:
                         strategy = "Calendar Spread"
-                        reason = "Event-based uncertainty favors term structure opportunity."
+                        reason = "Event-based uncertainty favors term structure opportunity"
                         tags = ["Volatility", "Event", "Calendar"]
 
                 capital = day_data["Total_Capital"]
@@ -677,7 +695,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         regime_perf = backtest_df.groupby("Regime")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
         regime_perf["Win_Rate"] = backtest_df.groupby("Regime")["PnL"].apply(lambda x: len(x[x > 0]) / len(x) if len(x) > 0 else 0).reset_index(drop=True)
 
-        logger.debug("Backtest completed successfully.")
+        logger.debug("Backtest completed successfully")
         return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf
     except Exception as e:
         st.error(f"Error running backtest: {str(e)}")
@@ -688,6 +706,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 @st.cache_data
 def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital):
     try:
+        logger.info("Generating trading strategy")
         latest = df.iloc[-1]
         avg_vol = np.mean(forecast_log["Blended_Vol"])
         iv = latest["ATM_IV"]
@@ -732,45 +751,45 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         if regime == "LOW":
             if iv_hv_gap > 5 and dte < 10:
                 strategy = "Butterfly Spread"
-                reason = "Low vol & short expiry favors pinning strategies."
+                reason = "Low vol & short expiry favors pinning strategies"
                 tags = ["Neutral", "Theta", "Expiry Play"]
                 risk_reward = 2.0
             else:
                 strategy = "Iron Fly"
-                reason = "Low volatility and time decay favors delta-neutral Iron Fly."
+                reason = "Low volatility and time decay favors delta-neutral Iron Fly"
                 tags = ["Neutral", "Theta", "Range Bound"]
 
         elif regime == "MEDIUM":
             if iv_hv_gap > 3 and iv_skew > 2:
                 strategy = "Iron Condor"
-                reason = "Medium vol and skew favor wide-range Iron Condor."
+                reason = "Medium vol and skew favor wide-range Iron Condor"
                 tags = ["Neutral", "Theta", "Range Bound"]
                 risk_reward = 1.8
             else:
                 strategy = "Short Strangle"
-                reason = "Balanced vol, no events, and premium-rich environment."
+                reason = "Balanced vol, no events, and premium-rich environment"
                 tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
         elif regime == "HIGH":
             if iv_hv_gap > 10:
                 strategy = "Jade Lizard"
-                reason = "High IV + call skew = Jade Lizard for defined upside risk."
+                reason = "High IV + call skew = Jade Lizard for defined upside risk"
                 tags = ["Skewed", "Volatility", "Defined Risk"]
                 risk_reward = 1.2
             else:
                 strategy = "Iron Condor"
-                reason = "High vol favors wide-range Iron Condor for premium collection."
+                reason = "High vol favors wide-range Iron Condor for premium collection"
                 tags = ["Neutral", "Theta", "Range Bound"]
 
         elif regime == "EVENT-DRIVEN":
             if iv > 30 and dte < 5:
                 strategy = "Short Straddle"
-                reason = "Event + near expiry + IV spike → high premium capture."
+                reason = "Event + near expiry + IV spike → high premium capture"
                 tags = ["Volatility", "Event", "Neutral"]
                 risk_reward = 1.5
             else:
                 strategy = "Calendar Spread"
-                reason = "Event-based uncertainty favors term structure opportunity."
+                reason = "Event-based uncertainty favors term structure opportunity"
                 tags = ["Volatility", "Event", "Calendar"]
 
         capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
@@ -782,7 +801,7 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         behavior_score = 8 if deploy < 0.5 * capital else 6
         behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
 
-        logger.debug("Trading strategy generated successfully.")
+        logger.debug("Trading strategy generated successfully")
         return {
             "Regime": regime,
             "Strategy": strategy,
@@ -805,8 +824,9 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
 # Trading Functions
 def place_trade(client, strategy, real_data, capital):
     try:
+        logger.info(f"Placing trade: {strategy['Strategy']}")
         if not real_data or "option_chain" not in real_data or "atm_strike" not in real_data:
-            return False, "Invalid real-time data"
+            return False, "Invalid real-time data from 5paisa API"
 
         option_chain = real_data["option_chain"]
         atm_strike = real_data["atm_strike"]
@@ -886,7 +906,7 @@ def place_trade(client, strategy, real_data, capital):
                 "ExchangeType": "D",
                 "ScripCode": scrip_code,
                 "Quantity": lot_size * lots,
-                "Price": 0,
+                "Price": 0,  # Market order
                 "OrderType": "SELL" if buy_sell == "S" else "BUY",
                 "IsIntraday": False
             }
@@ -905,16 +925,18 @@ def place_trade(client, strategy, real_data, capital):
             if response.get("Status") != 0:
                 return False, f"Order failed for ScripCode {order['ScripCode']}: {response.get('Message', 'Unknown error')}"
 
+        logger.info(f"Trade placed successfully: {strategy['Strategy']} with {lots} lots")
         return True, f"Trade placed successfully: {strategy['Strategy']} with {lots} lots"
-
     except Exception as e:
         logger.error(f"Error placing trade: {str(e)}")
         return False, f"Trade failed: {str(e)}"
 
 def square_off_positions(client):
     try:
+        logger.info("Squaring off all positions")
         response = client.squareoff_all()
         if response.get("Status") == 0:
+            logger.info("All positions squared off successfully")
             return True
         else:
             logger.error(f"Failed to square off positions: {response.get('Message', 'Unknown error')}")
@@ -956,7 +978,7 @@ with st.sidebar:
 
 # Main Execution
 if not st.session_state.logged_in:
-    st.info("Please login to 5paisa from the sidebar to proceed.")
+    st.info("Please login to 5paisa from the sidebar to proceed")
 else:
     st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
     tabs = st.tabs(["Snapshot", "Forecast", "Strategy", "Portfolio", "Journal", "Backtest"])
@@ -968,7 +990,7 @@ else:
             st.session_state.violations = 0
             st.session_state.journal_complete = False
 
-            df, real_data = load_data(st.session_state.client)
+            df, real_data, data_source = load_data(st.session_state.client)
             if df is not None:
                 df = generate_features(df, real_data, capital)
                 if df is not None:
@@ -1008,7 +1030,7 @@ else:
                             st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}")
                         with col4:
                             st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}")
-                        st.markdown(f"**Last Updated**: {last_date} {'(LIVE)' if real_data else '(DEMO)'}")
+                        st.markdown(f"**Last Updated**: {last_date} | **Source**: {data_source}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
                     # Forecast Tab
@@ -1164,7 +1186,7 @@ else:
                         if st.session_state.backtest_run and st.session_state.backtest_results is not None:
                             results = st.session_state.backtest_results
                             if results["backtest_df"].empty:
-                                st.warning("No trades generated for the selected parameters. Try adjusting the date range or strategy.")
+                                st.warning("No trades generated for the selected parameters. Try adjusting the date range or strategy")
                             else:
                                 col1, col2, col3, col4 = st.columns(4)
                                 with col1:
@@ -1198,7 +1220,7 @@ else:
                                     "Risk_Reward": "{:.2f}"
                                 }), use_container_width=True)
                         else:
-                            st.info("Run the analysis to view backtest results.")
+                            st.info("Run the analysis to view backtest results")
                         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
