@@ -11,8 +11,6 @@ from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import os
-from scipy.stats import norm
-import time
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -63,10 +61,6 @@ if "trades" not in st.session_state:
     st.session_state.trades = []
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-if "last_monitor_time" not in st.session_state:
-    st.session_state.last_monitor_time = 0
-if "total_exposure" not in st.session_state:
-    st.session_state.total_exposure = 0
 
 # 5paisa Client Initialization
 def initialize_5paisa_client(totp_code):
@@ -173,7 +167,7 @@ def fetch_nifty_data(client):
             vix_change_pct = ((vix - prev_vix) / prev_vix * 100) if prev_vix != 0 else 0
         pd.DataFrame({"Date": [datetime.now()], "VIX": [vix]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
 
-        logger.info("Real-time data fetched successfully")
+        logger.info("Real-time data fetched successfully from 5paisa API")
         return {
             "nifty_spot": nifty_spot,
             "vix": vix,
@@ -190,7 +184,6 @@ def fetch_nifty_data(client):
         logger.error(f"Error fetching 5paisa API data: {str(e)}")
         return None
 
-@st.cache_data
 def load_data(client):
     try:
         logger.info("Loading data")
@@ -210,7 +203,6 @@ def load_data(client):
             nifty = nifty[["Date", "Close"]].set_index("Date")
             nifty.index = pd.to_datetime(nifty.index)
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
-            nifty = nifty[~nifty.index.duplicated(keep='last')]
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
@@ -221,7 +213,6 @@ def load_data(client):
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
             vix.index = pd.to_datetime(vix.index)
-            vix = vix[~vix.index.duplicated(keep='last')]
 
             common_dates = nifty.index.intersection(vix.index)
             df = pd.DataFrame({
@@ -246,7 +237,6 @@ def load_data(client):
             nifty = nifty[["Date", "Close"]].set_index("Date")
             nifty.index = pd.to_datetime(nifty.index)
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
-            nifty = nifty[~nifty.index.duplicated(keep='last')]
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
             response = requests.get(vix_url)
@@ -257,19 +247,17 @@ def load_data(client):
             vix = vix.dropna(subset=["Date"])
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
             vix.index = pd.to_datetime(vix.index)
-            vix = vix[~vix.index.duplicated(keep='last')]
 
             historical_df = pd.DataFrame({
                 "NIFTY_Close": nifty["NIFTY_Close"],
                 "VIX": vix["VIX"]
             }).dropna()
             historical_df = historical_df[historical_df.index < pd.to_datetime(latest_date)]
-            historical_df = historical_df[~historical_df.index.duplicated(keep='last')]
             df = pd.concat([historical_df, df])
             df = df[~df.index.duplicated(keep='last')]
             df = df.sort_index()
 
-        logger.debug(f"Data loaded successfully from {data_source}, rows: {len(df)}")
+        logger.debug(f"Data loaded successfully from {data_source}")
         return df, real_data, data_source
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
@@ -278,158 +266,29 @@ def load_data(client):
 
 def fetch_portfolio_data(client, capital):
     try:
-        logger.info("Fetching portfolio data")
+        logger.info("Fetching portfolio data from 5paisa API")
         positions = client.positions()
         if not positions:
             logger.warning("No positions found")
-            return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0, "delta": 0}
+            return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
         total_pnl = 0
         total_margin = 0
         total_exposure = 0
-        total_delta = 0
         for position in positions:
             total_pnl += position.get("ProfitLoss", 0)
             total_margin += position.get("MarginUsed", 0)
             total_exposure += position.get("Exposure", 0)
-            total_delta += position.get("Delta", 0)
-        total_exposure = total_exposure / capital * 100 if capital > 0 else 0
 
         logger.info("Portfolio data fetched successfully")
         return {
             "weekly_pnl": total_pnl,
             "margin_used": total_margin,
-            "exposure": total_exposure,
-            "delta": total_delta
+            "exposure": total_exposure / capital * 100 if capital > 0 else 0
         }
     except Exception as e:
         logger.error(f"Error fetching portfolio data: {str(e)}")
-        return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0, "delta": 0}
-
-# Risk Management Functions
-def calculate_option_delta(S, K, T, r, sigma, option_type):
-    try:
-        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-        if option_type == "CE":
-            delta = norm.cdf(d1)
-        else:
-            delta = norm.cdf(d1) - 1
-        return delta
-    except Exception as e:
-        logger.error(f"Error calculating delta: {str(e)}")
-        return 0
-
-def dynamic_stop_loss(vix):
-    if vix < 15:
-        return 0.25
-    elif vix < 20:
-        return 0.20
-    else:
-        return 0.15
-
-def dynamic_max_loss(vix):
-    return dynamic_stop_loss(vix)
-
-def hedge_delta(client, total_delta, nifty_spot, capital):
-    try:
-        futures_lot_size = 25
-        contracts_needed = int(-total_delta)
-        if abs(contracts_needed * futures_lot_size * nifty_spot) > 0.1 * capital:
-            contracts_needed = int(0.1 * capital / (futures_lot_size * nifty_spot)) * np.sign(contracts_needed)
-
-        if abs(contracts_needed) < 1:
-            return True, "Delta within neutral band (±50)"
-
-        order = {
-            "Exchange": "N",
-            "ExchangeType": "C",
-            "ScripCode": 999920000,
-            "Quantity": abs(contracts_needed) * futures_lot_size,
-            "Price": 0,
-            "OrderType": "BUY" if contracts_needed > 0 else "SELL",
-            "IsIntraday": False
-        }
-        response = client.place_order(**order)
-        if response.get("Status") == 0:
-            logger.info(f"Delta hedge: {order['OrderType']} {order['Quantity']} futures")
-            return True, f"Hedged: {order['OrderType']} {order['Quantity']}"
-        return False, f"Hedge failed: {response.get('Message', 'Unknown error')}"
-    except Exception as e:
-        logger.error(f"Error hedging delta: {str(e)}")
-        return False, f"Error: {str(e)}"
-
-def monitor_positions(client, capital, real_data, strategy):
-    try:
-        current_time = time.time()
-        if current_time - st.session_state.last_monitor_time < 900:
-            return True, "Monitoring interval not reached"
-        st.session_state.last_monitor_time = current_time
-
-        logger.info("Monitoring positions")
-        positions = client.positions()
-        if not positions:
-            return True, "No open positions"
-
-        total_pnl = sum(pos.get("ProfitLoss", 0) for pos in positions)
-        total_exposure = sum(pos.get("Exposure", 0) for pos in positions) / capital * 100
-        vix = real_data["vix"] if real_data else 15
-        vix_change_pct = real_data["vix_change_pct"] if real_data else 0
-
-        stop_loss = strategy["Deploy"] * dynamic_stop_loss(vix) if strategy else 0.2 * capital
-        if total_pnl < -stop_loss:
-            success = square_off_positions(client)
-            st.session_state.violations += 1
-            return False, f"Stop-loss triggered: Squared off (P&L: ₹{total_pnl:,.2f})"
-
-        if total_pnl < -0.1 * capital:
-            success = square_off_positions(client)
-            st.session_state.violations += 1
-            return False, f"Drawdown exceeded: Squared off (P&L: ₹{total_pnl:,.2f})"
-
-        if vix_change_pct > 20:
-            success = square_off_positions(client)
-            st.session_state.violations += 1
-            return False, f"VIX spike: Squared off ({vix_change_pct:.2f}%)"
-
-        now = datetime.now()
-        if now.hour == 15 and now.minute >= 25 and now.weekday() < 5:
-            success = square_off_positions(client)
-            return success, "End of day: Squared off"
-
-        total_delta = 0
-        if real_data and "option_chain" in real_data:
-            nifty_spot = real_data["nifty_spot"]
-            for pos in positions:
-                opt_data = real_data["option_chain"][real_data["option_chain"]["ScripCode"] == pos.get("ScripCode")]
-                if not opt_data.empty:
-                    strike = opt_data["StrikeRate"].iloc[0]
-                    option_type = opt_data["CPType"].iloc[0]
-                    T = max(1/365, (pd.to_datetime(real_data["expiry"]) - now).days / 365)
-                    sigma = vix / 100
-                    delta = calculate_option_delta(nifty_spot, strike, T, 0.06, sigma, option_type)
-                    total_delta += delta * pos.get("Quantity", 0) * (-1 if pos.get("OrderType") == "SELL" else 1)
-            if abs(total_delta) > 50:
-                success, message = hedge_delta(client, total_delta, nifty_spot, capital)
-                if not success:
-                    return False, f"Delta hedging failed: {message}"
-
-        return True, "Positions monitored successfully"
-    except Exception as e:
-        logger.error(f"Error monitoring positions: {str(e)}")
-        return False, f"Error: {str(e)}"
-
-def square_off_positions(client):
-    try:
-        logger.info("Squaring off all positions")
-        response = client.squareoff_all()
-        if response.get("Status") == 0:
-            st.session_state.total_exposure = 0
-            logger.info("All positions squared off")
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Error squaring off: {str(e)}")
-        return False
+        return {"weekly_pnl": 0, "margin_used": 0, "exposure": 0}
 
 # Feature Generation
 @st.cache_data
@@ -438,6 +297,7 @@ def generate_features(df, real_data, capital):
         logger.info("Generating features")
         n_days = len(df)
         np.random.seed(42)
+        strike_step = 100
 
         if real_data:
             base_pcr = real_data["pcr"]
@@ -619,7 +479,7 @@ def forecast_volatility_future(df, forecast_horizon):
 # Backtesting
 def run_backtest(df, capital, strategy_choice, start_date, end_date):
     try:
-        logger.info(f"Starting backtest for {strategy_choice}")
+        logger.info(f"Starting backtest for {strategy_choice} from {start_date} to {end_date}")
         if df.empty:
             st.error("Backtest failed: No data available")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
@@ -688,35 +548,35 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                         risk_reward = 1.8
                     else:
                         strategy = "Short Strangle"
-                        reason = "Balanced vol, premium-rich environment"
-                        tags = ["Neutral", "Premium Selling"]
+                        reason = "Balanced vol, premium-rich environment for Short Strangle"
+                        tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
                 elif regime == "HIGH":
                     if iv_hv_gap > 10:
                         strategy = "Jade Lizard"
-                        reason = "High IV + call skew = Jade Lizard"
-                        tags = ["Skewed", "Volatility"]
+                        reason = "High IV + call skew = Jade Lizard for defined upside risk"
+                        tags = ["Skewed", "Volatility", "Defined Risk"]
                         risk_reward = 1.2
                     else:
                         strategy = "Iron Condor"
-                        reason = "High vol favors wide-range Iron Condor"
-                        tags = ["Neutral", "Theta"]
+                        reason = "High vol favors wide-range Iron Condor for premium collection"
+                        tags = ["Neutral", "Theta", "Range Bound"]
 
                 elif regime == "EVENT-DRIVEN":
                     if iv > 30 and dte < 5:
                         strategy = "Short Straddle"
-                        reason = "Event + IV spike → high premium capture"
-                        tags = ["Volatility", "Event"]
+                        reason = "Event + near expiry + IV spike → high premium capture"
+                        tags = ["Volatility", "Event", "Neutral"]
                         risk_reward = 1.5
                     else:
                         strategy = "Calendar Spread"
-                        reason = "Event uncertainty favors term structure"
-                        tags = ["Volatility", "Calendar"]
+                        reason = "Event-based uncertainty favors term structure opportunity"
+                        tags = ["Volatility", "Event", "Calendar"]
 
                 capital = day_data["Total_Capital"]
                 capital_alloc = {"LOW": 0.10, "MEDIUM": 0.08, "HIGH": 0.06, "EVENT-DRIVEN": 0.06}
                 deploy = capital * capital_alloc.get(regime, 0.06)
-                max_loss = deploy * dynamic_max_loss(iv)
+                max_loss = deploy * 0.025
                 return regime, strategy, reason, tags, deploy, max_loss, risk_reward
             except Exception as e:
                 logger.error(f"Error in strategy engine: {str(e)}")
@@ -736,6 +596,24 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 "Short Straddle": 1.5
             }
             return base_slippage * strategy_multipliers.get(strategy, 1.0) * iv_multiplier * dte_factor
+
+        def apply_volatility_shock(pnl, nifty_move, iv, event_flag):
+            shock_prob = 0.35 if event_flag == 1 else 0.20
+            if np.random.rand() < shock_prob:
+                shock_factor = nifty_move / (iv * 100) if iv != 0 else 1.0
+                shock = -abs(pnl) * min(shock_factor * 1.5, 2.0)
+                return shock
+            return pnl
+
+        def apply_liquidity_discount(premium):
+            if np.random.rand() < 0.05:
+                return premium * 0.8
+            return premium
+
+        def apply_execution_delay(premium):
+            if np.random.rand() < 0.10:
+                return premium * 0.9
+            return premium
 
         for i in range(1, len(df_backtest)):
             try:
@@ -758,6 +636,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
                 decay_factor = max(0.75, 1 - day_data["Days_to_Expiry"] / 10)
                 premium = entry_price * lot_size * lots * (1 - slippage - total_cost) * decay_factor
+                premium = apply_liquidity_discount(premium)
+                premium = apply_execution_delay(premium)
+
                 iv_factor = min(day_data["ATM_IV"] / avg_vol, 1.5) if avg_vol != 0 else 1.0
                 breakeven_factor = 0.04 if (day_data["Event_Flag"] == 1 or day_data["ATM_IV"] > 25) else 0.06
                 breakeven = entry_price * (1 + iv_factor * breakeven_factor)
@@ -767,6 +648,15 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 max_strategy_loss = premium * 0.6 if strategy in ["Iron Fly", "Iron Condor"] else premium * 0.8
                 loss = min(loss, max_strategy_loss)
                 pnl = premium - loss
+
+                pnl = apply_volatility_shock(pnl, nifty_move, day_data["ATM_IV"], day_data["Event_Flag"])
+                if (day_data["Event_Flag"] == 1 or day_data["ATM_IV"] > 25) and np.random.rand() < 0.08:
+                    gap_loss = premium * np.random.uniform(0.5, 1.0)
+                    pnl -= gap_loss
+                if np.random.rand() < 0.02:
+                    crash_loss = premium * np.random.uniform(1.0, 1.5)
+                    pnl -= crash_loss
+
                 pnl = max(-max_loss, min(pnl, max_loss * 1.5))
                 portfolio_pnl += pnl
 
@@ -785,7 +675,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
         backtest_df = pd.DataFrame(backtest_results)
         if len(backtest_df) == 0:
-            logger.warning(f"No trades generated for {strategy_choice}")
+            logger.warning(f"No trades generated for {strategy_choice} from {start_date} to {end_date}")
             return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         total_pnl = backtest_df["PnL"].sum()
@@ -827,26 +717,21 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
         dte = latest["Days_to_Expiry"]
         event_flag = latest["Event_Flag"]
 
-        portfolio_data = fetch_portfolio_data(st.session_state.client, capital)
         risk_flags = []
         if latest["VIX"] > 25:
-            risk_flags.append("VIX > 25%")
-        if st.session_state.total_exposure > 50:
-            risk_flags.append("Exposure > 50%")
+            risk_flags.append("VIX > 25% - High Volatility Risk")
+        if latest["Spot_MaxPain_Diff_Pct"] > 70:
+            risk_flags.append("Exposure > 70% - High Exposure Risk")
         if latest["PnL_Day"] < -0.05 * capital:
-            risk_flags.append("Weekly Loss > 5%")
+            risk_flags.append("Weekly Loss > 5% - High Loss Risk")
         if latest["VIX_Change_Pct"] > 10:
-            risk_flags.append("High VIX Spike")
-        if abs(portfolio_data["delta"]) > 100:
-            risk_flags.append("High Delta Exposure")
-        if portfolio_data["weekly_pnl"] < -dynamic_stop_loss(latest["VIX"]) * capital:
-            risk_flags.append("Stop-Loss Breached")
+            risk_flags.append("High VIX Spike Detected")
 
         if risk_flags:
             st.session_state.violations += 1
-            if st.session_state.violations >= 3 and not st.session_state.journal_complete:
+            if st.session_state.violations >= 2 and not st.session_state.journal_complete:
                 st.error("🚨 Discipline Lock: Complete Journaling to Unlock Trading")
-                return None, "Discipline lock activated"
+                return None
 
         if event_flag == 1:
             regime = "EVENT-DRIVEN"
@@ -867,57 +752,53 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
             if iv_hv_gap > 5 and dte < 10:
                 strategy = "Butterfly Spread"
                 reason = "Low vol & short expiry favors pinning strategies"
-                tags = ["Neutral", "Theta"]
+                tags = ["Neutral", "Theta", "Expiry Play"]
                 risk_reward = 2.0
             else:
                 strategy = "Iron Fly"
-                reason = "Low volatility favors delta-neutral Iron Fly"
-                tags = ["Neutral", "Theta"]
+                reason = "Low volatility and time decay favors delta-neutral Iron Fly"
+                tags = ["Neutral", "Theta", "Range Bound"]
 
         elif regime == "MEDIUM":
             if iv_hv_gap > 3 and iv_skew > 2:
                 strategy = "Iron Condor"
                 reason = "Medium vol and skew favor wide-range Iron Condor"
-                tags = ["Neutral", "Theta"]
+                tags = ["Neutral", "Theta", "Range Bound"]
                 risk_reward = 1.8
             else:
                 strategy = "Short Strangle"
-                reason = "Balanced vol, premium-rich environment"
-                tags = ["Neutral", "Premium Selling"]
+                reason = "Balanced vol, no events, and premium-rich environment"
+                tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
 
         elif regime == "HIGH":
             if iv_hv_gap > 10:
                 strategy = "Jade Lizard"
-                reason = "High IV + call skew = Jade Lizard"
-                tags = ["Skewed", "Volatility"]
+                reason = "High IV + call skew = Jade Lizard for defined upside risk"
+                tags = ["Skewed", "Volatility", "Defined Risk"]
                 risk_reward = 1.2
             else:
                 strategy = "Iron Condor"
-                reason = "High vol favors wide-range Iron Condor"
-                tags = ["Neutral", "Theta"]
+                reason = "High vol favors wide-range Iron Condor for premium collection"
+                tags = ["Neutral", "Theta", "Range Bound"]
 
         elif regime == "EVENT-DRIVEN":
             if iv > 30 and dte < 5:
                 strategy = "Short Straddle"
-                reason = "Event + IV spike → high premium capture"
-                tags = ["Volatility", "Event"]
+                reason = "Event + near expiry + IV spike → high premium capture"
+                tags = ["Volatility", "Event", "Neutral"]
                 risk_reward = 1.5
             else:
                 strategy = "Calendar Spread"
-                reason = "Event uncertainty favors term structure"
-                tags = ["Volatility", "Calendar"]
+                reason = "Event-based uncertainty favors term structure opportunity"
+                tags = ["Volatility", "Event", "Calendar"]
 
-        capital_alloc = {"LOW": 0.30, "MEDIUM": 0.20, "HIGH": 0.10, "EVENT-DRIVEN": 0.15}
+        capital_alloc = {"LOW": 0.35, "MEDIUM": 0.25, "HIGH": 0.15, "EVENT-DRIVEN": 0.2}
         position_size = {"Conservative": 0.5, "Moderate": 1.0, "Aggressive": 1.5}[risk_tolerance]
-        deploy = capital * capital_alloc.get(regime, 0.15) * position_size
-        total_exposure = st.session_state.total_exposure + (deploy / capital * 100)
-        if total_exposure > 50:
-            deploy = (50 - st.session_state.total_exposure) * capital / 100
-            if deploy < capital * 0.01:
-                return None, "Exposure limit reached (50% of capital)"
-        max_loss = deploy * dynamic_max_loss(iv)
+        deploy = capital * capital_alloc.get(regime, 0.2) * position_size
+        max_loss = deploy * 0.2
+        total_exposure = deploy / capital
 
-        behavior_score = 8 if deploy < 0.3 * capital else 6
+        behavior_score = 8 if deploy < 0.5 * capital else 6
         behavior_warnings = ["Consider reducing position size"] if behavior_score < 7 else []
 
         logger.debug("Trading strategy generated successfully")
@@ -938,100 +819,131 @@ def generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, co
     except Exception as e:
         st.error(f"Error generating strategy: {str(e)}")
         logger.error(f"Error generating strategy: {str(e)}")
-        return None, f"Error: {str(e)}"
+        return None
 
 # Trading Functions
 def place_trade(client, strategy, real_data, capital):
     try:
         logger.info(f"Placing trade: {strategy['Strategy']}")
         if not real_data or "option_chain" not in real_data or "atm_strike" not in real_data:
-            return False, "Invalid real-time data"
+            return False, "Invalid real-time data from 5paisa API"
 
         option_chain = real_data["option_chain"]
         atm_strike = real_data["atm_strike"]
         lot_size = 25
         deploy = strategy["Deploy"]
-        vix = real_data["vix"]
-        nifty_spot = real_data["nifty_spot"]
+        max_loss = strategy["Max_Loss"]
         expiry = real_data["expiry"]
 
         premium_per_lot = real_data["straddle_price"] * lot_size
-        lots = max(1, int(deploy / premium_per_lot))
-        strikes = []
+        lots = max(1, min(int(deploy / premium_per_lot), int(max_loss / (premium_per_lot * 0.2))))
+
+        orders = []
         if strategy["Strategy"] == "Short Straddle":
             strikes = [(atm_strike, "CE", "S"), (atm_strike, "PE", "S")]
         elif strategy["Strategy"] == "Short Strangle":
-            strikes = [(atm_strike + 100, "CE", "S"), (atm_strike - 100, "PE", "S")]
+            call_strike = atm_strike + 100
+            put_strike = atm_strike - 100
+            strikes = [(call_strike, "CE", "S"), (put_strike, "PE", "S")]
         elif strategy["Strategy"] == "Iron Condor":
+            call_sell_strike = atm_strike + 100
+            call_buy_strike = call_sell_strike + 100
+            put_sell_strike = atm_strike - 100
+            put_buy_strike = put_sell_strike - 100
             strikes = [
-                (atm_strike + 100, "CE", "S"),
-                (atm_strike + 200, "CE", "B"),
-                (atm_strike - 100, "PE", "S"),
-                (atm_strike - 200, "PE", "B")
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
             ]
         elif strategy["Strategy"] == "Iron Fly":
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike + 100
+            put_sell_strike = atm_strike
+            put_buy_strike = atm_strike - 100
             strikes = [
-                (atm_strike, "CE", "S"),
-                (atm_strike + 100, "CE", "B"),
-                (atm_strike, "PE", "S"),
-                (atm_strike - 100, "PE", "B")
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
             ]
         elif strategy["Strategy"] == "Butterfly Spread":
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike + 200
+            put_buy_strike = atm_strike - 200
             strikes = [
-                (atm_strike, "CE", "S"),
-                (atm_strike + 200, "CE", "B"),
-                (atm_strike - 200, "PE", "B")
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B"),
+                (put_buy_strike, "PE", "B")
             ]
         elif strategy["Strategy"] == "Jade Lizard":
+            call_sell_strike = atm_strike + 100
+            put_sell_strike = atm_strike - 100
+            put_buy_strike = atm_strike - 200
             strikes = [
-                (atm_strike + 100, "CE", "S"),
-                (atm_strike - 100, "PE", "S"),
-                (atm_strike - 200, "PE", "B")
+                (call_sell_strike, "CE", "S"),
+                (put_sell_strike, "PE", "S"),
+                (put_buy_strike, "PE", "B")
             ]
         elif strategy["Strategy"] == "Calendar Spread":
-            strikes = [(atm_strike, "CE", "S"), (atm_strike, "CE", "B")]
+            call_sell_strike = atm_strike
+            call_buy_strike = atm_strike
+            strikes = [
+                (call_sell_strike, "CE", "S"),
+                (call_buy_strike, "CE", "B")
+            ]
         else:
             return False, "Unsupported strategy"
 
-        total_delta = 0
-        T = max(1/365, (pd.to_datetime(expiry) - datetime.now()).days / 365)
         for strike, cp_type, buy_sell in strikes:
             opt_data = option_chain[(option_chain["StrikeRate"] == strike) & (option_chain["CPType"] == cp_type)]
             if opt_data.empty:
-                return False, f"No data for {cp_type} at {strike}"
+                return False, f"No option data for {cp_type} at strike {strike}"
             scrip_code = int(opt_data["ScripCode"].iloc[0])
-            delta = calculate_option_delta(nifty_spot, strike, T, 0.06, vix/100, cp_type)
-            total_delta += delta * lot_size * lots * (-1 if buy_sell == "S" else 1)
+            price = float(opt_data["LastRate"].iloc[0])
             order = {
                 "Exchange": "N",
                 "ExchangeType": "D",
                 "ScripCode": scrip_code,
                 "Quantity": lot_size * lots,
-                "Price": 0,
+                "Price": 0,  # Market order
                 "OrderType": "SELL" if buy_sell == "S" else "BUY",
                 "IsIntraday": False
             }
-            response = client.place_order(**order)
+            orders.append(order)
+
+        for order in orders:
+            response = client.place_order(
+                OrderType=order["OrderType"],
+                Exchange=order["Exchange"],
+                ExchangeType=order["ExchangeType"],
+                ScripCode=order["ScripCode"],
+                Qty=order["Quantity"],
+                Price=order["Price"],
+                IsIntraday=order["IsIntraday"]
+            )
             if response.get("Status") != 0:
-                return False, f"Order failed: {response.get('Message', 'Unknown error')}"
+                return False, f"Order failed for ScripCode {order['ScripCode']}: {response.get('Message', 'Unknown error')}"
 
-        if abs(total_delta) > 50:
-            success, message = hedge_delta(client, total_delta, nifty_spot, capital)
-            if not success:
-                return False, f"Trade placed but hedge failed: {message}"
-
-        st.session_state.total_exposure += deploy / capital * 100
-        st.session_state.trades.append({
-            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Strategy": strategy["Strategy"],
-            "Regime": strategy["Regime"],
-            "Risk_Level": risk_tolerance,
-            "Outcome": "Pending"
-        })
-        return True, f"Trade placed: {strategy['Strategy']} with {lots} lots"
+        logger.info(f"Trade placed successfully: {strategy['Strategy']} with {lots} lots")
+        return True, f"Trade placed successfully: {strategy['Strategy']} with {lots} lots"
     except Exception as e:
         logger.error(f"Error placing trade: {str(e)}")
-        return False, f"Error: {str(e)}"
+        return False, f"Trade failed: {str(e)}"
+
+def square_off_positions(client):
+    try:
+        logger.info("Squaring off all positions")
+        response = client.squareoff_all()
+        if response.get("Status") == 0:
+            logger.info("All positions squared off successfully")
+            return True
+        else:
+            logger.error(f"Failed to square off positions: {response.get('Message', 'Unknown error')}")
+            return False
+    except Exception as e:
+        logger.error(f"Error squaring off positions: {str(e)}")
+        return False
 
 # Sidebar Login and Controls
 with st.sidebar:
@@ -1075,6 +987,8 @@ else:
         with st.spinner("Running VolGuard Analysis..."):
             st.session_state.backtest_run = False
             st.session_state.backtest_results = None
+            st.session_state.violations = 0
+            st.session_state.journal_complete = False
 
             df, real_data, data_source = load_data(st.session_state.client)
             if df is not None:
@@ -1096,11 +1010,7 @@ else:
                         "regime_perf": regime_perf
                     }
 
-                    strategy = None
-                    success, message = monitor_positions(st.session_state.client, capital, real_data, strategy)
-                    if not success:
-                        st.error(f"❌ {message}")
-
+                    # Snapshot Tab
                     with tabs[0]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("📊 Market Snapshot")
@@ -1123,6 +1033,7 @@ else:
                         st.markdown(f"**Last Updated**: {last_date} | **Source**: {data_source}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Forecast Tab
                     with tabs[1]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("📈 Volatility Forecast")
@@ -1144,115 +1055,172 @@ else:
                             }, index=forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
                             st.markdown("### Feature Importance")
                             feature_importance = pd.DataFrame({
-                                'Feature': feature_cols,
+                                'Feature': ['VIX', 'ATM_IV', 'IVP', 'PCR', 'VIX_Change_Pct', 'IV_Skew', 'Straddle_Price',
+                                            'Spot_MaxPain_Diff_Pct', 'Days_to_Expiry', 'Event_Flag', 'FII_Index_Fut_Pos',
+                                            'FII_Option_Pos'],
                                 'Importance': feature_importances
                             }).sort_values(by='Importance', ascending=False)
                             st.dataframe(feature_importance, use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Strategy Tab
                     with tabs[2]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("🎯 Trading Strategies")
                         strategy = generate_trading_strategy(df, forecast_log, realized_vol, risk_tolerance, confidence_score, capital)
-                        if strategy is None or isinstance(strategy, tuple):
+                        if strategy is None:
                             st.markdown('<div class="alert-banner">🚨 Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
                         else:
-                            st.markdown(f"**Recommended Strategy**: {strategy['Strategy']}")
-                            st.markdown(f"**Regime**: {strategy['Regime']}")
-                            st.markdown(f"**Reason**: {strategy['Reason']}")
-                            st.markdown(f"**Tags**: {', '.join(strategy['Tags'])}")
-                            st.markdown(f"**Confidence**: {strategy['Confidence']:.2%}")
-                            st.markdown(f"**Risk/Reward**: {strategy['Risk_Reward']:.2f}")
-                            st.markdown(f"**Capital to Deploy**: ₹{strategy['Deploy']:,.2f}")
-                            st.markdown(f"**Max Loss**: ₹{strategy['Max_Loss']:,.2f}")
-                            st.markdown(f"**Exposure**: {strategy['Exposure']:.2f}%")
+                            regime_class = {
+                                "LOW": "regime-low",
+                                "MEDIUM": "regime-medium",
+                                "HIGH": "regime-high",
+                                "EVENT-DRIVEN": "regime-event"
+                            }.get(strategy["Regime"], "regime-low")
+                            st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
+                            st.markdown(f"""
+                                <div class="strategy-card">
+                                    <h4>{strategy["Strategy"]}</h4>
+                                    <span class="regime-badge {regime_class}">{strategy["Regime"]}</span>
+                                    <p><b>Reason:</b> {strategy["Reason"]}</p>
+                                    <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
+                                    <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
+                                    <p><b>Capital:</b> ₹{strategy["Deploy"]:,.0f}</p>
+                                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
+                                    <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
                             if strategy["Risk_Flags"]:
-                                st.markdown("**Risk Flags**: " + "; ".join(strategy["Risk_Flags"]))
-                            if strategy["Behavior_Warnings"]:
-                                st.markdown("**Behavior Warnings**: " + "; ".join(strategy["Behavior_Warnings"]))
-                            if st.button("Execute Trade"):
+                                st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
+                            if st.button("Trade Now"):
                                 success, message = place_trade(st.session_state.client, strategy, real_data, capital)
                                 if success:
+                                    trade_log = {
+                                        "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "Strategy": strategy["Strategy"],
+                                        "Regime": strategy["Regime"],
+                                        "Risk_Level": "High" if strategy["Risk_Flags"] else "Low",
+                                        "Outcome": "Pending"
+                                    }
+                                    st.session_state.trades.append(trade_log)
+                                    pd.DataFrame(st.session_state.trades).to_csv("trade_log.csv", index=False)
                                     st.success(f"✅ {message}")
                                 else:
                                     st.error(f"❌ {message}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Portfolio Tab
                     with tabs[3]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("💼 Portfolio Overview")
                         portfolio_data = fetch_portfolio_data(st.session_state.client, capital)
-                        col1, col2, col3, col4 = st.columns(4)
+                        col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Weekly P&L", f"₹{portfolio_data['weekly_pnl']:,.2f}")
                         with col2:
                             st.metric("Margin Used", f"₹{portfolio_data['margin_used']:,.2f}")
                         with col3:
                             st.metric("Exposure", f"{portfolio_data['exposure']:.2f}%")
-                        with col4:
-                            st.metric("Portfolio Delta", f"{portfolio_data['delta']:.2f}")
                         st.markdown("### Open Positions")
-                        positions = st.session_state.client.positions()
-                        if positions:
-                            pos_df = pd.DataFrame(positions)
-                            st.dataframe(pos_df[["ScripCode", "Quantity", "ProfitLoss", "Exposure"]], use_container_width=True)
-                        else:
-                            st.info("No open positions")
+                        try:
+                            positions = st.session_state.client.positions()
+                            pos_df = pd.DataFrame(positions) if isinstance(positions, list) else pd.DataFrame([positions])
+                            st.dataframe(pos_df, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Positions Error: {e}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Journal Tab
                     with tabs[4]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
-                        st.subheader("📝 Trading Journal")
-                        if st.session_state.violations >= 3 and not st.session_state.journal_complete:
-                            st.markdown('<div class="alert-banner">🚨 Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
-                        with st.form("journal_form"):
-                            st.write("Log your trade details")
-                            trade_date = st.date_input("Trade Date", value=datetime.now())
-                            strategy_used = st.text_input("Strategy Used")
-                            outcome = st.selectbox("Outcome", ["Profit", "Loss", "Breakeven"])
-                            lessons = st.text_area("Lessons Learned")
-                            submitted = st.form_submit_button("Submit Journal Entry")
-                            if submitted:
-                                st.session_state.trades.append({
-                                    "Date": trade_date.strftime("%Y-%m-%d"),
-                                    "Strategy": strategy_used,
-                                    "Outcome": outcome,
-                                    "Lessons": lessons
-                                })
+                        st.subheader("📝 Discipline Hub")
+                        with st.form(key="journal_form"):
+                            reason_strategy = st.selectbox("Why did you choose this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Other"])
+                            override_risk = st.radio("Did you override any risk flags?", ("Yes", "No"))
+                            expected_outcome = st.text_area("Expected Outcome")
+                            submit_journal = st.form_submit_button("Submit Journal Entry")
+                            if submit_journal:
+                                score = 0
+                                if override_risk == "No":
+                                    score += 3
+                                if reason_strategy != "Other":
+                                    score += 3
+                                if expected_outcome:
+                                    score += 3
+                                if portfolio_data["weekly_pnl"] > 0:
+                                    score += 1
+                                score = min(score, 10)
+                                journal_entry = {
+                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "Strategy_Reason": reason_strategy,
+                                    "Override_Risk": override_risk,
+                                    "Expected_Outcome": expected_outcome,
+                                    "Discipline_Score": score
+                                }
+                                journal_df = pd.DataFrame([journal_entry])
+                                journal_file = "journal_log.csv"
+                                journal_df.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
+                                st.success(f"Journal Entry Saved! Discipline Score: {score}/10")
+                                if score >= 8:
+                                    st.markdown("""
+                                        <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+                                        <script>
+                                            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                                        </script>
+                                    """, unsafe_allow_html=True)
                                 st.session_state.journal_complete = True
-                                st.success("✅ Journal entry submitted. Trading unlocked!")
-                        st.markdown("### Trade History")
-                        if st.session_state.trades:
-                            trades_df = pd.DataFrame(st.session_state.trades)
-                            st.dataframe(trades_df, use_container_width=True)
-                        else:
-                            st.info("No trades logged yet")
+                                if st.session_state.violations > 0:
+                                    st.session_state.violations = 0
+                                    st.success("✅ Discipline Lock Removed")
+                        st.markdown("### Past Entries")
+                        if os.path.exists("journal_log.csv"):
+                            journal_df = pd.read_csv("journal_log.csv")
+                            st.dataframe(journal_df, use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Backtest Tab
                     with tabs[5]:
                         st.markdown('<div class="card">', unsafe_allow_html=True)
                         st.subheader("📉 Backtest Results")
-                        if st.session_state.backtest_run and st.session_state.backtest_results:
+                        if st.session_state.backtest_run and st.session_state.backtest_results is not None:
                             results = st.session_state.backtest_results
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
-                                st.metric("Win Rate", f"{results['win_rate']:.2%}")
-                            with col2:
-                                st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
-                                st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
-                            with col3:
-                                st.metric("Sortino Ratio", f"{results['sortino_ratio']:.2f}")
-                                st.metric("Calmar Ratio", f"{results['calmar_ratio']:.2f}")
-                            st.markdown("### Performance by Strategy")
-                            st.dataframe(results["strategy_perf"], use_container_width=True)
-                            st.markdown("### Performance by Regime")
-                            st.dataframe(results["regime_perf"], use_container_width=True)
-                            st.markdown("### P&L Over Time")
-                            st.line_chart(results["backtest_df"]["PnL"].cumsum())
+                            if results["backtest_df"].empty:
+                                st.warning("No trades generated for the selected parameters. Try adjusting the date range or strategy")
+                            else:
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
+                                with col2:
+                                    st.metric("Win Rate", f"{results['win_rate']*100:.2f}%")
+                                with col3:
+                                    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+                                with col4:
+                                    st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
+                                st.markdown("### Cumulative P&L")
+                                cum_pnl = results["backtest_df"]["PnL"].cumsum()
+                                st.line_chart(cum_pnl, color="#e94560")
+                                st.markdown("### Strategy Performance")
+                                st.dataframe(results["strategy_perf"].style.format({
+                                    "sum": "₹{:,.2f}",
+                                    "mean": "₹{:,.2f}",
+                                    "Win_Rate": "{:.2%}"
+                                }), use_container_width=True)
+                                st.markdown("### Regime Performance")
+                                st.dataframe(results["regime_perf"].style.format({
+                                    "sum": "₹{:,.2f}",
+                                    "mean": "₹{:,.2f}",
+                                    "Win_Rate": "{:.2%}"
+                                }), use_container_width=True)
+                                st.markdown("### Detailed Backtest Results")
+                                st.dataframe(results["backtest_df"].style.format({
+                                    "PnL": "₹{:,.2f}",
+                                    "Capital_Deployed": "₹{:,.2f}",
+                                    "Max_Loss": "₹{:,.2f}",
+                                    "Risk_Reward": "{:.2f}"
+                                }), use_container_width=True)
                         else:
-                            st.info("Run analysis to see backtest results")
+                            st.info("Run the analysis to view backtest results")
                         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Footer
-    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
