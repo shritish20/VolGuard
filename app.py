@@ -165,7 +165,7 @@ def fetch_nifty_data(client):
             iv_history = pd.read_csv(iv_file)
             prev_vix = iv_history["VIX"].iloc[-1] if not iv_history.empty else vix
             vix_change_pct = ((vix - prev_vix) / prev_vix * 100) if prev_vix != 0 else 0
-        pd.DataFrame({"Date": [datetime.now()], "VIX": [vix]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
+        pd.DataFrame({"Date": [datetime.now().date()], "VIX": [vix]}).to_csv(iv_file, mode='a', header=not os.path.exists(iv_file), index=False)
 
         logger.info("Real-time data fetched successfully from 5paisa API")
         return {
@@ -200,8 +200,12 @@ def load_data(client):
             nifty.columns = nifty.columns.str.strip()
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
+            nifty["Date"] = nifty["Date"].dt.normalize()  # Normalize to date-only
+            # Check for duplicates in CSV
+            if nifty["Date"].duplicated().sum() > 0:
+                logger.warning(f"Found {nifty['Date'].duplicated().sum()} duplicate dates in nifty_50.csv. Aggregating by last value.")
+                nifty = nifty.groupby("Date").last().reset_index()
             nifty = nifty[["Date", "Close"]].set_index("Date")
-            nifty.index = nifty.index.normalize()  # Normalize to date-only
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -211,22 +215,28 @@ def load_data(client):
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
+            vix["Date"] = vix["Date"].dt.normalize()  # Normalize to date-only
+            # Check for duplicates in CSV
+            if vix["Date"].duplicated().sum() > 0:
+                logger.warning(f"Found {vix['Date'].duplicated().sum()} duplicate dates in india_vix.csv. Aggregating by last value.")
+                vix = vix.groupby("Date").last().reset_index()
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = vix.index.normalize()  # Normalize to date-only
 
             common_dates = nifty.index.intersection(vix.index)
             df = pd.DataFrame({
                 "NIFTY_Close": nifty["NIFTY_Close"].loc[common_dates],
                 "VIX": vix["VIX"].loc[common_dates]
             }, index=common_dates)
-            df = df.loc[~df.index.duplicated(keep='last')]  # Remove duplicates
+            # Final deduplication
+            df = df.groupby(df.index).last()
+            df = df.sort_index()
             df = df.ffill().bfill()
         else:
             latest_date = datetime.now().date()
             df = pd.DataFrame({
                 "NIFTY_Close": [real_data["nifty_spot"]],
                 "VIX": [real_data["vix"]]
-            }, index=[pd.to_datetime(latest_date)])
+            }, index=[pd.to_datetime(latest_date).normalize()])
 
             nifty_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
             response = requests.get(nifty_url)
@@ -235,8 +245,12 @@ def load_data(client):
             nifty.columns = nifty.columns.str.strip()
             nifty["Date"] = pd.to_datetime(nifty["Date"], format="%d-%b-%Y", errors="coerce")
             nifty = nifty.dropna(subset=["Date"])
+            nifty["Date"] = nifty["Date"].dt.normalize()  # Normalize to date-only
+            # Check for duplicates in CSV
+            if nifty["Date"].duplicated().sum() > 0:
+                logger.warning(f"Found {nifty['Date'].duplicated().sum()} duplicate dates in nifty_50.csv. Aggregating by last value.")
+                nifty = nifty.groupby("Date").last().reset_index()
             nifty = nifty[["Date", "Close"]].set_index("Date")
-            nifty.index = nifty.index.normalize()  # Normalize to date-only
             nifty = nifty.rename(columns={"Close": "NIFTY_Close"})
 
             vix_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/india_vix.csv"
@@ -246,29 +260,31 @@ def load_data(client):
             vix.columns = vix.columns.str.strip()
             vix["Date"] = pd.to_datetime(vix["Date"], format="%d-%b-%Y", errors="coerce")
             vix = vix.dropna(subset=["Date"])
+            vix["Date"] = vix["Date"].dt.normalize()  # Normalize to date-only
+            # Check for duplicates in CSV
+            if vix["Date"].duplicated().sum() > 0:
+                logger.warning(f"Found {vix['Date'].duplicated().sum()} duplicate dates in india_vix.csv. Aggregating by last value.")
+                vix = vix.groupby("Date").last().reset_index()
             vix = vix[["Date", "Close"]].set_index("Date").rename(columns={"Close": "VIX"})
-            vix.index = vix.index.normalize()  # Normalize to date-only
 
             historical_df = pd.DataFrame({
                 "NIFTY_Close": nifty["NIFTY_Close"],
                 "VIX": vix["VIX"]
             }).dropna()
-            historical_df = historical_df[historical_df.index < pd.to_datetime(latest_date)]
+            historical_df = historical_df[historical_df.index < pd.to_datetime(latest_date).normalize()]
 
             # Ensure indices are date-only
             historical_df.index = historical_df.index.normalize()
             df.index = df.index.normalize()
 
-            # Combine historical and real-time data, prioritizing real-time data
-            df = pd.concat([historical_df, df]).sort_index()
-
-            # Remove duplicates, keeping the last entry (real-time data takes precedence)
-            df = df.loc[~df.index.duplicated(keep='last')]
-
-            # Ensure the dataframe is sorted by index
+            # Combine historical and real-time data
+            df = pd.concat([historical_df, df])
+            # Aggregate duplicates by taking the last value
+            df = df.groupby(df.index).last()
+            # Ensure sorted index
             df = df.sort_index()
 
-        logger.debug(f"Data loaded successfully from {data_source}")
+        logger.debug(f"Data loaded successfully from {data_source}. Shape: {df.shape}")
         return df, real_data, data_source
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
@@ -505,14 +521,14 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         # Ensure unique index
-        df = df.loc[~df.index.duplicated(keep='last')]
-        df_backtest = df.loc[start_date:end_date].copy()
-        if len(df_backtest) < 50:
-            st.error(f"Backtest failed: Insufficient data ({len(df_backtest)} days)")
+        df = df.groupby(df.index).last()
+        df = df.loc[start_date:end_date].copy()
+        if len(df) < 50:
+            st.error(f"Backtest failed: Insufficient data ({len(df)} days)")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
 
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price"]
-        missing_cols = [col for col in required_cols if col not in df_backtest.columns]
+        missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             st.error(f"Backtest failed: Missing columns {missing_cols}")
             return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
@@ -523,7 +539,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         stt = 0.0005
         portfolio_pnl = 0
         risk_free_rate = 0.06 / 126
-        nifty_returns = df_backtest["NIFTY_Close"].pct_change()
+        nifty_returns = df["NIFTY_Close"].pct_change()
 
         def run_strategy_engine(day_data, avg_vol, portfolio_pnl):
             try:
@@ -637,12 +653,12 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 return premium * 0.9
             return premium
 
-        for i in range(1, len(df_backtest)):
+        for i in range(1, len(df)):
             try:
-                day_data = df_backtest.iloc[i]
-                prev_day = df_backtest.iloc[i-1]
+                day_data = df.iloc[i]
+                prev_day = df.iloc[i-1]
                 date = day_data.name
-                avg_vol = df_backtest["Realized_Vol"].iloc[max(0, i-5):i].mean()
+                avg_vol = df["Realized_Vol"].iloc[max(0, i-5):i].mean()
 
                 regime, strategy, reason, tags, deploy, max_loss, risk_reward = run_strategy_engine(day_data, avg_vol, portfolio_pnl)
 
@@ -705,12 +721,14 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         max_drawdown = (backtest_df["PnL"].cumsum().cummax() - backtest_df["PnL"].cumsum()).max() if len(backtest_df) > 0 else 0
 
         backtest_df.set_index("Date", inplace=True)
-        returns = backtest_df["PnL"] / df_backtest["Total_Capital"].reindex(backtest_df.index, method="ffill")
-        nifty_returns = df_backtest["NIFTY_Close"].pct_change().reindex(backtest_df.index, method="ffill").fillna(0)
+        # Ensure unique index for reindexing
+        df = df.groupby(df.index).last()
+        returns = backtest_df["PnL"] / df["Total_Capital"].reindex(backtest_df.index, method="ffill").fillna(capital)
+        nifty_returns = df["NIFTY_Close"].pct_change().reindex(backtest_df.index, method="ffill").fillna(0)
         excess_returns = returns - nifty_returns - risk_free_rate
         sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(126) if excess_returns.std() != 0 else 0
         sortino_ratio = excess_returns.mean() / excess_returns[excess_returns < 0].std() * np.sqrt(126) if len(excess_returns[excess_returns < 0]) > 0 and excess_returns[excess_returns < 0].std() != 0 else 0
-        calmar_ratio = (total_pnl / capital) / (max_drawdown / capital) if max_drawdown != 0 else 0
+        calmar_ratio = (total_pnl / capital) / (max_drawdown / capital) if max_drawdown != 0 else float('inf')
 
         strategy_perf = backtest_df.groupby("Strategy")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
         strategy_perf["Win_Rate"] = backtest_df.groupby("Strategy")["PnL"].apply(lambda x: len(x[x > 0]) / len(x) if len(x) > 0 else 0).reset_index(drop=True)
