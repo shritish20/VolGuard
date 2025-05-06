@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Page config
-st.set_page_config(page_title="VolGuard Pro - Option Seller's Copilot", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="VolGuard Pro -AI Powered Copilot", page_icon="🛡️", layout="wide")
 
 # Custom CSS for a Sensibull/Kite-like UI
 st.markdown("""
