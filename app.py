@@ -259,12 +259,13 @@ def fetch_nifty_data(client):
             {"Exch": "N", "ExchType": "C", "ScripCode": 999920005}   # India VIX
         ]
         max_retries = 3
+        market_feed = None
         for attempt in range(max_retries):
             try:
                 market_feed = client.fetch_market_feed(req_list)
-                if not market_feed or "Data" not in market_feed:
-                    raise Exception("Empty or invalid market feed response")
-                if len(market_feed["Data"]) < 1:
+                if market_feed is None or not isinstance(market_feed, dict) or "Data" not in market_feed:
+                    raise Exception("Invalid market feed response: Response is None or missing 'Data' key")
+                if not market_feed["Data"]:
                     raise Exception("No data returned for NIFTY 50")
                 break
             except Exception as e:
@@ -274,6 +275,11 @@ def fetch_nifty_data(client):
                     return None
                 logger.warning(f"Market feed attempt {attempt + 1} failed: {str(e)}. Retrying...")
                 continue
+
+        if market_feed is None or not market_feed.get("Data"):
+            logger.error("Market feed is None or contains no data")
+            st.error("❌ Failed to fetch NIFTY 50 and VIX data from 5paisa API: No data received")
+            return None
 
         nifty_data = next((item for item in market_feed["Data"] if item["ScripCode"] == 999920000), None)
         vix_data = next((item for item in market_feed["Data"] if item["ScripCode"] == 999920005), None)
@@ -1437,18 +1443,25 @@ else:
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Market Trends")
-        trend_fig = go.Figure()
-        trend_fig.add_trace(go.Scatter(x=df.index[-30:], y=df['NIFTY_Close'].iloc[-30:], mode='lines', name='NIFTY 50', line=dict(color='#e94560')))
-        trend_fig.add_trace(go.Scatter(x=df.index[-30:], y=df['VIX'].iloc[-30:], mode='lines', name='India VIX', line=dict(color='#ffcc00'), yaxis='y2'))
-        trend_fig.update_layout(
-            template='plotly_dark',
-            height=400,
-            margin=dict(l=10, r=10, t=30, b=10),
-            yaxis=dict(title='NIFTY 50', titlefont=dict(color='#e94560'), tickfont=dict(color='#e94560')),
-            yaxis2=dict(title='India VIX', titlefont=dict(color='#ffcc00'), tickfont=dict(color='#ffcc00'), overlaying='y', side='right'),
-            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5)
-        )
-        st.plotly_chart(trend_fig, use_container_width=True)
+        # Ensure data is valid before plotting
+        df_last_30 = df.iloc[-30:].copy()
+        if len(df_last_30) < 2 or df_last_30['NIFTY_Close'].isna().all() or df_last_30['VIX'].isna().all():
+            st.warning("Insufficient or invalid data to plot market trends. Please ensure NIFTY 50 and VIX data are available.")
+        else:
+            trend_fig = go.Figure()
+            trend_fig.add_trace(go.Scatter(x=df_last_30.index, y=df_last_30['NIFTY_Close'], mode='lines', name='NIFTY 50', line=dict(color='#e94560')))
+            trend_fig.add_trace(go.Scatter(x=df_last_30.index, y=df_last_30['VIX'], mode='lines', name='India VIX', line=dict(color='#ffcc00'), yaxis='y2'))
+            trend_fig.update_layout(
+                height=400,
+                margin=dict(l=10, r=10, t=30, b=10),
+                yaxis=dict(title='NIFTY 50', titlefont=dict(color='#e94560'), tickfont=dict(color='#e94560')),
+                yaxis2=dict(title='India VIX', titlefont=dict(color='#ffcc00'), tickfont=dict(color='#ffcc00'), overlaying='y', side='right'),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+                plot_bgcolor='#1a1a2e',
+                paper_bgcolor='#1a1a2e',
+                font=dict(color='#e5e5e5')
+            )
+            st.plotly_chart(trend_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Forecast Tab
