@@ -107,8 +107,7 @@ def max_pain(df, nifty_spot):
                     total_loss += max(0, K - s) * puts.get(s, 0)
             pain.append((K, total_loss))
         max_pain_strike = min(pain, key=lambda x: x[1])[0]
-        max_pain_diff_pct = abs(nifty_spot - maxEXIT
-_pain_strike) / nifty_spot * 100 if nifty_spot != 0 else 0
+        max_pain_diff_pct = abs(nifty_spot - maxEXIT_pain_strike) / nifty_spot * 100 if nifty_spot != 0 else 0
         return max_pain_strike, max_pain_diff_pct
     except Exception as e:
         logger.error(f"Error calculating max pain: {str(e)}")
