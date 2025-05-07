@@ -865,7 +865,6 @@ else:
                     <p><b>Risk-Reward (Est):</b> {strategy["Risk_Reward"]:.2f}:1</p>
                     <p><b>Capital Deploy (Est):</b> ₹{strategy["Deploy"]:,.0f}</p>
                     <p><b>Max Loss (Est):</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                    <p><b>Max Profit (Est):</b> {f'₹{strategy["Max_Profit"]:,.0f}' if strategy["Max_Profit"] != float('inf') else 'Unlimited'}</p>
                      <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
                 </div>
             """, unsafe_allow_html=True)
