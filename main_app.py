@@ -890,7 +890,7 @@ else:
         # This is a proxy; actual VaR for options is more complex
 
         if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty and portfolio_summary.get('total_capital') is not None:
-             df_va r = st.session_state.analysis_df.copy()
+             df_var = st.session_state.analysis_df.copy()
              # Calculate daily percentage returns for Nifty
              df_var['NIFTY_Daily_Return'] = df_var['NIFTY_Close'].pct_change()
              # Drop the first row which will have NaN return
