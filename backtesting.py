@@ -471,7 +471,7 @@ def calculate_trade_pnl(strategy, day_data_start, day_data_end, strategy_legs_de
         return total_daily_pnl # Return gross PnL for the day
 
 
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Error calculating trade PnL using Black-Scholes for {strategy} on {day_data_start.name}: {str(e)}", exc_info=True)
         return 0.0 # Return 0 PnL on error
 
