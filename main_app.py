@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions
 from data_processing import load_data, generate_features, FEATURE_COLS
 from volatility_forecasting import forecast_volatility_future
-from backtesting import run_backtest 
+from backtesting import run_backtest # Import the updated run_backtest
 from strategy_generation import generate_trading_strategy
 
 
@@ -32,22 +32,22 @@ st.markdown("""
         .stTabs [data-baseweb="tab"]:hover { background: #2a2a4a; color: white; }
         .sidebar .stButton>button { width: 100%; background: #0f3460; color: white; border-radius: 10px; padding: 12px; margin: 5px 0; }
         .sidebar .stButton>button:hover { transform: scale(1.05); background: #e94560; }
-        .card { background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9)); border-radius: 15px; padding: 20px; margin: 15px 0; box_shadow: 0 8px 20px rgba(0, 0, 0, 0.4); }
+        .card { background: linear-gradient(145deg, rgba(22, 33, 62, 0.85), rgba(10, 25, 47, 0.9)); border-radius: 15px; padding: 20px; margin: 15px 0; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); }
         .card:hover { transform: translateY(-5px); }
-        .strategy-carousel { display: flex; overflow_x: auto; gap: 20px; padding: 10px; }
+        .strategy-carousel { display: flex; overflow-x: auto; gap: 20px; padding: 10px; }
         .strategy-card { flex: 0 0 auto; width: 300px; background: #16213e; border-radius: 15px; padding: 20px; }
         .strategy-card:hover { transform: scale(1.05); }
-        .stMetric { background: rgba(15, 52, 96, 0.7); border-radius: 15px; padding: 15px; text_align: center; }
-        .gauge { width: 100px; height: 100px; border-radius: 50%; background: conic_gradient(#e94560 0% 50%, #00d4ff 50% 100%); display: flex; align_items: center; justify_content: center; color: white; font_weight: bold; font_size: 18px; }
-        .regime-badge { padding: 8px 15px; border-radius: 20px; font_weight: bold; font_size: 14px; text_transform: uppercase; }
+        .stMetric { background: rgba(15, 52, 96, 0.7); border-radius: 15px; padding: 15px; text-align: center; }
+        .gauge { width: 100px; height: 100px; border-radius: 50%; background: conic-gradient(#e94560 0% 50%, #00d4ff 50% 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; }
+        .regime-badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; text-transform: uppercase; }
         .regime-low { background: #28a745; color: white; }
         .regime-medium { background: #ffc107; color: black; }
         .regime-high { background: #dc3545; color: white; }
         .regime-event { background: #ff6f61; color: white; }
-        .alert-banner { background: #dc3545; color: white; padding: 15px; border-radius: 10px; position: sticky; top: 0; z_index: 100; }
-        .stButton>button { background: #e94560; color: white; border_radius: 10px; padding: 12px 25px; font_size: 16px; }
+        .alert-banner { background: #dc3545; color: white; padding: 15px; border-radius: 10px; position: sticky; top: 0; z-index: 100; }
+        .stButton>button { background: #e94560; color: white; border-radius: 10px; padding: 12px 25px; font-size: 16px; }
         .stButton>button:hover { transform: scale(1.05); background: #ffcc00; }
-        .footer { text_align: center; padding: 20px; color: #a0a0a0; font_size: 14px; border_top: 1px solid rgba(255, 255, 255, 0.1); margin_top: 30px; }
+        .footer { text-align: center; padding: 20px; color: #a0a0a0; font-size: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 30px; }
     </style>
 """, unsafe_allow_html=True)
 
