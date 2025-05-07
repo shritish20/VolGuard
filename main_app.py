@@ -894,9 +894,9 @@ else:
              # Calculate daily percentage returns for Nifty
              df_var['NIFTY_Daily_Return'] = df_var['NIFTY_Close'].pct_change()
              # Drop the first row which will have NaN return
-             df_var = df_va r.dropna(subset=['NIFTY_Daily_Return'])
+             df_var = df_var.dropna(subset=['NIFTY_Daily_Return'])
 
-             if not df_va r.empty:
+             if not df_var.empty:
                   # Define confidence level (e.g., 99%)
                   confidence_level = 0.99
                   # Calculate the corresponding percentile (1 - confidence level)
