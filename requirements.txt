@@ -11,5 +11,14 @@ matplotlib
 requests
 py5paisa
 pyjwt
-plotly
+plotlystreamlit==1.38.0
+pandas==2.2.2
+numpy==1.26.4
+requests==2.32.3
+py5paisa==0.7.2
+arch==6.3.0
+xgboost==2.0.3
+scikit-learn==1.4.2
+python-dateutil==2.9.0
+pyotp==2.9.0
 
