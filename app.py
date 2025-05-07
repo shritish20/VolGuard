@@ -692,7 +692,7 @@ def forecast_volatility_future(df, forecast_horizon):
         df = df.copy()
         df.index = pd.to_datetime(df.index).normalize()
         # Ensure df has enough data and required columns
-        if len(df) < 200 or not all(col in df.columns for feature_cols + ['NIFTY_Close', 'Realized_Vol']):
+        if len(df) < 200 or not all(col in df.columns for col in list(feature_cols) + ['NIFTY_Close', 'Realized_Vol']):
             st.error("Insufficient data or missing columns for volatility forecasting.")
             logger.error(f"Insufficient data ({len(df)} days) or missing columns for forecasting.")
             return None, None, None, None, None, None, None, None
