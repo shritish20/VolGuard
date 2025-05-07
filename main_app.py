@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timedelta
 
 # Import modularized components
-from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions
+from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions, fetch_market_depth_by_scrip # Import fetch_market_depth_by_scrip
 from data_processing import load_data, generate_features, FEATURE_COLS
 from volatility_forecasting import forecast_volatility_future
 from backtesting import run_backtest # Import the updated run_backtest
@@ -80,8 +80,10 @@ if "forecast_metrics" not in st.session_state:
      st.session_state.forecast_metrics = None
 if "generated_strategy" not in st.session_state:
      st.session_state.generated_strategy = None
-if "backtest_cumulative_pnl_chart_data" not in st.session_state: # Added for the new chart data
+if "backtest_cumulative_pnl_chart_data" not in st.session_state:
      st.session_state.backtest_cumulative_pnl_chart_data = None
+if "active_strategy_details" not in st.session_state: # Added to store active strategy info for dashboard
+     st.session_state.active_strategy_details = None
 
 
 # Fetch portfolio data (can be called on tab switch or button click)
@@ -90,13 +92,34 @@ def fetch_portfolio_data(client, capital):
      Fetches and summarizes relevant portfolio data from API with type checking.
      """
      portfolio_summary = {
-         "weekly_pnl": 0.0,
+         "weekly_pnl": 0.0, # Using this for today's PnL + MTM from positions
          "margin_used": 0.0,
-         "exposure": 0.0
+         "exposure": 0.0,
+         "total_capital": capital # Include total capital in summary
      }
      if client is None or not client.get_access_token():
           logger.warning("Client not available to fetch portfolio data.")
-          return portfolio_summary
+          # Attempt to fetch from session state if available but client is gone
+          if st.session_state.api_portfolio_data:
+               logger.info("Using last fetched portfolio data from session state.")
+               portfolio_data = st.session_state.api_portfolio_data
+               # Summarize relevant metrics from fetched data
+               if not isinstance(portfolio_data, dict):
+                   logger.error(f"Last fetched portfolio_data in session state is not a dictionary: {type(portfolio_data)}")
+                   st.warning("Could not summarize last saved portfolio data.")
+                   return portfolio_summary # Return the initial empty summary
+               margin_data = portfolio_data.get("margin", {})
+               positions_data = portfolio_data.get("positions", [])
+               if isinstance(margin_data, dict):
+                   portfolio_summary["margin_used"] = margin_data.get("UtilizedMargin", 0.0)
+               if isinstance(positions_data, list):
+                   today_pnl = sum(pos.get("BookedPL", 0.0) + pos.get("UnrealizedMTM", 0.0) for pos in positions_data if isinstance(pos, dict))
+                   portfolio_summary["weekly_pnl"] = today_pnl
+               portfolio_summary["exposure"] = (portfolio_summary["margin_used"] / capital * 100) if capital > 0 else 0.0
+               return portfolio_summary
+          else:
+               return portfolio_summary # Return the initial empty summary
+
 
      try:
           # Fetch raw data from API
@@ -145,6 +168,69 @@ def fetch_portfolio_data(client, capital):
           st.error(f"Error fetching portfolio data: {str(e)}")
           st.session_state.api_portfolio_data = {} # Clear potentially incomplete data
           return portfolio_summary # Return default summary on error
+
+# Function to calculate current PnL for open positions using latest LTP
+def calculate_position_pnl_with_ltp(client, positions_data):
+     """
+     Calculates current PnL for each open position using latest LTP from API.
+     Requires a valid authenticated client and positions data (list of dicts).
+     """
+     if not client or not client.get_access_token() or not isinstance(positions_data, list) or not positions_data:
+          return []
+
+     updated_positions = []
+     for pos in positions_data:
+          if not isinstance(pos, dict):
+               updated_positions.append(pos) # Keep non-dict entries
+               continue
+
+          scrip_code = pos.get("ScripCode")
+          exchange = pos.get("Exch")
+          exchange_type = pos.get("ExchType")
+          buy_avg_price = pos.get("BuyAvgPrice", 0.0)
+          sell_avg_price = pos.get("SellAvgPrice", 0.0)
+          buy_qty = pos.get("BuyQty", 0)
+          sell_qty = pos.get("SellQty", 0)
+          net_qty = buy_qty - sell_qty # Positive for Long, Negative for Short
+
+          if scrip_code is None or exchange is None or exchange_type is None or net_qty == 0:
+               updated_positions.append(pos) # Keep position if essential data is missing or quantity is zero
+               continue
+
+          try:
+               # Fetch latest market depth to get LTP
+               market_data = fetch_market_depth_by_scrip(client, Exchange=exchange, ExchangeType=exchange_type, ScripCode=scrip_code)
+
+               ltp = 0.0
+               if market_data and market_data.get("Data"):
+                   # Assuming LTP is available in the first level of market depth data
+                   # The exact key for LTP needs to be confirmed from 5paisa API docs
+                   # Let's assume 'LastTradedPrice' or similar is available in market_data['Data'][0]
+                   # Using a placeholder key 'LTP' - replace with actual key
+                   ltp = market_data["Data"][0].get("LastTradedPrice", market_data["Data"][0].get("LastTradePrice", 0.0))
+                   if ltp == 0.0: # Fallback to Close price if LTP is 0
+                       ltp = market_data["Data"][0].get("Close", 0.0)
+
+
+               # Calculate current MTM PnL for this position using LTP
+               position_pnl = 0.0
+               if net_qty > 0: # Long position
+                   position_pnl = net_qty * (ltp - buy_avg_price)
+               elif net_qty < 0: # Short position
+                   position_pnl = abs(net_qty) * (sell_avg_price - ltp) # Profit if price goes down for short
+
+               # Add calculated PnL and LTP to the position data
+               pos['CurrentPnL'] = position_pnl
+               pos['LTP'] = ltp
+
+          except Exception as e:
+               logger.warning(f"Could not fetch LTP or calculate PnL for ScripCode {scrip_code}: {str(e)}")
+               pos['CurrentPnL'] = pos.get("UnrealizedMTM", 0.0) # Fallback to MTM from initial fetch
+               pos['LTP'] = 0.0 # Indicate LTP couldn't be fetched
+
+          updated_positions.append(pos)
+
+     return updated_positions
 
 
 # Sidebar Login and Controls
@@ -211,8 +297,6 @@ else:
             st.session_state.backtest_run = False
             st.session_state.backtest_results = None
             st.session_state.backtest_cumulative_pnl_chart_data = None # Clear previous chart data
-            # st.session_state.violations = 0 # Keep violations state
-            # st.session_state.journal_complete = False # Keep journal state
             st.session_state.prepared_orders = None # Clear prepared orders from previous run
             st.session_state.analysis_df = None
             st.session_state.real_time_market_data = None
@@ -220,6 +304,7 @@ else:
             st.session_state.forecast_metrics = None
             st.session_state.generated_strategy = None
             st.session_state.api_portfolio_data = {} # Clear portfolio data, will refetch
+            st.session_state.active_strategy_details = None # Clear previous active strategy details
 
 
             # Load Data (API first) - uses client from session state
@@ -242,7 +327,6 @@ else:
                      st.session_state.analysis_df = df_featured # Update df in session state with features
 
                      # Run Backtest - uses featured df, capital, dates, and strategy choice from session state
-                     # IMPORTANT: Capture the new cumulative PnL chart data returned
                      backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf, cumulative_pnl_chart_data = run_backtest(
                         st.session_state.analysis_df, st.session_state.capital, st.session_state.backtest_strategy_choice, st.session_state.backtest_start_date, st.session_state.backtest_end_date
                      )
@@ -285,6 +369,12 @@ else:
                          st.session_state.violations, # Pass current violations
                          st.session_state.journal_complete # Pass journal state
                      )
+
+                     # Store details of the *generated* strategy in session state for the Risk Dashboard
+                     # This is conceptual; in live trading, you'd store details of the *executed* strategy
+                     if st.session_state.generated_strategy and not st.session_state.generated_strategy.get("Discipline_Lock", False) and st.session_state.generated_strategy.get("Strategy") != "Undefined":
+                          st.session_state.active_strategy_details = st.session_state.generated_strategy # Store the full strategy dict
+
                 else:
                      st.error("Analysis could not be completed due to feature generation failure.")
 
@@ -292,8 +382,8 @@ else:
                 st.error("Analysis could not be completed due to data loading failure.")
 
 
-    # Define tabs
-    tabs = st.tabs(["📊 Snapshot", "📈 Forecast", "🧪 Strategy", "💰 Portfolio", "📝 Journal", "📉 Backtest"])
+    # Define tabs - Added "🛡️ Risk Dashboard"
+    tabs = st.tabs(["📊 Snapshot", "📈 Forecast", "🧪 Strategy", "💰 Portfolio", "📝 Journal", "📉 Backtest", "🛡️ Risk Dashboard"])
 
 
     # --- Snapshot Tab ---
@@ -348,6 +438,7 @@ else:
         else:
             st.info("Run the analysis to see the market snapshot.")
         st.markdown('</div>', unsafe_allow_html=True)
+
 
     # --- Forecast Tab ---
     with tabs[1]:
@@ -414,9 +505,10 @@ else:
                     <p><b>Reason:</b> {strategy["Reason"]}</p>
                     <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
                     <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                    <p><b>Capital Deploy:</b> ₹{strategy["Deploy"]:,.0f}</p>
-                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                    <p><b>Exposure:</b> {strategy["Exposure"]:.2f}%</p>
+                    <p><b>Capital Deploy (Est):</b> ₹{strategy["Deploy"]:,.0f}</p>
+                    <p><b>Max Loss (Est):</b> ₹{strategy["Max_Loss"]:,.0f}</p>
+                    <p><b>Max Profit (Est):</b> {f'₹{strategy["Max_Profit"]:,.0f}' if strategy["Max_Profit"] != float('inf') else 'Unlimited'}</p>
+                    <p><b>Exposure (Est):</b> {strategy["Exposure"]:.2f}%</p>
                     <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
                 </div>
             """, unsafe_allow_html=True)
@@ -426,11 +518,15 @@ else:
                 st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
 
             if strategy["Behavior_Warnings"]:
-                 for warning in strategy["Behavior_Warnings"]:
+                 for warning in strategy["Behavior_warnings"]: # Corrected key to lowercase 'warnings'
                       st.warning(f"⚠️ Behavioral Warning: {warning}")
 
             st.markdown("---")
             st.subheader("Ready to Trade?")
+
+            # Store the details of this generated strategy in session state before preparing orders
+            # This ensures the Risk Dashboard can access these conceptual risk details even if orders aren't placed
+            st.session_state.active_strategy_details = strategy
 
             if st.button("📝 Prepare Orders for this Strategy"):
                  st.session_state.prepared_orders = prepare_trade_orders(strategy, real_data, capital)
@@ -440,12 +536,15 @@ else:
                  st.warning("REVIEW THESE ORDERS CAREFULLY BEFORE PLACING!")
 
                  orders_df = pd.DataFrame(st.session_state.prepared_orders)
-                 orders_display_cols = ['Leg_Type', 'Strike', 'Expiry', 'Quantity_Lots', 'Quantity_Units', 'Proposed_Price', 'Last_Price_API', 'ScripCode']
+                 # Display relevant columns including the risk parameters if added in prepare_trade_orders
+                 orders_display_cols = ['Leg_Type', 'Strike', 'Expiry', 'Quantity_Lots', 'Quantity_Units', 'Proposed_Price', 'Last_Price_API', 'ScripCode'] # Add SL/TP columns if available
                  st.dataframe(orders_df[orders_display_cols], use_container_width=True)
 
                  st.markdown("---")
 
                  if st.button("✅ Confirm and Place Orders"):
+                     # This is where you would add logic to place SL/TP orders AFTER primary orders
+                     # For now, it just executes primary orders
                      success = execute_trade_orders(st.session_state.client, st.session_state.prepared_orders)
 
 
@@ -497,8 +596,9 @@ else:
             with st.expander("💲 Margin Details"):
                  margin_data = st.session_state.api_portfolio_data.get("margin")
                  if margin_data and isinstance(margin_data, dict):
-                      for key, value in margin_data.items():
-                           st.write(f"**{key}**: {value}")
+                      # Display margin data as a table or formatted text
+                      margin_items = [{"Metric": key, "Value": value} for key, value in margin_data.items()]
+                      st.dataframe(pd.DataFrame(margin_items), use_container_width=True)
                  else:
                       st.info("No margin data found or could not fetch.")
 
@@ -506,8 +606,16 @@ else:
             with st.expander("💹 Open Positions"):
                  positions_data = st.session_state.api_portfolio_data.get("positions")
                  if positions_data and isinstance(positions_data, list):
-                      positions_df = pd.DataFrame(positions_data)
-                      st.dataframe(positions_df, use_container_width=True)
+                      # Calculate PnL using LTP for display
+                      positions_with_pnl = calculate_position_pnl_with_ltp(st.session_state.client, positions_data)
+                      positions_df = pd.DataFrame(positions_with_pnl)
+                      # Format numeric columns for better readability
+                      numeric_cols = ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM', 'BuyQty', 'SellQty', 'NetQty'] # Add other numeric cols
+                      format_mapping = {col: '₹{:,.2f}' for col in ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM']}
+                      # Handle potential missing columns
+                      cols_to_format = {col: fmt for col, fmt in format_mapping.items() if col in positions_df.columns}
+
+                      st.dataframe(positions_df.style.format(cols_to_format), use_container_width=True)
                  else:
                       st.info("No open positions found or could not fetch.")
 
@@ -667,11 +775,22 @@ else:
                 st.markdown("### Detailed Backtest Trades")
                 # The backtest_df now contains ENTRY, DAILY_PNL, and EXIT events
                 if not results["backtest_df"].empty:
-                     detailed_trades_formatted = results["backtest_df"].style.format({
+                     # Select columns to display for clarity
+                     display_cols = [
+                         'Date', 'Event', 'Regime', 'Strategy', 'PnL',
+                         'Cumulative_PnL', 'Strategy_Cum_PnL', 'Capital_Deployed',
+                         'Max_Loss', 'Max_Profit', 'Risk_Reward', 'Notes'
+                     ]
+                     # Ensure only existing columns are selected
+                     display_cols_filtered = [col for col in display_cols if col in results["backtest_df"].columns]
+
+                     detailed_trades_formatted = results["backtest_df"][display_cols_filtered].style.format({
                          "PnL": "₹{:,.2f}",
                          "Cumulative_PnL": "₹{:,.2f}",
+                         "Strategy_Cum_PnL": "₹{:,.2f}", # Format strategy cumulative PnL
                          "Capital_Deployed": "₹{:,.2f}",
                          "Max_Loss": "₹{:,.2f}",
+                         "Max_Profit": lambda x: f'₹{x:,.2f}' if x != float('inf') else 'Unlimited', # Format Max Profit
                          "Risk_Reward": "{:.2f}"
                      })
                      st.dataframe(detailed_trades_formatted, use_container_width=True)
@@ -684,6 +803,123 @@ else:
 
         else:
             st.info("Run the analysis to view backtest results.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+    # --- Risk Dashboard Tab ---
+    with tabs[6]: # This is the 7th tab (index 6)
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("🛡️ Live Risk Management Dashboard")
+
+        st.markdown("### Portfolio Risk Summary")
+        # Fetch and display portfolio summary metrics again for the dashboard
+        portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+             st.metric("Total Capital", f"₹{portfolio_summary.get('total_capital', st.session_state.capital):,.2f}")
+        with col2:
+             st.metric("Today's P&L (Holding)", f"₹{portfolio_summary['weekly_pnl']:,.2f}")
+        with col3:
+             st.metric("Margin Used", f"₹{portfolio_summary['margin_used']:,.2f}")
+
+        st.metric("Current Exposure", f"{portfolio_summary['exposure']:.2f}%")
+
+
+        st.markdown("---")
+        st.markdown("### Open Positions (Based on Latest Fetched Price)")
+        # Get positions data from the last API fetch (stored in session state)
+        positions_data = st.session_state.api_portfolio_data.get("positions", [])
+        if positions_data and isinstance(positions_data, list):
+             # Calculate PnL using LTP for display
+             positions_with_pnl = calculate_position_pnl_with_ltp(st.session_state.client, positions_data)
+             if positions_with_pnl:
+                  positions_df = pd.DataFrame(positions_with_pnl)
+                   # Format numeric columns for better readability
+                  numeric_cols = ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM', 'BuyQty', 'SellQty', 'NetQty'] # Add other numeric cols
+                  format_mapping = {col: '₹{:,.2f}' for col in ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM']}
+                   # Handle potential missing columns
+                  cols_to_format = {col: fmt for col, fmt in format_mapping.items() if col in positions_df.columns}
+                  st.dataframe(positions_df.style.format(cols_to_format), use_container_width=True)
+             else:
+                  st.info("Could not calculate PnL for open positions.")
+        elif st.session_state.logged_in and not st.session_state.api_portfolio_data:
+             st.info("No position data available. Run Analysis or ensure API data fetching is successful.")
+        else:
+             st.info("No open positions found.")
+
+
+        st.markdown("---")
+        st.markdown("### Active Strategy Risk (Conceptual)")
+        # Display details of the *generated* strategy if available in session state
+        if st.session_state.active_strategy_details:
+            strategy = st.session_state.active_strategy_details
+            regime_class = {
+                "LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high", "EVENT-DRIVEN": "regime-event"
+            }.get(strategy["Regime"], "regime-low")
+
+            st.markdown(f"""
+                <div class="strategy-card">
+                    <h4>{strategy["Strategy"]}</h4>
+                    <span class="regime-badge {regime_class}">{strategy["Regime"]} Regime</span>
+                    <p><b>Reason:</b> {strategy["Reason"]}</p>
+                    <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
+                    <p><b>Risk-Reward (Est):</b> {strategy["Risk_Reward"]:.2f}:1</p>
+                    <p><b>Capital Deploy (Est):</b> ₹{strategy["Deploy"]:,.0f}</p>
+                    <p><b>Max Loss (Est):</b> ₹{strategy["Max_Loss"]:,.0f}</p>
+                    <p><b>Max Profit (Est):</b> {f'₹{strategy["Max_Profit"]:,.0f}' if strategy["Max_Profit"] != float('inf') else 'Unlimited'}</p>
+                     <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            if strategy["Risk_Flags"]:
+                 st.warning(f'⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}')
+            if strategy["Behavior_Warnings"]: # Corrected key to lowercase 'warnings'
+                  for warning in strategy["Behavior_warnings"]:
+                       st.warning(f"⚠️ Behavioral Warning: {warning}")
+
+        else:
+             st.info("No active strategy details available. Run analysis to generate a strategy.")
+
+
+        st.markdown("---")
+        st.markdown("### Value at Risk (VaR) - Showcase Concept")
+        st.info("Note: This is a simplified showcase of VaR calculation. A truly accurate VaR for an options portfolio in real-time requires granular, real-time data, precise position greeks, and sophisticated modeling. This calculation is for illustrative purposes only and should NOT be used for live trading decisions.")
+
+        # --- Simple VaR Calculation Showcase ---
+        # We'll demonstrate a simple Historical VaR based on Nifty's past moves
+        # This is a proxy; actual VaR for options is more complex
+
+        if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty and portfolio_summary.get('total_capital') is not None:
+             df_va r = st.session_state.analysis_df.copy()
+             # Calculate daily percentage returns for Nifty
+             df_var['NIFTY_Daily_Return'] = df_var['NIFTY_Close'].pct_change()
+             # Drop the first row which will have NaN return
+             df_var = df_va r.dropna(subset=['NIFTY_Daily_Return'])
+
+             if not df_va r.empty:
+                  # Define confidence level (e.g., 99%)
+                  confidence_level = 0.99
+                  # Calculate the corresponding percentile (1 - confidence level)
+                  percentile = (1 - confidence_level) * 100
+
+                  # Calculate the worst historical daily loss at the specified percentile
+                  # Use absolute value of returns to get worst loss in either direction, then take the positive value for loss.
+                  worst_historical_loss_pct = np.percentile(df_va r['NIFTY_Daily_Return'], percentile) # This gets the negative percentile value
+
+                  # VaR in absolute terms = Current Portfolio Value * |Worst Historical Loss %|
+                  current_portfolio_value = portfolio_summary.get('total_capital', st.session_state.capital) + portfolio_summary.get('weekly_pnl', 0.0) # Capital + Current PnL
+                  var_absolute = current_portfolio_value * abs(worst_historical_loss_pct)
+
+                  st.write(f"**Historical 1-Day VaR ({confidence_level*100:.0f}%) based on NIFTY Returns:**")
+                  st.write(f"Based on historical NIFTY daily moves in the analysis data, there is a {100 - confidence_level*100:.0f}% chance of the portfolio losing at least **₹{var_absolute:,.2f}** over the next day.")
+                  st.caption("Assumes portfolio PnL moves linearly with NIFTY and uses historical NIFTY volatility as a proxy. Does NOT account for option greeks, correlations between different option legs/expiries, or real-time volatility changes.")
+
+             else:
+                  st.info("Insufficient data to calculate showcase VaR.")
+        else:
+             st.info("Run analysis to load data and calculate showcase VaR.")
+
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 
