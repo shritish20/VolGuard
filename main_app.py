@@ -507,7 +507,6 @@ else:
                     <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
                     <p><b>Capital Deploy (Est):</b> ₹{strategy["Deploy"]:,.0f}</p>
                     <p><b>Max Loss (Est):</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-            st.markdown(f"<p><b>Max Profit (Est):</b> {'₹{:,.0f}'.format(strategy['Max_Profit']) if strategy['Max_Profit'] != float('inf') else 'Unlimited'}</p>", unsafe_allow_html=True)
                     <p><b>Exposure (Est):</b> {strategy["Exposure"]:.2f}%</p>
                     <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
                 </div>
