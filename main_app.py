@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timedelta
 
 # Import modularized components
-from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions, fetch_market_depth_by_scrip # Import fetch_market_depth_by_scrip
+from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions # Import fetch_market_depth_by_scrip
 from data_processing import load_data, generate_features, FEATURE_COLS
 from volatility_forecasting import forecast_volatility_future
 from backtesting import run_backtest # Import the updated run_backtest
