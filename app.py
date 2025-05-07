@@ -82,7 +82,7 @@ def parse_5paisa_date_string(date_string):
         logger.error(f"Error parsing date string {date_string}: {str(e)}")
         return None
 
-5paisa Client Initialization
+#5paisa Client Initialization
 def initialize_5paisa_client(totp_code):
     try:
         logger.info("Initializing 5paisa client")
