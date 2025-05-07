@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 # Import modularized components
 from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions
-from data_processing import load_data, generate_features, FEATURE_COLS # Import FEATURE_COLS
+from data_processing import load_data, generate_features, FEATURE_COLS
 from volatility_forecasting import forecast_volatility_future
 from backtesting import run_backtest
 from strategy_generation import generate_trading_strategy
@@ -85,7 +85,7 @@ if "generated_strategy" not in st.session_state:
 # Fetch portfolio data (can be called on tab switch or button click)
 def fetch_portfolio_data(client, capital):
      """
-     Fetches and summarizes relevant portfolio data from API.
+     Fetches and summarizes relevant portfolio data from API with type checking.
      """
      portfolio_summary = {
          "weekly_pnl": 0.0,
@@ -97,18 +97,39 @@ def fetch_portfolio_data(client, capital):
           return portfolio_summary
 
      try:
+          # Fetch raw data from API
           portfolio_data = fetch_all_api_portfolio_data(client)
-          st.session_state.api_portfolio_data = portfolio_data # Store in session state
+          st.session_state.api_portfolio_data = portfolio_data # Store raw data in session state
 
           # Summarize relevant metrics from fetched data
-          # This is a placeholder - actual calculation depends on the API response structure
-          margin_data = portfolio_data.get("margin", {})
-          positions_data = portfolio_data.get("positions", [])
+          # Ensure the main portfolio_data is a dictionary
+          if not isinstance(portfolio_data, dict):
+              logger.error(f"Fetched portfolio_data is not a dictionary: {type(portfolio_data)}")
+              st.warning("Could not summarize portfolio data. Raw API data might be in unexpected format.")
+              return portfolio_summary # Return the initial empty summary
 
-          portfolio_summary["margin_used"] = margin_data.get("UtilizedMargin", 0.0) if margin_data else 0.0
+          # Access and check types of nested data
+          margin_data = portfolio_data.get("margin", {})
+          positions_data = portfolio_data.get("positions", []) # Default to empty list if 'positions' key is missing
+
+          # Check if margin_data is a dictionary before using .get() on it
+          if isinstance(margin_data, dict):
+               portfolio_summary["margin_used"] = margin_data.get("UtilizedMargin", 0.0)
+          else:
+               logger.warning(f"'margin' data from API is not a dictionary: {type(margin_data)}. Expected a dict.")
+               # Keep margin_used as 0.0
 
           # Calculate rough PnL from positions (Today's PnL and MTM)
-          today_pnl = sum(pos.get("BookedPL", 0.0) + pos.get("UnrealizedMTM", 0.0) for pos in positions_data) # Simplified PnL
+          today_pnl = 0.0
+          # Check if positions_data is a list and iterate safely
+          if isinstance(positions_data, list):
+               # Ensure each item in the list is a dictionary before calling .get()
+               today_pnl = sum(pos.get("BookedPL", 0.0) + pos.get("UnrealizedMTM", 0.0) for pos in positions_data if isinstance(pos, dict))
+          else:
+               logger.warning(f"'positions' data from API is not a list: {type(positions_data)}. Expected a list.")
+               # Keep today_pnl as 0.0
+
+
           portfolio_summary["weekly_pnl"] = today_pnl # Using 'weekly_pnl' key from original code, update label in UI
 
           # Calculate exposure - simplified as margin used relative to capital
@@ -118,7 +139,7 @@ def fetch_portfolio_data(client, capital):
           return portfolio_summary
 
      except Exception as e:
-          logger.error(f"Error fetching portfolio data: {str(e)}")
+          logger.error(f"Error fetching or summarizing portfolio data: {str(e)}", exc_info=True)
           st.error(f"Error fetching portfolio data: {str(e)}")
           st.session_state.api_portfolio_data = {} # Clear potentially incomplete data
           return portfolio_summary # Return default summary on error
@@ -144,7 +165,9 @@ with st.sidebar:
         st.header("⚙️ Trading Controls")
         capital = st.number_input("Capital (₹)", min_value=100000, value=st.session_state.get('capital', 1000000), step=100000, format="%d", key="capital_input") # Added key and default
         st.session_state.capital = capital # Store capital in session state
-        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="risk_tolerance_input") # Added key
+        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=st.session_state.get('risk_tolerance_index', 1), key="risk_tolerance_input") # Added key and default
+        st.session_state.risk_tolerance_index = ["Conservative", "Moderate", "Aggressive"].index(risk_tolerance) # Store index
+
         forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, st.session_state.get('forecast_horizon', 7), key="forecast_horizon_input") # Added key and default
         st.session_state.forecast_horizon = forecast_horizon # Store forecast horizon
 
@@ -156,8 +179,11 @@ with st.sidebar:
         st.session_state.backtest_start_date = start_date
         end_date = st.date_input("End Date", value=st.session_state.get('backtest_end_date', default_end_date), key="backtest_end_date_input") # Added key and default
         st.session_state.backtest_end_date = end_date
-        strategy_choice = st.selectbox("Backtest Strategy Filter", ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Short Straddle", "Short Put Vertical Spread", "Short Call Vertical Spread", "Short Put", "Long Put"], key="backtest_strategy_choice_input") # Added key
+        strategy_options = ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Short Straddle", "Short Put Vertical Spread", "Short Call Vertical Spread", "Short Put", "Long Put"]
+        strategy_choice = st.selectbox("Backtest Strategy Filter", strategy_options, index=st.session_state.get('backtest_strategy_choice_index', 0), key="backtest_strategy_choice_input") # Added key and default index
+        st.session_state.backtest_strategy_choice_index = strategy_options.index(strategy_choice)
         st.session_state.backtest_strategy_choice = strategy_choice
+
 
         st.markdown("---")
         st.header("⚠️ Emergency Actions")
@@ -339,7 +365,7 @@ else:
                      "GARCH": forecast_log["GARCH_Vol"],
                      "XGBoost": forecast_log["XGBoost_Vol"],
                      "Blended": forecast_log["Blended_Vol"]
-                 }).set_index(forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"]) # Set date as index for chart
+                 }).set_index(forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
 
 
              st.markdown("### Feature Importance")
@@ -366,8 +392,8 @@ else:
             st.markdown('<div class="alert-banner">⚠️ Discipline Lock: Complete Journaling to Unlock Trading</div>', unsafe_allow_html=True)
         elif 'generated_strategy' in st.session_state and st.session_state.generated_strategy is not None:
             strategy = st.session_state.generated_strategy
-            real_data = st.session_state.real_time_market_data # Get real_data from session state
-            capital = st.session_state.capital # Get capital from session state
+            real_data = st.session_state.real_time_market_data
+            capital = st.session_state.capital
 
             regime_class = {
                 "LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high", "EVENT-DRIVEN": "regime-event"
@@ -399,31 +425,22 @@ else:
             st.markdown("---")
             st.subheader("Ready to Trade?")
 
-            # --- Prepare Orders and Show Confirmation UI ---
             if st.button("📝 Prepare Orders for this Strategy"):
-                 # Pass real_data and capital from session state
-                 st.session_state.prepared_orders = prepare_trade_orders(strategy, real_data, capital) # Store prepared orders
+                 st.session_state.prepared_orders = prepare_trade_orders(strategy, real_data, capital)
 
             if st.session_state.prepared_orders:
                  st.markdown("### Proposed Order Details:")
                  st.warning("REVIEW THESE ORDERS CAREFULLY BEFORE PLACING!")
 
-                 # Display prepared orders in a table
                  orders_df = pd.DataFrame(st.session_state.prepared_orders)
-                 # Drop columns not needed for user review if desired
                  orders_display_cols = ['Leg_Type', 'Strike', 'Expiry', 'Quantity_Lots', 'Quantity_Units', 'Proposed_Price', 'Last_Price_API', 'ScripCode']
                  st.dataframe(orders_df[orders_display_cols], use_container_width=True)
 
                  st.markdown("---")
 
-                 # Add confirmation button
                  if st.button("✅ Confirm and Place Orders"):
-                     # Execute the prepared orders - uses client and prepared orders from session state
                      success = execute_trade_orders(st.session_state.client, st.session_state.prepared_orders)
-                     # Optionally clear prepared orders after placing if all were successful
-                     if success:
-                          # st.session_state.prepared_orders = None
-                          pass # Keep orders displayed until new analysis run for review
+
 
                  else:
                       st.info("Click 'Confirm and Place Orders' to send the orders to the broker.")
@@ -535,7 +552,6 @@ else:
 
             if submit_journal:
                 score = 0
-                # Basic scoring logic - can be enhanced
                 if override_risk == "No":
                     score += 3
                 if reason_strategy != "Other":
@@ -544,11 +560,8 @@ else:
                     score += 3
                 if lessons_learned:
                     score += 1
-                # Add score based on recent trade outcome if applicable (need to track trade outcomes)
-                # For simplicity, using a placeholder based on portfolio PnL direction
-                # Fetch portfolio summary again to get latest PnL
                 latest_portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
-                if latest_portfolio_summary['weekly_pnl'] > 0: # Use portfolio PnL as proxy
+                if latest_portfolio_summary['weekly_pnl'] > 0:
                     score += 1
 
                 score = min(score, 10)
@@ -565,12 +578,10 @@ else:
 
                 journal_file = "journal_log.csv"
                 try:
-                    # Append to CSV
                     journal_df_entry.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False)
                     st.success(f"✅ Journal Entry Saved! Discipline Score: {score}/10")
                     logger.info(f"Journal entry saved. Score: {score}")
 
-                    # If score is high enough and there were violations, clear violations and unlock
                     if score >= 7 and st.session_state.violations > 0:
                          st.session_state.violations = 0
                          st.session_state.journal_complete = True
@@ -590,7 +601,6 @@ else:
         if os.path.exists(journal_file):
             try:
                 journal_df = pd.read_csv(journal_file)
-                # Format date column for better display
                 if 'Date' in journal_df.columns:
                     journal_df['Date'] = pd.to_datetime(journal_df['Date']).dt.strftime("%Y-%m-%d %H:%M")
                 st.dataframe(journal_df, use_container_width=True)
