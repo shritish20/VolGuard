@@ -471,7 +471,7 @@ def calculate_trade_pnl(strategy, day_data_start, day_data_end, strategy_legs_de
         return total_daily_pnl # Return gross PnL for the day
 
 
-        except Exception as e:
+     except Exception as e: # <--- This was the misplaced block
         logger.error(f"Error calculating trade PnL using Black-Scholes for {strategy} on {day_data_start.name}: {str(e)}", exc_info=True)
         return 0.0 # Return 0 PnL on error
 
@@ -482,7 +482,8 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         logger.info(f"Starting robust backtest for {strategy_choice} from {start_date} to {end_date}")
         if df is None or df.empty:
             logger.error("Backtest failed: No data available")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+            # Need to return 10 values including the empty DataFrame for chart data
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         # Ensure index is datetime and unique, then slice and copy
         df.index = pd.to_datetime(df.index).normalize()
@@ -492,24 +493,29 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
         if len(df) < 50:
             logger.warning(f"Backtest failed: Insufficient data ({len(df)} days) in selected range.")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+            # Need to return 10 values including the empty DataFrame for chart data
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
 
         required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price", "PCR", "VIX_Change_Pct", "Spot_MaxPain_Diff_Pct"]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             logger.error(f"Backtest failed: Missing required columns after date slicing: {missing_cols}")
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+             # Need to return 10 values including the empty DataFrame for chart data
+            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
         backtest_results = []
         portfolio_pnl = 0.0
         risk_free_rate_annual = 0.06 # Annual risk-free rate (adjust as needed)
-        # risk_free_rate_daily = risk_free_rate_annual / 252 # Daily risk-free rate (used in Sharpe etc)
 
         current_strategy = None
         strategy_entry_date = None
         strategy_legs_active = []
         strategy_lots = 0
+        deployed_capital_for_strategy = 0 # Initialize deployed capital
+        max_loss_for_strategy = 0 # Initialize max loss
+        risk_reward_for_strategy = 0 # Initialize risk reward
 
 
         # Backtest loop - iterates through days in the selected range
@@ -523,7 +529,8 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 avg_vol_for_strategy = df["Realized_Vol"].iloc[max(0, i-5):i].mean()
 
                 # --- Strategy Decision and Entry ---
-                if current_strategy is None: # If no strategy is currently active
+                # Only run strategy engine if no strategy is currently active
+                if current_strategy is None:
                     regime, strategy_name, reason, tags, deploy, max_loss, risk_reward, strategy_legs_definition, lots = run_strategy_engine(
                         day_data_start, avg_vol_for_strategy, portfolio_pnl, capital # Use start-of-day data for decision
                     )
@@ -542,24 +549,41 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
                          # Calculate and apply transaction costs on entry
                          entry_costs = 0.0
+                         lot_size = 25 # Assuming Nifty lot size
+                         strike_step = 50 # Nifty strike increments
+
                          for leg in strategy_legs_active:
-                             strike_offset, option_type_short, buy_sell, quantity_multiplier = leg
+                             strike_offset_points, option_type_short, buy_sell, quantity_multiplier = leg
                              quantity_units = strategy_lots * lot_size * quantity_multiplier
 
                              # Need to get the estimated premium at entry (use start-of-day Black-Scholes price)
                              target_strike = day_data_start.get("NIFTY_Close", 0.0) + strike_offset_points
-                             strike_price = round(target_strike / strike_step) * strike_step # Round to nearest strike_step
+                             # Ensure strike price is a reasonable value > 0
+                             strike_price = round(target_strike / strike_step) * strike_step if target_strike > 0 else 50 # Round to nearest strike_step, default to 50 if target is <= 0
+                             strike_price = max(strike_price, 1) # Ensure strike is at least 1
+
                              option_type_bs = 'call' if option_type_short == 'CE' else 'put'
                              days_to_expiry_entry = day_data_start.get("Days_to_Expiry", 1)
                              time_to_expiry_entry_years = days_to_expiry_entry / 365.0 if days_to_expiry_entry > 0 else 0.0001
                              volatility_entry = day_data_start.get("ATM_IV", 15.0) / 100.0
+                             # Ensure volatility is positive and reasonable
+                             volatility_entry = max(volatility_entry, 0.0001) # Ensure volatility is > 0
 
                              try:
-                                  premium_per_unit_entry = black_scholes(day_data_start.get("NIFTY_Close", 0.0), strike_price, time_to_expiry_entry_years, risk_free_rate_annual, volatility_entry, option_type_bs)
+                                  premium_per_unit_entry = black_scholes(
+                                      day_data_start.get("NIFTY_Close", 0.0),
+                                      strike_price,
+                                      time_to_expiry_entry_years,
+                                      risk_free_rate_annual, # Use annual rate for BS
+                                      volatility_entry,
+                                      option_type_bs
+                                  )
                              except ValueError:
                                   premium_per_unit_entry = 0.0
                                   logger.warning(f"BS Error at entry cost calculation for {strategy_name} {option_type_short} K={strike_price} on {date}")
 
+                             # Ensure premium is not negative for cost calculation
+                             premium_per_unit_entry = max(0.0, premium_per_unit_entry)
 
                              entry_costs += calculate_transaction_costs(strategy_name, buy_sell, strategy_lots * quantity_multiplier, premium_per_unit_entry * lot_size) # Pass premium per lot
 
@@ -585,8 +609,9 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
                 # --- Daily PnL Calculation for Active Strategy ---
                 if current_strategy is not None:
                     # Calculate PnL for the current day for the active strategy
+                    # Pass the annual risk-free rate to calculate_trade_pnl, it will convert to daily for BS
                     daily_gross_pnl = calculate_trade_pnl(
-                        current_strategy, day_data_start, day_data_end, strategy_legs_active, strategy_lots, capital, risk_free_rate_annual / 365 # Pass daily risk-free rate for BS
+                        current_strategy, day_data_start, day_data_end, strategy_legs_active, strategy_lots, capital, risk_free_rate_annual # Pass annual rate
                     )
 
                     portfolio_pnl += daily_gross_pnl # Add daily PnL to portfolio
@@ -640,6 +665,7 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
 
             except Exception as e:
+                # This except block is for errors *within* the daily loop iteration
                 logger.error(f"Error in backtest loop at date {date}: {str(e)}", exc_info=True)
                 # If an error occurs during trading simulation for an active strategy, exit it.
                 if current_strategy is not None:
@@ -671,64 +697,88 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
 
         if backtest_df.empty:
             logger.warning(f"No trades generated for {strategy_choice} from {start_date} to {end_date}")
-            return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame()
+            # Need to return 10 values including the empty DataFrame for chart data
+            return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
         # --- Performance Metrics Calculation ---
         # Need to calculate metrics based on DAILY returns on the *entire* capital
         # Create a daily PnL series, aligning with all dates in the backtest range
-        daily_pnl_series = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].set_index('Date')['PnL']
-        # Also include entry and exit costs on their respective dates
+        # Filter for DAILY_PNL events to get the gross daily PnL from active strategies
+        daily_gross_pnl_series = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].set_index('Date')['PnL']
+        # Filter for cost events (ENTRY, EXIT, ERROR) to get the cost PnL
         costs_series = backtest_df[backtest_df['Event'].isin(['ENTRY', 'EXIT (Expiry)', 'EXIT (Error)'])].set_index('Date')['PnL']
 
         # Combine all PnL events into a single daily series
-        all_daily_pnl_events = daily_pnl_series.add(costs_series, fill_value=0).sort_index()
+        # Use add with fill_value=0 to correctly sum PnL and costs that might happen on the same day
+        all_daily_pnl_events = daily_gross_pnl_series.add(costs_series, fill_value=0).sort_index()
 
         # Reindex to include all dates in the backtest range, filling missing days with 0 PnL
+        # Get the full date range from the original sliced df
         full_date_range = pd.date_range(start=df.index[0], end=df.index[-1], freq='B') # Business days
+        # Align the combined PnL series to the full date range
         daily_total_pnl = all_daily_pnl_events.reindex(full_date_range, fill_value=0).sort_index()
 
 
-        # Calculate cumulative PnL over the full range
+        # Calculate cumulative PnL over the full range starting from initial capital
         cumulative_pnl_full = daily_total_pnl.cumsum() + capital # Add initial capital
 
         # Calculate daily returns based on capital at start of each day
         # Capital at start of day t = Capital at end of day t-1
+        # Use .iloc to avoid potential issues with missing dates in index after shift
         capital_at_start_of_day = cumulative_pnl_full.shift(1).fillna(capital)
         daily_returns = daily_total_pnl / capital_at_start_of_day
 
         # Drop the first day's return if it's NaN (due to shift)
         daily_returns = daily_returns.dropna()
 
-        total_pnl = daily_total_pnl.sum() # Sum of all daily PnL and costs
+        # Total PnL is the last value of the cumulative PnL relative to initial capital
+        total_pnl = cumulative_pnl_full.iloc[-1] - capital if not cumulative_pnl_full.empty else 0
 
 
         # Calculate Max Drawdown correctly from the full cumulative PnL series
-        cumulative_pnl_values = cumulative_pnl_full.values
-        peak_values = np.maximum.accumulate(cumulative_pnl_values)
-        drawdown_values = peak_values - cumulative_pnl_values
-        max_drawdown = np.max(drawdown_values) - capital # Max drawdown relative to initial capital
+        if not cumulative_pnl_full.empty:
+            cumulative_pnl_values = cumulative_pnl_full.values
+            peak_values = np.maximum.accumulate(cumulative_pnl_values)
+            drawdown_values = peak_values - cumulative_pnl_values
+            max_drawdown_abs = np.max(drawdown_values) # Absolute max drawdown
+            # We report Max Drawdown as an absolute negative number or 0
+            max_drawdown = -max_drawdown_abs if max_drawdown_abs > 0 else 0
+        else:
+            max_drawdown = 0
 
 
         # Ensure NIFTY returns are aligned for comparison
+        # Reindex the original sliced df to align with the dates present in daily_returns
         df_aligned_for_returns = df.reindex(daily_returns.index)
-        nifty_daily_returns = df_aligned_for_returns["NIFTY_Close"].pct_change().dropna()
+        # Calculate Nifty returns for the aligned dates
+        nifty_daily_returns = df_aligned_for_returns["NIFTY_Close"].pct_change()
+        # Reindex again to ensure perfect alignment and drop any NaNs
+        nifty_daily_returns = nifty_daily_returns.reindex(daily_returns.index).dropna()
 
         # Reindex daily_returns to match nifty_daily_returns for excess return calculation
         daily_returns_aligned = daily_returns.reindex(nifty_daily_returns.index).fillna(0)
 
         # Calculate excess returns
         risk_free_rate_daily = risk_free_rate_annual / 252 # Daily risk-free rate
+        # Ensure risk_free_rate_daily is broadcast correctly
         excess_returns = daily_returns_aligned - nifty_daily_returns - risk_free_rate_daily
 
-        # Ensure there are enough data points for standard deviation for Sharpe/Sortino
+
+        # Ensure there are enough data points for standard deviation for Sharpe/Sortino (>1)
         sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(252) if excess_returns.std() != 0 and len(excess_returns) > 1 else 0
+        # Calculate standard deviation of negative excess returns only
         sortino_std_negative = excess_returns[excess_returns < 0].std()
         sortino_ratio = excess_returns.mean() / sortino_std_negative * np.sqrt(252) if sortino_std_negative != 0 and len(excess_returns[excess_returns < 0]) > 1 else 0
-        calmar_ratio = (total_pnl / capital) / (max_drawdown / capital) if max_drawdown > 0 and capital > 0 else float('inf')
+        # Calmar Ratio = Annualized Return / Max Drawdown (%)
+        annualized_return = (cumulative_pnl_full.iloc[-1] / capital)**(252/len(cumulative_pnl_full)) - 1 if capital > 0 and len(cumulative_pnl_full) > 0 else 0 # Approx annualized return
+        calmar_ratio = annualized_return / (max_drawdown_abs / capital) if (max_drawdown_abs / capital) > 0 else float('inf') # Use absolute max drawdown %
 
 
-        # Win Rate (calculated based on days with positive gross PnL before costs or based on trades?)
+        # Win Rate (calculated based on trades, not daily PnL)
+        # A "trade" starts with ENTRY and ends with EXIT
+        # Need to pair ENTRY and EXIT events to determine individual trade outcomes
+        # This is more complex than counting daily PnL days. Let's keep the simplified daily win rate for now.
         # Let's calculate win rate based on days where the active strategy had positive gross PnL
         days_with_active_strategy = backtest_df[backtest_df['Event'] == 'DAILY_PNL']
         win_rate = (days_with_active_strategy['PnL'] > 0).sum() / len(days_with_active_strategy) if len(days_with_active_strategy) > 0 else 0
@@ -753,9 +803,24 @@ def run_backtest(df, capital, strategy_choice, start_date, end_date):
         cumulative_pnl_chart_data = pd.DataFrame({'Cumulative_PnL': cumulative_pnl_full})
 
 
+        # Ensure the backtest_df index is datetime for display in Streamlit
+        if 'Date' in backtest_df.columns:
+             backtest_df['Date'] = pd.to_datetime(backtest_df['Date'])
+             # backtest_df.set_index('Date', inplace=True) # Set index if needed for display, but often better to keep 'Date' as a column
+
+        # Ensure return values are correct even if metrics are not calculated (e.g., insufficient trades)
+        total_pnl = total_pnl if pd.notna(total_pnl) else 0
+        win_rate = win_rate if pd.notna(win_rate) else 0
+        max_drawdown = max_drawdown if pd.notna(max_drawdown) else 0
+        sharpe_ratio = sharpe_ratio if pd.notna(sharpe_ratio) and sharpe_ratio != float('inf') and sharpe_ratio != float('-inf') else 0
+        sortino_ratio = sortino_ratio if pd.notna(sortino_ratio) and sortino_ratio != float('inf') and sortino_ratio != float('-inf') else 0
+        calmar_ratio = calmar_ratio if pd.notna(calmar_ratio) and calmar_ratio != float('inf') and calmar_ratio != float('-inf') else 0
+
+
         return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf, cumulative_pnl_chart_data # Return cumulative PnL for charting
 
     except Exception as e:
+        # This except block is for errors *outside* the daily loop, like data loading issues
         logger.error(f"Error running backtest: {str(e)}", exc_info=True)
-        return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame() # Return empty cumulative PnL on error
-
+        # Return default empty values in case of an error
+        return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
