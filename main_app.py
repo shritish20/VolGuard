@@ -904,7 +904,7 @@ else:
 
                   # Calculate the worst historical daily loss at the specified percentile
                   # Use absolute value of returns to get worst loss in either direction, then take the positive value for loss.
-                  worst_historical_loss_pct = np.percentile(df_va r['NIFTY_Daily_Return'], percentile) # This gets the negative percentile value
+                  worst_historical_loss_pct = np.percentile(df_var['NIFTY_Daily_Return'], percentile) # This gets the negative percentile value
 
                   # VaR in absolute terms = Current Portfolio Value * |Worst Historical Loss %|
                   current_portfolio_value = portfolio_summary.get('total_capital', st.session_state.capital) + portfolio_summary.get('weekly_pnl', 0.0) # Capital + Current PnL
