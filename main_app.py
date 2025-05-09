@@ -110,9 +110,11 @@ if "active_strategy_details" not in st.session_state:
     st.session_state.active_strategy_details = None
 if "order_placement_errors" not in st.session_state:
     st.session_state.order_placement_errors = []
-# Initialize chat history for SmartBhai GPT
+# Initialize chat history and query input for SmartBhai GPT
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "query_input" not in st.session_state:
+    st.session_state.query_input = ""
 
 # Initialize SmartBhai GPT
 smartbhai_gpt = None
@@ -223,14 +225,20 @@ with st.sidebar:
     st.markdown("---")
     st.header("🗣️ SmartBhai GPT")
     st.markdown("Ask your trading copilot about options!")
-    query = st.text_input("Type your query:", key="gpt_query_input", help="E.g., 'What is IV?' or 'Check my straddle at 21000'")
+    # Use a session state variable to control the input field
+    query = st.text_input(
+        "Type your query:",
+        value=st.session_state.query_input,
+        key="gpt_query_input",
+        help="E.g., 'What is IV?' or 'Check my straddle at 21000'"
+    )
     if st.button("Ask SmartBhai", key="smartbhai_button"):
         if query and smartbhai_gpt:
             with st.spinner("SmartBhai is thinking..."):
                 try:
                     response = smartbhai_gpt.generate_response(query)
                     st.session_state.chat_history.append({"query": query, "response": response})
-                    st.session_state.gpt_query_input = ""
+                    st.session_state.query_input = ""  # Clear the input by updating the controlled state
                 except Exception as e:
                     st.error(f"Bhai, kuch gadbad ho gaya: {str(e)}")
         else:
@@ -387,7 +395,7 @@ else:
     with tabs[2]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("🧪 Trading Strategy")
-        if st.session_state.generated_strategy and st.session_state.generated_strategy.get("Discipline_Lock", False):
+        if st.session_state.generated_strategy and st.session_state.generated_strategy.get("Discipline_L-Div-ock", False):
             st.markdown('<div class="alert-banner">⚠️ Discipline Lock: Complete Journaling</div>', unsafe_allow_html=True)
         elif st.session_state.generated_strategy:
             strategy = st.session_state.generated_strategy
