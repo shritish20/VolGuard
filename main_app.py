@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Page config
 st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
-# Custom CSS (updated to style SmartBhai GPT widget)
+# Custom CSS (updated to include enhanced SmartBhai GPT widget styling)
 st.markdown("""
     <style>
         .main { background: linear-gradient(135deg, #1a1a2e, #0f1c2e); color: #e5e5e5; font-family: 'Inter', sans-serif; }
@@ -46,13 +46,27 @@ st.markdown("""
         .stButton>button { background: #e94560; color: white; border-radius: 10px; padding: 12px 25px; font-size: 16px; }
         .stButton>button:hover { transform: scale(1.05); background: #ffcc00; }
         .footer { text-align: center; padding: 20px; color: #a0a0a0; font-size: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 30px; }
-        /* SmartBhai GPT Widget Styling */
+        /* Enhanced SmartBhai GPT Widget Styling */
+        .smartbhai-container {
+            background: #1e2a44;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
         .smartbhai-input > div > div > input {
+            background: #2a3b5a;
             border: 2px solid #00cc00;
-            border-radius: 8px;
-            padding: 10px;
-            background: #16213e;
+            border-radius: 10px;
+            padding: 12px;
             color: #e5e5e5;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+        .smartbhai-input > div > div > input:focus {
+            border-color: #ffcc00;
+            outline: none;
+            box-shadow: 0 0 5px rgba(255, 204, 0, 0.5);
         }
         .smartbhai-button > button {
             width: 100%;
@@ -60,17 +74,57 @@ st.markdown("""
             color: white;
             border-radius: 10px;
             padding: 12px;
-            margin: 10px 0;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            transition: all 0.3s ease;
         }
         .smartbhai-button > button:hover {
-            transform: scale(1.05);
-            background: #00cc00;
+            background: #ffcc00;
+            color: #1a1a2e;
+            transform: translateY(-2px);
         }
         .smartbhai-chat {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            margin-top: 15px;
             background: #16213e;
             border-radius: 10px;
-            padding: 15px;
+        }
+        .chat-bubble {
             margin: 10px 0;
+            padding: 10px 15px;
+            border-radius: 10px;
+            max-width: 80%;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .user-bubble {
+            background: #e94560;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+            border-bottom-right-radius: 2px;
+        }
+        .smartbhai-bubble {
+            background: #00cc00;
+            color: #1a1a2e;
+            margin-right: auto;
+            border-bottom-left-radius: 2px;
+        }
+        .smartbhai-title {
+            color: #ffcc00;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .smartbhai-subtitle {
+            color: #a0a0a0;
+            font-size: 14px;
+            margin-bottom: 15px;
+            text-align: center;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -223,37 +277,42 @@ with st.sidebar:
     
     # SmartBhai GPT Chat Widget
     st.markdown("---")
-    st.header("🗣️ SmartBhai GPT")
-    st.markdown("Ask your trading copilot about options!")
-    # Use a session state variable to control the input field
+    st.markdown('<div class="smartbhai-container">', unsafe_allow_html=True)
+    st.markdown('<div class="smartbhai-title">🗣️ SmartBhai GPT</div>', unsafe_allow_html=True)
+    st.markdown('<div class="smartbhai-subtitle">Your trading copilot for options!</div>', unsafe_allow_html=True)
+    
+    # Input field with placeholder
     query = st.text_input(
-        "Type your query:",
+        "Ask away...",
         value=st.session_state.query_input,
         key="gpt_query_input",
-        help="E.g., 'What is IV?' or 'Check my straddle at 21000'"
+        placeholder="E.g., 'What is IV?' or 'Check my straddle at 21000'",
+        help="Ask SmartBhai about trading strategies, options, or market insights."
     )
+    
+    # Ask button
     if st.button("Ask SmartBhai", key="smartbhai_button"):
         if query and smartbhai_gpt:
             with st.spinner("SmartBhai is thinking..."):
                 try:
                     response = smartbhai_gpt.generate_response(query)
                     st.session_state.chat_history.append({"query": query, "response": response})
-                    st.session_state.query_input = ""  # Clear the input by updating the controlled state
+                    st.session_state.query_input = ""  # Clear input
                 except Exception as e:
                     st.error(f"Bhai, kuch gadbad ho gaya: {str(e)}")
         else:
             st.error("Bhai, query ya SmartBhai GPT load nahi hua!")
     
-    # Display chat history
+    # Chat history with speech bubbles
     if st.session_state.chat_history:
         st.markdown('<div class="smartbhai-chat">', unsafe_allow_html=True)
         for chat in st.session_state.chat_history:
-            st.markdown(f"**You**: {chat['query']}")
-            st.markdown(f"**SmartBhai**: {chat['response']} 😎")
+            st.markdown(f'<div class="chat-bubble user-bubble">You: {chat["query"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="chat-bubble smartbhai-bubble">SmartBhai: {chat["response"]} 😎</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # SEBI disclaimer
-    st.markdown("**Disclaimer**: SmartBhai is a decision-support tool, not financial advice. Do your own research!")
+    st.markdown('<div style="text-align: center; color: #a0a0a0; font-size: 12px; margin-top: 10px;">SmartBhai is a decision-support tool, not financial advice.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Main Execution
 if not st.session_state.logged_in:
