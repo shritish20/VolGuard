@@ -1,16 +1,2 @@
-import pandas as pd
-
-# Sample fallback data (adjust values based on typical market conditions)
-fallback_data = [
-    {
-        "iv": 30.0,  # Typical IV for NIFTY options
-        "gamma": 0.05,
-        "delta": 0.4,
-        "vix": 25.0,  # Typical India VIX
-        "margin": 85.0  # Typical margin usage percentage
-    }
-]
-
-df = pd.DataFrame(fallback_data)
-df.to_csv("fallback_data.csv", index=False)
-print("fallback_data.csv generated!")
+iv,gamma,delta,vix,margin
+30.0,0.05,0.4,25.0,85.0
