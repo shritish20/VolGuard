@@ -4,6 +4,7 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 import logging
+from smartbhai_gpt import SmartBhaiGPT  # Import SmartBhai GPT class
 
 # Import modularized components
 from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions, fetch_market_depth_by_scrip
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Page config
 st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
-# Custom CSS
+# Custom CSS (updated to style SmartBhai GPT widget)
 st.markdown("""
     <style>
         .main { background: linear-gradient(135deg, #1a1a2e, #0f1c2e); color: #e5e5e5; font-family: 'Inter', sans-serif; }
@@ -45,6 +46,32 @@ st.markdown("""
         .stButton>button { background: #e94560; color: white; border-radius: 10px; padding: 12px 25px; font-size: 16px; }
         .stButton>button:hover { transform: scale(1.05); background: #ffcc00; }
         .footer { text-align: center; padding: 20px; color: #a0a0a0; font-size: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 30px; }
+        /* SmartBhai GPT Widget Styling */
+        .smartbhai-input > div > div > input {
+            border: 2px solid #00cc00;
+            border-radius: 8px;
+            padding: 10px;
+            background: #16213e;
+            color: #e5e5e5;
+        }
+        .smartbhai-button > button {
+            width: 100%;
+            background: #e94560;
+            color: white;
+            border-radius: 10px;
+            padding: 12px;
+            margin: 10px 0;
+        }
+        .smartbhai-button > button:hover {
+            transform: scale(1.05);
+            background: #00cc00;
+        }
+        .smartbhai-chat {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -83,6 +110,15 @@ if "active_strategy_details" not in st.session_state:
     st.session_state.active_strategy_details = None
 if "order_placement_errors" not in st.session_state:
     st.session_state.order_placement_errors = []
+# Initialize chat history for SmartBhai GPT
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+# Initialize SmartBhai GPT
+try:
+    smartbhai_gpt = SmartBhaiGPT(responses_file="responses.csv")
+except FileNotFoundError:
+    st.sidebar.error("Bhai, responses.csv nahi mila! Project folder mein check kar.")
 
 # Fetch portfolio data
 def fetch_portfolio_data(client, capital):
@@ -153,6 +189,7 @@ with st.sidebar:
         else:
             st.session_state.logged_in = False
             st.error("❌ Login failed. Check credentials and TOTP.")
+    
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
         capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, format="%d")
@@ -180,6 +217,32 @@ with st.sidebar:
                 st.success("✅ All positions squared off")
             else:
                 st.error("❌ Failed to square off positions")
+    
+    # SmartBhai GPT Chat Widget
+    st.markdown("---")
+    st.header("🗣️ SmartBhai GPT")
+    st.markdown("Ask your trading copilot about options!")
+    query = st.text_input("Type your query:", key="gpt_query_input", help="E.g., 'What is IV?' or 'Check my straddle at 21000'")
+    if st.button("Ask SmartBhai", key="smartbhai_button"):
+        if query:
+            with st.spinner("SmartBhai is thinking..."):
+                try:
+                    response = smartbhai_gpt.generate_response(query)
+                    st.session_state.chat_history.append({"query": query, "response": response})
+                    st.session_state.gpt_query_input = ""
+                except Exception as e:
+                    st.error(f"Bhai, kuch gadbad ho gaya: {str(e)}")
+    
+    # Display chat history
+    if st.session_state.chat_history:
+        st.markdown('<div class="smartbhai-chat">', unsafe_allow_html=True)
+        for chat in st.session_state.chat_history:
+            st.markdown(f"**You**: {chat['query']}")
+            st.markdown(f"**SmartBhai**: {chat['response']} 😎")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # SEBI disclaimer
+    st.markdown("**Disclaimer**: SmartBhai is a decision-support tool, not financial advice. Do your own research!")
 
 # Main Execution
 if not st.session_state.logged_in:
