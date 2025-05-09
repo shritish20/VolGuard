@@ -1,0 +1,99 @@
+
+import pandas as pd
+
+data = [
+    {
+        "query_pattern": "what.*iv",
+        "response_template": "Bhai, IV market ka fever hai. High IV = risky, low IV = calm. Abhi IV {iv}% hai, thoda careful rehna. Do your own research!",
+        "context_needed": "iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "explain.*gamma",
+        "response_template": "Gamma tera loss speed badha deta hai, bhai. Jab price jaldi move kare, gamma high ho to risk bhi bhadta hai. Abhi gamma {gamma} hai. Soch samajh ke trade kar. Do your own research!",
+        "context_needed": "gamma",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "what.*straddle",
+        "response_template": "Bhai, straddle matlab ek call aur ek put kharidna, same strike pe. Market badi move kare to faida, nahi to loss. Abhi IV {iv}% hai, costly ho sakta hai. Do your own research!",
+        "context_needed": "iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "why.*margin.*high",
+        "response_template": "Bhai, margin high hai kyunki tu heavy position le raha hai! Abhi margin usage {margin}% hai. Thoda kam leverage kar, nahi to call aayega broker ka. Do your own research!",
+        "context_needed": "margin",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "check.*straddle.*21000",
+        "response_template": "Bhai, IV {iv}% pe hai, gamma {gamma} high lag raha hai. 21000 straddle mein loss 20%+ ka risk hai. Tighten kar ya exit soch. Do your own research!",
+        "context_needed": "iv,gamma",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "is.*delta.*safe",
+        "response_template": "Bhai, delta {delta} hai abhi. Neutral hai to thik, par zyada tilt ho to adjust kar le. Market ka mood dekho, IV {iv}% hai. Do your own research!",
+        "context_needed": "delta,iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "should.*roll.*21200.*put",
+        "response_template": "Bhai, 21200 put ka premium abhi accha hai, IV {iv}%. Roll kar le to faida ho sakta hai, par expiry close hai to jaldi decide kar. Do your own research!",
+        "context_needed": "iv",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "gamma.*trap.*21000.*call",
+        "response_template": "Haan bhai, 21000 call pe gamma {gamma} spike ho raha hai. 15%+ loss ka risk hai. Iron fly ya spread daal ke hedge kar le. Do your own research!",
+        "context_needed": "gamma",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "should.*hedge",
+        "response_template": "Bhai, IV {iv}% pe chadh gaya hai, market nervous hai. Hedge kar le, put spread ya iron condor try kar. Margin {margin}% hai, safe khel. Do your own research!",
+        "context_needed": "iv,margin",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "adjust.*iron.*condor",
+        "response_template": "Bhai, iron condor ka short leg abhi {delta} delta pe hai. IV {iv}% hai, thoda tight kar le ya spread shift kar. Expiry close hai, jaldi soch! Do your own research!",
+        "context_needed": "delta,iv",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "vix.*spiking",
+        "response_template": "VIX {vix}% pe chadh raha hai, bhai! Market mein darr hai. Straddle bechne ka soch ya positions tight kar. IV {iv}% hai, risky hai. Do your own research!",
+        "context_needed": "vix,iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "margin.*call.*risk",
+        "response_template": "Bhai, margin usage {margin}% hai, call ka risk hai agar market ulta gaya. Thoda position cut kar ya hedge daal le. Soch le, time kam hai! Do your own research!",
+        "context_needed": "margin",
+        "tone": "serious"
+    },
+    {
+        "query_pattern": "market.*mood",
+        "response_template": "Abhi market thoda {iv}% IV ke sath nervous lag raha hai, bhai. FII/DII data check kar, aur safe strategy khel. Do your own research!",
+        "context_needed": "iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "suggest.*strategy",
+        "response_template": "Bhai, IV {iv}% hai, market choppy hai. Iron condor ya spread try kar, low risk rahega. Apna risk profile dekh le. Do your own research!",
+        "context_needed": "iv",
+        "tone": "witty"
+    },
+    {
+        "query_pattern": "why.*lost.*money",
+        "response_template": "Bhai, loss ka reason IV spike ya gamma trap ho sakta hai. Abhi IV {iv}%, gamma {gamma} check kar. Journal mein likh, seekhna padega! Do your own research!",
+        "context_needed": "iv,gamma",
+        "tone": "serious"
+    }
+]
+
+df = pd.DataFrame(data)
+df.to_csv("responses.csv", index=False)
+print("responses.csv generated!")
