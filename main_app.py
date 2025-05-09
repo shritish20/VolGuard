@@ -115,10 +115,11 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # Initialize SmartBhai GPT
+smartbhai_gpt = None
 try:
     smartbhai_gpt = SmartBhaiGPT(responses_file="responses.csv")
-except FileNotFoundError:
-    st.sidebar.error("Bhai, responses.csv nahi mila! Project folder mein check kar.")
+except Exception as e:
+    st.sidebar.error(f"Bhai, SmartBhai GPT load nahi hua: {str(e)}")
 
 # Fetch portfolio data
 def fetch_portfolio_data(client, capital):
@@ -224,7 +225,7 @@ with st.sidebar:
     st.markdown("Ask your trading copilot about options!")
     query = st.text_input("Type your query:", key="gpt_query_input", help="E.g., 'What is IV?' or 'Check my straddle at 21000'")
     if st.button("Ask SmartBhai", key="smartbhai_button"):
-        if query:
+        if query and smartbhai_gpt:
             with st.spinner("SmartBhai is thinking..."):
                 try:
                     response = smartbhai_gpt.generate_response(query)
@@ -232,6 +233,8 @@ with st.sidebar:
                     st.session_state.gpt_query_input = ""
                 except Exception as e:
                     st.error(f"Bhai, kuch gadbad ho gaya: {str(e)}")
+        else:
+            st.error("Bhai, query ya SmartBhai GPT load nahi hua!")
     
     # Display chat history
     if st.session_state.chat_history:
@@ -525,7 +528,7 @@ else:
                     "Discipline_Score": score
                 }
                 try:
-                    pd.DataFrame([journal_entry]).to_csv("journal_log.csv", mode='a', header=not os.path.exists("journal_log.csv"), index=False)
+                    pd.DataFrame([journal_entry]).to_csv("journal_log.csv", mode='a', header=not os.path.exists("journal_log.csv"), index=False, encoding='utf-8')
                     st.success(f"✅ Journal Entry Saved! Score: {score}/10")
                     if score >= 7 and st.session_state.violations > 0:
                         st.session_state.violations = 0
@@ -536,7 +539,7 @@ else:
         st.markdown("### Past Entries")
         if os.path.exists("journal_log.csv"):
             try:
-                journal_df = pd.read_csv("journal_log.csv")
+                journal_df = pd.read_csv("journal_log.csv", encoding='utf-8')
                 journal_df['Date'] = pd.to_datetime(journal_df['Date']).dt.strftime("%Y-%m-%d %H:%M")
                 st.dataframe(journal_df, use_container_width=True)
             except Exception as e:
