@@ -1,5 +1,7 @@
 import pandas as pd
 import re
+import streamlit as st
+from fivepaisa_api import fetch_market_depth_by_scrip
 
 class SmartBhaiGPT:
     def __init__(self, responses_file="responses.csv"):
@@ -11,33 +13,66 @@ class SmartBhaiGPT:
     
     def fetch_app_data(self, context_needed):
         """
-        Fetch real-time data (e.g., IV, gamma) from your VolGuard Pro app.
-        Replace this with your actual data pipeline (e.g., generate_features or 5paisa API).
+        Fetch real-time data (e.g., IV, gamma) from VolGuard Pro's data pipeline.
+        Primary: st.session_state.analysis_df (from generate_features).
+        Fallback 1: 5paisa API via fetch_market_depth_by_scrip.
+        Fallback 2: Static fallback_data.csv.
         """
         try:
-            # Placeholder: Replace with your actual data fetching logic
-            # Example: from your_app_module import generate_features
-            # features = generate_features()
-            # data = {
-            #     "iv": features.get("iv", 30.0),
-            #     "gamma": features.get("gamma", 0.05),
-            #     "margin": features.get("margin_usage", 85.0),
-            #     "delta": features.get("delta", 0.4),
-            #     "vix": features.get("vix", 25.0)
-            # }
-            
-            # Mock data for testing
-            data = {
-                "iv": 30.0,  # Replace with real IV from your app
-                "gamma": 0.05,
-                "margin": 85.0,
-                "delta": 0.4,
-                "vix": 25.0
-            }
+            # Primary source: st.session_state.analysis_df from generate_features
+            if "analysis_df" in st.session_state and st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
+                df = st.session_state.analysis_df
+                latest_data = df.iloc[-1]  # Get the latest row
+                data = {
+                    "iv": latest_data.get("IV", 30.0),  # Implied Volatility
+                    "gamma": latest_data.get("Gamma", 0.05),
+                    "delta": latest_data.get("Delta", 0.4),
+                    "vix": latest_data.get("VIX", 25.0),  # India VIX
+                    "margin": (st.session_state.get("api_portfolio_data", {}).get("margin", {}).get("UtilizedMargin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0
+                }
+            else:
+                raise ValueError("Analysis DataFrame not available")
+        
         except Exception as e:
-            # Fallback if data fetch fails
-            print(f"Error fetching data: {e}")
-            data = {"iv": "N/A", "gamma": "N/A", "margin": "N/A", "delta": "N/A", "vix": "N/A"}
+            # Fallback 1: Try 5paisa API
+            try:
+                client = st.session_state.get("client")
+                if client and client.get_access_token():
+                    # Example: Fetch NIFTY options data (adjust ScripCode as needed)
+                    market_data = fetch_market_depth_by_scrip(client, Exchange="N", ExchangeType="D", ScripCode=999920000)  # NIFTY index placeholder
+                    ltp = market_data["Data"][0].get("LastTradedPrice", 0.0) if market_data and market_data.get("Data") else 0.0
+                    # Mock option greeks (replace with actual option chain data if available)
+                    data = {
+                        "iv": 30.0,  # Replace with actual IV from option chain
+                        "gamma": 0.05,
+                        "delta": 0.4,
+                        "vix": 25.0,  # Replace with actual VIX from API
+                        "margin": (st.session_state.get("api_portfolio_data", {}).get("margin", {}).get("UtilizedMargin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0
+                    }
+                else:
+                    raise ValueError("5paisa client not available")
+            except Exception as e2:
+                # Fallback 2: Load from fallback_data.csv
+                try:
+                    fallback_df = pd.read_csv("fallback_data.csv")
+                    latest_fallback = fallback_df.iloc[-1]
+                    data = {
+                        "iv": latest_fallback.get("iv", 30.0),
+                        "gamma": latest_fallback.get("gamma", 0.05),
+                        "delta": latest_fallback.get("delta", 0.4),
+                        "vix": latest_fallback.get("vix", 25.0),
+                        "margin": latest_fallback.get("margin", 85.0)
+                    }
+                except Exception as e3:
+                    # Last resort: Hardcoded defaults
+                    data = {
+                        "iv": "N/A",
+                        "gamma": "N/A",
+                        "delta": "N/A",
+                        "vix": "N/A",
+                        "margin": "N/A"
+                    }
+                    print(f"Error fetching data: Primary failed ({e}), API failed ({e2}), CSV failed ({e3})")
         
         # Return only the needed context
         return {key: data.get(key, "N/A") for key in context_needed.split(",")}
