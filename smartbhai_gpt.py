@@ -1,15 +1,22 @@
 import pandas as pd
 import re
 import streamlit as st
+import csv
 from fivepaisa_api import fetch_market_depth_by_scrip
 
 class SmartBhaiGPT:
     def __init__(self, responses_file="responses.csv"):
         # Load response templates
         try:
-            self.responses = pd.read_csv(responses_file)
+            self.responses = pd.read_csv(
+                responses_file,
+                quoting=csv.QUOTE_ALL,  # Force quoting to handle commas in text
+                encoding='utf-8'
+            )
         except FileNotFoundError:
             raise FileNotFoundError("Bhai, responses.csv nahi mila! Check kar project folder mein.")
+        except pd.errors.ParserError as e:
+            raise ValueError(f"Bhai, responses.csv ka format galat hai! Error: {str(e)}")
     
     def fetch_app_data(self, context_needed):
         """
@@ -54,7 +61,7 @@ class SmartBhaiGPT:
             except Exception as e2:
                 # Fallback 2: Load from fallback_data.csv
                 try:
-                    fallback_df = pd.read_csv("fallback_data.csv")
+                    fallback_df = pd.read_csv("fallback_data.csv", encoding='utf-8')
                     latest_fallback = fallback_df.iloc[-1]
                     data = {
                         "iv": latest_fallback.get("iv", 30.0),
