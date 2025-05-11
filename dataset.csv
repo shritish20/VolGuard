@@ -1,7 +1,7 @@
 query_pattern,response_template,context_needed,tone
 "what.*iv|implied.*volatility","Bhai, IV market ka fever hai. Abhi {iv}% hai, {ivp_status} lag raha hai. High IV = costly options, soch ke trade kar! 😜 Do your own research!","iv,ivp_status","witty"
 "explain.*ivp","IVP tera IV ka report card hai, bhai. Abhi {ivp}%, matlab {ivp_status} compared to past. Strategy adjust kar! 😎 Do your own research!","ivp,ivp_status","witty"
-"check.*vix","Bhai, VIX abhi {vix}% pe hai, market ka {vix_status} mood hai. High VIX = volatile, safe khel! 😬 Do your own research!","vix,vix_status","witty"
+"check.*vix","Bhai, VIX abhi {vix}% pe hai, market ka {vix_status} mood hai. High VIX = volatile, safe khel! 😬 Do your own research!","vix,vix_status","serious"
 "what.*nifty.*today","NIFTY {nifty_close:,.2f} pe hai, bhai, {nifty_change:.2f}% move. Regime {regime} hai, strategy soch le! 😎 Do your own research!","nifty_close,nifty_change,regime","witty"
 "check.*pcr|put.*call.*ratio","Bhai, PCR {pcr:.2f} hai, {pcr_status} vibe dikha raha. High PCR = bearish, puts zyada hain. Adjust kar! 😜 Do your own research!","pcr,pcr_status","witty"
 "what.*fii.*dii.*flow","FII ne {fii_flow} crore becha, DII ne {dii_flow} crore kharida, bhai. IV {iv}% pe market tense hai. Soch le! 😬 Do your own research!","fii_flow,dii_flow,iv","serious"
@@ -52,7 +52,7 @@ query_pattern,response_template,context_needed,tone
 "why.*market.*volatile","Market volatile hai, bhai, kyunki VIX {vix}% pe hai aur IV {iv}% spike kiya. News ya flows check kar! 😬 Do your own research!","vix,iv","serious"
 "should.*exit.*trade","Bhai, IV {iv}% aur gamma {gamma} risky hai. Margin {margin}% tight hai. Exit ya hedge kar, jaldi soch! ⚠️ Do your own research!","iv,gamma,margin","serious"
 "gamma.*trap.*[0-9]+.*call","Bhai, {strike} call pe gamma {gamma} spike hai. 15%+ loss ka risk. Iron fly ya spread daal ke hedge kar! 😬 Do your own research!","gamma,strike","serious"
-"should.*roll.*[0-9]+.*put","{strike} put ka premium accha hai, bhai, IV {iv}%. Roll kar le, par expiry close hai toh jaldi decide kar! 😎 Do your own research!","iv,strike","serious"
+"should.*roll.*[0-9]+.*put","{strike} put ka premium accha hai, bhai, IV {iv}%. Roll kar le, par expiry close hai toh jaldi decide kar! 😎 Do your own research!","iv,strike","witty"
 "check.*community.*trends","Bhai, {community_hedge}% users hedging kar rahe hain. X pe {buzz_topic} ka buzz hai. IV {iv}% pe plan bana! 😜 Do your own research!","community_hedge,buzz_topic,iv","witty"
 "what.*news.*impact","Bhai, news mein {news_headline} ka scene hai. {impact}% chance bearish move ka. IV {iv}% pe adjust kar! 😬 Do your own research!","news_headline,impact,iv","serious"
 "am.*i.*chasing.*trades","Bhai, {trade_count} trades mein {bias_count} baar chasing pattern dikha. IV {iv}% pe calm reh, journal likh! 😬 Do your own research!","trade_count,bias_count,iv","serious"
@@ -183,7 +183,7 @@ query_pattern,response_template,context_needed,tone
 "check.*portfolio.*weekly.*pnl.*recent.*update","Bhai, recent weekly PnL ₹{weekly_pnl:,.2f} hai, exposure {exposure:.2f}%. Margin {margin}% aur risk {loss_risk}% pe dhyan de! 😎 Do your own research!","weekly_pnl,exposure,margin,loss_risk","witty"
 "what.*trade.*pattern.*fomo.*recent.*update","FOMO pattern tab hota hai jab tu bheed ke sath trade karta hai, bhai. Last {trade_count} trades mein {bias_count} baar dikha. IV {iv}% pe journal likh! 😬 Do your own research!","trade_count,bias_count,iv","serious"
 "why.*portfolio.*exposure.*high.*recent.*update","Bhai, exposure {exposure}% high hai coz heavy positions hain. Margin {margin}% tight hai, hedge ya cut kar le! ⚠️ Do your own research!","exposure,margin","serious"
-"check.*strategy.*sharpe.*recent.*update","Bhai, {strategy_name} ka recent Sharpe ratio {裏test_sharpe:.2f} hai. IV {iv}% pe backtest dekh, 1+ ho toh solid! 😎 Do your own research!","strategy_name,backtest_sharpe,iv","witty"
+"check.*strategy.*sharpe.*recent.*update","Bhai, {strategy_name} ka recent Sharpe ratio {backtest_sharpe:.2f} hai. IV {iv}% pe backtest dekh, 1+ ho toh solid! 😎 Do your own research!","strategy_name,backtest_sharpe,iv","witty"
 "what.*trade.*cost.*slippage.*recent.*update","Slippage aur brokerage tera trade cost banate hain, bhai. Last {trade_count} trades ka cost {trade_cost:,.2f}, slippage {slippage}%. IV {iv}% pe optimize! 😎 Do your own research!","trade_count,trade_cost,slippage,iv","witty"
 "suggest.*strategy.*low.*risk.*volatile.*recent.*update","Bhai, IV {iv}% high hai, low risk ke liye iron condor ya butterfly spread try kar. Margin {margin}% ke andar khel! 😎 Do your own research!","iv,margin","witty"
 "check.*portfolio.*risk.*daily.*recent.*update","Bhai, daily risk {loss_risk}% hai, exposure {exposure}% aur margin {margin}% used. Hedge ya position cut kar le! ⚠️ Do your own research!","loss_risk,exposure,margin","serious"
@@ -237,4 +237,7 @@ query_pattern,response_template,context_needed,tone
 "check.*portfolio.*risk.*daily.*recent.*update.*market.*latest.*update","Bhai, daily risk {loss_risk}% hai, exposure {exposure}% aur margin {margin}% used. Hedge ya position cut kar le! ⚠️ Do your own research!","loss_risk,exposure,margin","serious"
 "what.*trade.*pattern.*revenge.*recent.*update.*market.*latest.*update","Revenge trading tab hota hai jab tu loss ka badla leta hai, bhai. Last {trade_count} trades mein {bias_count} baar dikha. Journal likh! 😬 Do your own research!","trade_count,bias_count","serious"
 "why.*strategy.*backtest.*failed.*recent.*update.*market.*latest.*update.*latest","Bhai, {strategy_name} ka recent backtest fail hua coz {reason}. Win rate {backtest_win_rate:.2f}% low hai, IV {iv}% pe new strategy try kar! 😬 Do your own research!","strategy_name,reason,backtest_win_rate,iv","serious"
-"check.*market.*fii.*dii.*recent.*update.*market.*latest.*update
+"check.*market.*fii.*dii.*recent.*update.*market.*latest.*update.*latest","Bhai, FII ne {fii_flow} crore becha, DII ne {dii_flow} crore kharida. IV {iv}% pe market ka mood check kar! 😬 Do your own research!","fii_flow,dii_flow,iv","serious"
+"suggest.*strategy.*volatile.*expiry.*recent.*update.*market.*latest.*update.*latest","Expiry week mein IV {iv}% high hai, bhai. Strangle ya iron fly try kar, par gamma {gamma} high hai. Risk tight rakh! 😎 Do your own research!","iv,gamma","witty"
+"check.*portfolio.*sharpe.*recent.*update.*market.*latest.*update.*latest","Bhai, recent portfolio ka Sharpe ratio {portfolio_sharpe:.2f} hai. 1+ ho toh solid, warna IV {iv}% pe adjust kar! 😎 Do your own research!","portfolio_sharpe,iv","witty"
+"what.*trade.*bias.*overtrading.*recent.*update.*market
