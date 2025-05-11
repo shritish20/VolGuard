@@ -1,18 +1,23 @@
 # Open your file: smartbhai_gpt.py
 # Replace the ENTIRE content of this file with the code below.
-import os
+
 import pandas as pd
 import re
 import streamlit as st # Streamlit is needed to access st.session_state
 import csv
 import numpy as np  # Import numpy for calculations
 import logging      # Import logging
+from datetime import datetime, timedelta # Import datetime and timedelta for date comparisons
 
 # Assuming fivepaisa_api is a separate file/module you have
-from fivepaisa_api import fetch_market_depth_by_scrip # Ensure this import path is correct
+# We don't need to import specific functions here if they are only used in fetch_app_data or assess_trade_risk
+# by accessing data already stored in app_state (st.session_state)
+# from fivepaisa_api import fetch_market_depth_by_scrip # Keep if needed directly, but likely not
 
 # Assuming data_processing is a separate file/module you have
-# from data_processing import FEATURE_COLS # You might need imports from other modules if you use them directly here
+# Ensure FEATURE_COLS is accessible if used (e.g., for mock data)
+# from data_processing import FEATURE_COLS # Uncomment if FEATURE_COLS is defined in data_processing.py
+
 
 # Setup logging for this specific module
 # This ensures logs from smartbhai_gpt.py are formatted correctly
@@ -75,8 +80,12 @@ class SmartBhaiGPT:
             analysis_df = session_state_data.get("analysis_df")
             latest_data = analysis_df.iloc[-1] if analysis_df is not None and not analysis_df.empty else {} # Get latest row or empty dict
 
-            # Get data from API portfolio data if available
+            # Get data from API portfolio data if available, ensure it's a dictionary
             portfolio_data = session_state_data.get("api_portfolio_data", {})
+            if not isinstance(portfolio_data, dict):
+                 logger.warning(f"SmartBhaiGPT: api_portfolio_data in app_state is not a dictionary ({type(portfolio_data)}). Using empty dict for fetch_app_data.")
+                 portfolio_data = {}
+
 
             # Populate data dictionary from session state sources
             # Use .get() on latest_data, portfolio_data, and session_state_data with default values
@@ -93,7 +102,14 @@ class SmartBhaiGPT:
 
             # Calculate margin % - handle potential division by zero or zero capital
             total_capital = session_state_data.get("capital", 1000000)
-            utilized_margin = portfolio_data.get("margin", {}).get("UtilizedMargin", 0.0)
+            # Safely access margin data within portfolio_data
+            margin_details = portfolio_data.get("margin", {})
+            if not isinstance(margin_details, dict):
+                 logger.warning(f"SmartBhaiGPT: 'margin' data in api_portfolio_data is not a dictionary ({type(margin_details)}). Using 0 for margin metrics.")
+                 utilized_margin = 0.0
+            else:
+                 utilized_margin = margin_details.get("UtilizedMargin", 0.0)
+
             data["margin"] = (utilized_margin / total_capital * 100) if total_capital > 0 else 0
             data["margin_used"] = utilized_margin # Also provide absolute margin used
 
@@ -247,6 +263,7 @@ class SmartBhaiGPT:
 
     # --- START OF THE assess_trade_risk METHOD (Proactive Risk Officer Brain) ---
     # This method performs the risk checks and returns a structured result.
+    # It includes the fix for accessing portfolio margin data safely.
     def assess_trade_risk(self, app_state):
         """
         Assesses the risk of the currently proposed strategy based on market conditions
@@ -263,7 +280,7 @@ class SmartBhaiGPT:
                        st.session_state from your Streamlit app.
                        It should contain keys like 'real_time_market_data',
                        'forecast_log', 'generated_strategy', 'analysis_df',
-                       'api_portfolio_data', 'capital', 'journal_log' (potentially).
+                       'api_portfolio_data', 'capital', 'journal_df' (potentially).
 
         Returns:
             dict or None: A dictionary like {"main_message": str, "explanations": list[str]}
@@ -284,16 +301,32 @@ class SmartBhaiGPT:
         forecast_log = app_state.get("forecast_log") # Contains the forecast results, including blended volatility
         generated_strategy = app_state.get("generated_strategy") # Details of the strategy the engine recommended
         analysis_df = app_state.get("analysis_df") # The main DataFrame with market features
-        portfolio_data = app_state.get("api_portfolio_data", {}) # Portfolio data for margin/position checks
+        # --- Error Fix Here: Ensure portfolio_data is a dictionary ---
+        # Get portfolio data safely, defaulting to an empty dictionary if missing or not a dictionary
+        portfolio_data = app_state.get("api_portfolio_data", {})
+        if not isinstance(portfolio_data, dict):
+            logger.warning(f"SmartBhai: api_portfolio_data in app_state is not a dictionary (Type: {type(portfolio_data)}). Treating as empty portfolio data for risk assessment.")
+            portfolio_data = {} # Default to empty dict if not the expected type
+        # --- End Error Fix ---
+
         capital = app_state.get("capital", 1000000) # User's total capital (default to 1M if not set)
         journal_df = app_state.get("journal_df") # Access journal data if loaded into state (Needs to be loaded in app.py)
 
 
         # Basic check: If essential data isn't available (e.g., analysis hasn't run), we can't assess risk meaningfully.
-        if generated_strategy is None or market_data is None or forecast_log is None or analysis_df is None or analysis_df.empty:
-            logger.warning("SmartBhai: Risk assessment skipped due to missing essential analysis data.")
-            # Consider adding a UI element in Streamlit to inform the user to run analysis first.
-            return None # No warning if we don't have the necessary data to check
+        # We also add a check for portfolio_data being accessible for portfolio-based risks.
+        # Note: Checking if portfolio_data is "not portfolio_data" is true for {}, so this covers the fix above.
+        if generated_strategy is None or market_data is None or forecast_log is None or analysis_df is None or analysis_df.empty or not portfolio_data:
+             missing_data = []
+             if generated_strategy is None: missing_data.append("generated_strategy")
+             if market_data is None: missing_data.append("real_time_market_data")
+             if forecast_log is None: missing_data.append("forecast_log")
+             if analysis_df is None or analysis_df.empty: missing_data.append("analysis_df (empty)")
+             if not portfolio_data: missing_data.append("api_portfolio_data (empty/invalid)")
+
+             logger.warning(f"SmartBhai: Risk assessment skipped due to missing essential data: {', '.join(missing_data)}.")
+             # Consider adding a UI element in Streamlit to inform the user to run analysis first.
+             return None # No warning if we don't have the necessary data to check
 
 
         # --- 2. Extract Key Information for Risk Checks ---
@@ -322,9 +355,18 @@ class SmartBhaiGPT:
         behavior_warnings = generated_strategy.get("Behavior_Warnings", []) # Get any behavioral warnings added by the strategy generator (list of strings)
 
         # Get portfolio-level risk metrics from portfolio data
-        current_margin_used = portfolio_data.get("margin", {}).get("UtilizedMargin", 0)
+        # --- Error Fix Continuation: Safely access margin data ---
+        margin_details = portfolio_data.get("margin", {})
+        # Ensure margin_details is a dictionary before getting UtilizedMargin
+        if not isinstance(margin_details, dict):
+             logger.warning(f"SmartBhai: 'margin' data in api_portfolio_data is not a dictionary (Type: {type(margin_details)}). Treating margin used as 0.")
+             current_margin_used = 0
+        else:
+             current_margin_used = margin_details.get("UtilizedMargin", 0)
+
         # Calculate margin usage percentage, handle potential division by zero or zero capital
         current_margin_used_pct = (current_margin_used / capital * 100) if capital > 0 else 0
+        # --- End Error Fix Continuation ---
 
 
         logger.debug(f"SmartBhai: Risk check inputs extracted - VIX: {current_vix:.1f}%, Forecast Vol: {forecasted_blended_vol:.1f}%, DTE: {days_to_expiry}, Strategy: '{strategy_name}', Strat Exposure: {strategy_deploy_pct:.1f}%, Margin Used: {current_margin_used_pct:.1f}%")
@@ -418,30 +460,56 @@ class SmartBhaiGPT:
         # You can access other data from app_state here (e.g., VaR from Risk Dashboard, journal analysis).
 
         # Example Rule 6: Warning for low forecast confidence on the volatility prediction
-        # low_confidence_threshold = 60 # Example threshold for low confidence
-        # forecast_confidence = app_state.get("forecast_metrics", {}).get("confidence_score", 100) # Default to 100 if missing
-        # if forecast_confidence < low_confidence_threshold:
-        #      if risk_assessment_result["main_message"] is None:
-        #           risk_assessment_result["main_message"] = f"📉 Volatility forecast confidence thoda low hai ({forecast_confidence:.1f}%)."
-        #      explanation = f"The confidence score ({forecast_confidence:.1f}%) for the volatility forecast is lower than usual. This means the model is less certain about the future volatility prediction, increasing the uncertainty around strategies that depend heavily on volatility assumptions. Be extra cautious with volatility-sensitive trades."
-        #      risk_assessment_result["explanations"].append(explanation + " Do your own research!")
-        #      logger.warning(f"SmartBhai Risk Rule 6 triggered: Low Forecast Confidence ({forecast_confidence:.1f}%).")
+        low_confidence_threshold = 60 # Example threshold for low confidence
+        # Get forecast confidence safely, default to a high value if missing
+        forecast_metrics = app_state.get("forecast_metrics", {})
+        forecast_confidence = forecast_metrics.get("confidence_score", 100)
+        if isinstance(forecast_confidence, (int, float)) and forecast_confidence < low_confidence_threshold:
+             if risk_assessment_result["main_message"] is None:
+                  risk_assessment_result["main_message"] = f"📉 Volatility forecast confidence thoda low hai ({forecast_confidence:.1f}%)."
+             explanation = f"The confidence score ({forecast_confidence:.1f}%) for the volatility forecast is lower than usual. This means the model is less certain about the future volatility prediction, increasing the uncertainty around strategies that depend heavily on volatility assumptions. Be extra cautious with volatility-sensitive trades."
+             risk_assessment_result["explanations"].append(explanation + " Do your own research!")
+             logger.warning(f"SmartBhai Risk Rule 6 triggered: Low Forecast Confidence ({forecast_confidence:.1f}%).")
 
 
-        # Example Rule 7: Behavioral nudge based on recent losing trades (requires loading/analyzing journal_log.csv in app_state)
-        # Check if journal data is available and has recent entries
-        # if journal_df is not None and not journal_df.empty:
-        #      # Example: Check last 3 trades PnL from journal (assuming PnL is logged or can be derived)
-        #      # This requires journal_log.csv to store PnL or link to trades
-        #      recent_trades = journal_df.tail(3) # Look at last 3 journal entries
-        #      recent_losses = recent_trades[recent_trades['Discipline_Score'] < 5] # Simplified check based on low score (needs actual PnL check)
-        #
-        #      if len(recent_losses) >= 2: # If at least 2 out of last 3 entries had low discipline scores (proxy for loss/poor trade)
-        #           if risk_assessment_result["main_message"] is None:
-        #                risk_assessment_result["main_message"] = f"🧠 Dhyan de, bhai! Tere recent trades mein kuch issues dikh rahe hain."
-        #           explanation = f"Your recent trading journal entries suggest a pattern of poor outcomes or discipline issues in the last few trades. Trading after losses can lead to impulsive 'revenge' trading. Review your journal and ensure you are trading with a clear, disciplined mindset for this trade."
-        #           risk_assessment_result["explanations"].append(explanation + " Do your own research!")
-        #           logger.warning(f"SmartBhai Risk Rule 7 triggered: Recent potential losses detected.")
+        # Example Rule 7: Behavioral nudge based on recent losing trades (requires journal_df in app_state)
+        # Check if journal data is available and is a DataFrame with enough recent entries
+        if isinstance(journal_df, pd.DataFrame) and not journal_df.empty and 'Date' in journal_df.columns and 'Discipline_Score' in journal_df.columns:
+             # Ensure Date column is datetime objects
+             try:
+                 # Use errors='coerce' to turn invalid dates into NaT (Not a Time)
+                 journal_df_cleaned = journal_df.copy() # Work on a copy
+                 journal_df_cleaned['Date'] = pd.to_datetime(journal_df_cleaned['Date'], errors='coerce')
+                 # Drop rows where date conversion failed
+                 journal_df_cleaned = journal_df_cleaned.dropna(subset=['Date']).copy()
+
+             except Exception as e:
+                 logger.warning(f"Could not convert journal 'Date' column to datetime for behavioral rule: {e}. Skipping rule.")
+                 journal_df_cleaned = pd.DataFrame() # Treat as empty if date processing fails
+
+
+             if not journal_df_cleaned.empty: # Proceed only if cleaned journal data is not empty
+                 # Look at journal entries from the last few days (e.g., last 7 days)
+                 recent_journal_days = 7
+                 # Filter entries within the last N days from the latest entry date or current date
+                 latest_journal_date = journal_df_cleaned['Date'].max() if not journal_df_cleaned['Date'].empty else datetime.now()
+                 recent_entries = journal_df_cleaned[journal_df_cleaned['Date'] >= (latest_journal_date - timedelta(days=recent_journal_days))].copy()
+
+                 if not recent_entries.empty:
+                      # Example: Check for low discipline scores in recent entries (as a proxy for poor decisions/losses)
+                      low_score_threshold = 5 # Example: Consider score < 5 as a sign of poor trade/discipline
+                      recent_low_scores = recent_entries[recent_entries['Discipline_Score'] < low_score_threshold]
+
+                      # If a significant number of recent entries have low scores (e.g., more than 1)
+                      if len(recent_low_scores) >= 2: # If at least 2 recent entries have low discipline scores
+                           if risk_assessment_result["main_message"] is None:
+                                risk_assessment_result["main_message"] = f"🧠 Dhyan de, bhai! Tere recent trades mein kuch issues dikh rahe hain."
+                           explanation = f"Your trading journal entries from the last {recent_journal_days} days suggest potential discipline issues or poor outcomes in {len(recent_low_scores)} recent trades. Trading after poor performance can lead to impulsive 'revenge' trading. Review your journal and ensure you are trading with a clear, disciplined mindset for this trade."
+                           risk_assessment_result["explanations"].append(explanation + " Do your own research!")
+                           logger.warning(f"SmartBhai Risk Rule 7 triggered: Recent potential discipline issues detected.")
+
+        else:
+             logger.debug("SmartBhai: Journal data not available, not a DataFrame, or empty after cleaning. Skipping behavioral rule 7.")
 
 
         # --- Final Return Value ---
@@ -461,6 +529,7 @@ class SmartBhaiGPT:
 
 
 # Test the class (your existing test code - requires mocking st.session_state)
+# This test block helps verify the SmartBhaiGPT class methods independently.
 if __name__ == "__main__":
     # This test block needs st.session_state and some data mocked to test the methods
     # as they rely heavily on the app's state.
@@ -475,7 +544,9 @@ if __name__ == "__main__":
             # Populate this mock state with realistic dummy data for testing different scenarios
             # Configure this state to trigger some risk rules for testing assess_trade_risk
             self.real_time_market_data = {"vix": 28.0} # Mock high VIX
-            self.forecast_log = pd.DataFrame({"Blended_Vol": [27.0, 26.0, 25.0], "Date": pd.to_datetime(["2025-05-10", "2025-05-11", "2025-05-12"])}) # Mock high forecast vol with Dates
+            self.forecast_log = pd.DataFrame({"Blended_Vol": [27.0, 26.0, 25.0], "GARCH_Vol":[26.5, 25.5, 24.5], "XGBoost_Vol":[27.5, 26.5, 25.5], "Date": pd.to_datetime(["2025-05-10", "2025-05-11", "2025-05-12"])}) # Mock high forecast vol with Dates
+            self.forecast_metrics = {"realized_vol": 22.0, "confidence_score": 55, "rmse": 2.0, "feature_importances": [0.1]*len(FEATURE_COLS) if 'FEATURE_COLS' in globals() else [0.1]*10} # Mock low forecast confidence
+
             # Mock a generated strategy - e.g., a Short Straddle which is sensitive to high vol near expiry
             self.generated_strategy = {
                 "Regime": "HIGH",
@@ -485,7 +556,7 @@ if __name__ == "__main__":
                 "Confidence": 70,
                 "Risk_Reward": 1.8,
                 "Deploy": 100000,
-                "Max_Loss": 50000, # Mock a high max loss relative to capital
+                "Max_Loss": 50000, # Mock a high max loss relative to capital (5% of 1M capital)
                 "Exposure": 10, # Mock exposure
                 "Risk_Flags": ["High IV Risk", "Near Expiry Risk"], # Mock existing risk flags
                 "Behavior_Warnings": ["Overtrading Detected"], # Mock behavioral warning
@@ -495,6 +566,7 @@ if __name__ == "__main__":
             # Ensure it has a DatetimeIndex if used by other parts
             self.analysis_df = pd.DataFrame({
                 "Days_to_Expiry": [3], # Mock near expiry
+                "NIFTY_Close": [22000], # Add NIFTY Close for VaR mock later
                 "VIX": [28.0],
                 "ATM_IV": [28.0], # Keep IV matching VIX for simplicity in mock
                 "Realized_Vol": [20.0],
@@ -512,47 +584,71 @@ if __name__ == "__main__":
                  "Capital_Pressure_Index": [0]
             }, index=pd.to_datetime(['2025-05-10'])) # Use a dummy recent date as DatetimeIndex
 
-            # Mock portfolio data for margin check
-            self.api_portfolio_data = {"margin": {"UtilizedMargin": 800000}} # Mock high utilized margin
+            # Mock portfolio data for margin check - This needs to be a dictionary matching fetch_all_api_portfolio_data structure
+            # Correctly mock the structure that caused the error
+            self.api_portfolio_data = {
+                "margin": {"UtilizedMargin": 800000, "AvailableMargin": 200000}, # Mock high utilized margin
+                "positions": [], # Mock empty position list for this test scenario
+                "order_book": [],
+                "trade_book": [],
+                "market_status": {"MarketStatus": {"IsOpen": True}} # Mock market status
+            }
 
             self.capital = 1000000 # Mock total capital (10 Lakhs)
 
             # Mock other state variables that fetch_app_data or future rules might try to access
-            self.backtest_results = {"win_rate": 0.6} # Mock backtest results
+            self.backtest_results = {"win_rate": 0.6, "total_pnl": 150000} # Mock backtest results
             self.active_strategy_details = {"Reason": "Event Play"} # Mock active strategy details
             self.news_sentiment = {"buzz_topic": "Election impact", "sentiment_score": 40, "latest_headline": "Market volatile before polls"} # Mock news/sentiment
             self.community_data = {"hedge_pct": 70} # Mock community data
             self.trades_log = [{"strategy": "IC", "pnl": 5000}, {"strategy": "Straddle", "pnl": -15000}] # Mock trade log (simple list of dicts)
             # Mock journal data - requires loading journal_log.csv or mocking a DataFrame
             # For this mock test, let's just mock a simple journal_df if the file exists or create a dummy
-            dummy_journal_path = "journal_log.csv"
+            dummy_journal_path = "journal_log.csv" # Path for dummy journal file in test
+            # Ensure the directory exists if not running from project root
+            dummy_journal_dir = os.path.dirname(dummy_journal_path)
+            if dummy_journal_dir and not os.path.exists(dummy_journal_dir):
+                 os.makedirs(dummy_journal_dir, exist_ok=True)
+
+
             if os.path.exists(dummy_journal_path):
-                 self.journal_df = pd.read_csv(dummy_journal_path)
+                 try:
+                     self.journal_df = pd.read_csv(dummy_journal_path, encoding='utf-8')
+                     self.journal_df['Date'] = pd.to_datetime(self.journal_df['Date'], errors='coerce') # Convert Date column, coerce errors
+                     self.journal_df = self.journal_df.dropna(subset=['Date']) # Drop rows where date conversion failed
+                 except Exception as e:
+                      print(f"Error loading dummy journal CSV for test: {e}. Creating dummy DataFrame.")
+                      self.journal_df = pd.DataFrame() # Default to empty if load fails
             else:
-                 # Create a dummy journal DataFrame if the file doesn't exist for testing
+                 # Create a dummy journal DataFrame if the file doesn't exist for testing Behavioral Rule 7
+                 print(f"Creating dummy journal_df for test as {dummy_journal_path} not found.")
                  self.journal_df = pd.DataFrame({
-                     "Date": pd.to_datetime(['2025-05-08', '2025-05-09']),
-                     "Strategy_Reason": ["Expiry Play", "Momentum"],
-                     "Override_Risk": ["No", "Yes"],
-                     "Expected_Outcome": ["Profit", "Big Profit"],
-                     "Lessons_Learned": ["Stick to plan", ""],
-                     "Discipline_Score": [8, 4]
+                     "Date": [datetime.now() - timedelta(days=i) for i in [1, 3, 5]], # Recent dates
+                     "Strategy_Reason": ["Expiry Play", "Momentum", "Range"],
+                     "Override_Risk": ["No", "Yes", "No"],
+                     "Expected_Outcome": ["Profit", "Big Profit", "Small Loss"],
+                     "Lessons_Learned": ["Stick to plan", "Don't override", ""],
+                     "Discipline_Score": [8, 4, 6] # Example scores, 4 is < low_score_threshold (5)
                  })
-            self.violations = 1 # Mock existing violations
-            self.journal_complete = False # Mock journal status
+            self.violations = 1 # Mock existing violations state variable
+            self.journal_complete = False # Mock journal status state variable
 
         # This method is needed because SmartBhaiGPT accesses state like st.session_state.get(...)
         def get(self, key, default=None):
             """Mimics st.session_state.get() behavior."""
             return getattr(self, key, default)
 
-    # Create a mock session state instance
+    # Create a mock session state instance for testing
     mock_state = MockSessionState()
 
     # --- Initialize SmartBhaiGPT ---
     # Ensure you have a dummy responses.csv file in your project folder for this test
     # or handle the FileNotFoundError if you don't.
-    dummy_responses_file = "responses.csv"
+    dummy_responses_file = "responses.csv" # Path for dummy responses file in test
+    dummy_responses_dir = os.path.dirname(dummy_responses_file)
+    if dummy_responses_dir and not os.path.exists(dummy_responses_dir):
+        os.makedirs(dummy_responses_dir, exist_ok=True)
+
     if not os.path.exists(dummy_responses_file):
         print(f"Creating a dummy {dummy_responses_file} for test...")
         # Create a minimal dummy file if it doesn't exist
@@ -560,13 +656,28 @@ if __name__ == "__main__":
             writer = csv.writer(f, quoting=csv.QUOTE_ALL)
             writer.writerow(['query_pattern', 'context_needed', 'response_template'])
             writer.writerow(['hello', '', 'Hello bhai! Kaise ho?']) # Add a simple rule
-            # Add a rule that uses context data
-            writer.writerow(['what is my margin', 'margin,margin_used', 'Bhai, tera margin usage {margin:.2f}% hai, matlab {margin_used:,.0f}₹ use ho raha hai.'])
+            # Add a rule that uses context data from fetch_app_data
+            writer.writerow(['what is my margin used', 'margin,margin_used', 'Bhai, tera margin usage {margin:.2f}% hai, matlab {margin_used:,.0f}₹ use ho raha hai.'])
+            writer.writerow(['tell me about.*strategy', 'strategy,reason,win_rate', 'Bhai, strategy hai {strategy}. Iska reason {reason} hai, aur backtest win rate {win_rate:.2f}% hai.'])
 
 
     try:
+        # Assume FEATURE_COLS is needed for mock data creation in MockSessionState,
+        # so ensure it's defined before initializing MockSessionState.
+        if 'FEATURE_COLS' not in globals():
+             # If FEATURE_COLS is not imported or defined, define a dummy for testing
+             # This is a fallback for the test block only if your actual data_processing
+             # doesn't define/export FEATURE_COLS. Adjust as needed.
+             print("Warning: FEATURE_COLS not found. Defining dummy FEATURE_COLS for test.")
+             FEATURE_COLS = [f'feature_{i}' for i in range(10)] # Create dummy feature names
+
+        # Re-create mock_state after ensuring FEATURE_COLS is available
+        mock_state = MockSessionState()
+
         gpt = SmartBhaiGPT(responses_file=dummy_responses_file)
         print("SmartBhaiGPT initialized for testing.")
+
+
     except Exception as e:
         print(f"Error initializing SmartBhaiGPT: {e}. Cannot run tests.")
         gpt = None # Set gpt to None if initialization fails
@@ -576,12 +687,14 @@ if __name__ == "__main__":
     if gpt:
         print("\n--- Testing assess_trade_risk method ---")
         # Pass the mock session state to assess_trade_risk
+        # This mock state is configured to trigger multiple rules (Rule 1, 4, 5, 6, 7, 2, 3)
         risk_warning_result = gpt.assess_trade_risk(mock_state)
 
         if risk_warning_result and isinstance(risk_warning_result, dict):
             print("\n--- SmartBhai Risk Warning (TEST) ---")
             print(f"Main Message: {risk_warning_result.get('main_message')}")
             print("Explanations:")
+            # Iterate and print each explanation
             for i, exp in enumerate(risk_warning_result.get('explanations', [])):
                  print(f"- {exp}")
             print("------------------------------------")
@@ -591,23 +704,25 @@ if __name__ == "__main__":
 
         print("\n--- Testing generate_response (chat) method ---")
         test_queries = [
-            "What is IV?", # Should use fetch_app_data
-            "Check my straddle at 21000", # Example of a query that might need specific logic
-            "Should I hedge?", # Example - might need logic based on position
-            "Random query that won't match templates", # Should trigger fallback
-            "how is the market", # Should trigger dynamic market status check
-            "What is my margin used?", # Example using mock margin data via fetch_app_data
-            "Tell me about my generated strategy", # Example using mock strategy data via fetch_app_data (if template exists)
+            "What is IV?", # Should use fetch_app_data template (if available)
+            "Check my straddle at 21000", # Example - should fallback or use template
+            "Should I hedge?", # Example - should fallback or use template
+            "Random query that won't match templates", # Should trigger fallback response
+            "how is the market", # Should trigger dynamic market status check (if implemented & data available)
+            "What is my margin used?", # Example using mock margin data via fetch_app_data template
+            "Tell me about my generated strategy", # Example using mock strategy data via fetch_app_data template
              "hello" # Test simple template
         ]
          # Pass the mock session state to generate_response as well
         for query in test_queries:
            print(f"\nQuery: {query}")
-           response = gpt.generate_response(query, app_state=mock_state) # Pass mock_state
+           response = gpt.generate_response(query, app_state=mock_state) # Pass mock_state to provide app context
            print(f"Response: {response}")
 
 
     print("\nSmartBhaiGPT module test script finished.")
 
 # Ensure os is imported for the test block
-
+import os
+# Ensure FEATURE_COLS is imported if data_processing is used
+# from data_processing import FEATURE_COLS # Uncomment if FEATURE_COLS is defined in data_processing.py
