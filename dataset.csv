@@ -240,4 +240,3 @@ query_pattern,response_template,context_needed,tone
 "check.*market.*fii.*dii.*recent.*update.*market.*latest.*update.*latest","Bhai, FII ne {fii_flow} crore becha, DII ne {dii_flow} crore kharida. IV {iv}% pe market ka mood check kar! 😬 Do your own research!","fii_flow,dii_flow,iv","serious"
 "suggest.*strategy.*volatile.*expiry.*recent.*update.*market.*latest.*update.*latest","Expiry week mein IV {iv}% high hai, bhai. Strangle ya iron fly try kar, par gamma {gamma} high hai. Risk tight rakh! 😎 Do your own research!","iv,gamma","witty"
 "check.*portfolio.*sharpe.*recent.*update.*market.*latest.*update.*latest","Bhai, recent portfolio ka Sharpe ratio {portfolio_sharpe:.2f} hai. 1+ ho toh solid, warna IV {iv}% pe adjust kar! 😎 Do your own research!","portfolio_sharpe,iv","witty"
-"what.*trade.*bias.*overtrading.*recent.*update.*market
