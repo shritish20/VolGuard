@@ -167,6 +167,10 @@ if "query_input" not in st.session_state:
     st.session_state.query_input = ""
 if "capital" not in st.session_state:
     st.session_state.capital = 1000000  # Default capital to prevent AttributeError
+if "risk_tolerance" not in st.session_state:
+    st.session_state.risk_tolerance = "Moderate"  # Default risk tolerance
+if "forecast_horizon" not in st.session_state:
+    st.session_state.forecast_horizon = 7  # Default forecast horizon
 
 # Initialize SmartBhai GPT
 smartbhai_gpt = None
@@ -174,6 +178,14 @@ try:
     smartbhai_gpt = SmartBhaiGPT(responses_file="responses.csv")
 except Exception as e:
     st.sidebar.error(f"Bhai, SmartBhai GPT load nahi hua: {str(e)}")
+    logger.error(f"SmartBhai GPT initialization failed: {str(e)}")
+
+# Check Upstox API hours
+def is_market_hours():
+    now = datetime.now().time()
+    start = datetime.strptime("09:15", "%H:%M").time()
+    end = datetime.strptime("15:30", "%H:%M").time()
+    return start <= now <= end
 
 # Fetch portfolio data
 def fetch_portfolio_data(upstox_client, capital):
@@ -194,6 +206,7 @@ def fetch_portfolio_data(upstox_client, capital):
         portfolio_summary["margin_used"] = margin_data.get("utilized_margin", 0.0) if isinstance(margin_data, dict) else 0.0
         portfolio_summary["weekly_pnl"] = sum(pos.get("unrealized_mtm", 0.0) + pos.get("realized_profit", 0.0) for pos in positions_data if isinstance(pos, dict))
         portfolio_summary["exposure"] = (portfolio_summary["margin_used"] / capital * 100) if capital > 0 else 0.0
+        logger.info("Portfolio data fetched successfully")
         return portfolio_summary
     except Exception as e:
         logger.error(f"Error fetching portfolio data: {str(e)}")
@@ -235,17 +248,19 @@ with st.sidebar:
         if st.session_state.client and st.session_state.client.get("access_token"):
             st.session_state.logged_in = True
             st.success("✅ Logged in to Upstox!")
+            logger.info("Upstox login successful")
         else:
             st.session_state.logged_in = False
             st.error("❌ Login failed. Check access token.")
+            logger.error("Upstox login failed")
 
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
         capital = st.number_input("Capital (₹)", min_value=100000, value=st.session_state.capital, step=100000, format="%d")
         st.session_state.capital = capital
-        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
+        risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=["Conservative", "Moderate", "Aggressive"].index(st.session_state.risk_tolerance))
         st.session_state.risk_tolerance = risk_tolerance
-        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, 7)
+        forecast_horizon = st.slider("Forecast Horizon (days)", 1, 30, st.session_state.forecast_horizon)
         st.session_state.forecast_horizon = forecast_horizon
         st.markdown("---")
         st.markdown("**Backtest Parameters**")
@@ -262,6 +277,7 @@ with st.sidebar:
             st.session_state.backtest_run = True
             st.session_state.backtest_results = None  # Reset previous results
             st.success("Backtest started! Check the Backtest tab for results.")
+            logger.info("Backtest initiated")
 
         st.markdown("---")
         if st.button("Square Off All Positions"):
@@ -269,39 +285,62 @@ with st.sidebar:
                 success = square_off_positions(st.session_state.client)
                 if success:
                     st.success("All positions squared off successfully!")
+                    logger.info("All positions squared off")
                 else:
                     st.error("Failed to square off positions. Check logs.")
+                    logger.error("Failed to square off positions")
             else:
                 st.error("Not logged in to Upstox.")
+                logger.warning("Square off attempted without login")
 
 # Main App
 st.title("🛡️ VolGuard Pro")
 st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
 
+# Check market hours
+if not is_market_hours():
+    st.warning("🕒 Currently outside Upstox market depth hours (9:15 AM–3:30 PM IST). Some data (e.g., option chain) may be limited. Using cached or fallback data.")
+
 # Load Data
 if st.session_state.logged_in:
-    df, real_data, data_source = load_data(st.session_state.client)
-    if df is None or real_data is None:
-        st.error("Failed to load data. Check Upstox API or CSV files.")
+    try:
+        df, real_data, data_source = load_data(st.session_state.client)
+        if df is None or real_data is None:
+            st.error("Failed to load data. Check Upstox API or CSV files.")
+            logger.error("Data loading failed from Upstox")
+            st.stop()
+        st.session_state.real_time_market_data = real_data
+        analysis_df = generate_features(df, real_data, st.session_state.capital)
+        if analysis_df is None:
+            st.error("Failed to generate features. Check data processing.")
+            logger.error("Feature generation failed")
+            st.stop()
+        st.session_state.analysis_df = analysis_df
+        logger.info(f"Data loaded successfully from {data_source}")
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        logger.error(f"Data loading error: {str(e)}")
         st.stop()
-    st.session_state.real_time_market_data = real_data
-    analysis_df = generate_features(df, real_data, st.session_state.capital)
-    if analysis_df is None:
-        st.error("Failed to generate features. Check data processing.")
-        st.stop()
-    st.session_state.analysis_df = analysis_df
 else:
     st.warning("Please log in to Upstox to access real-time data.")
-    df, real_data, data_source = load_data(None)  # Fallback to CSV
-    if df is None:
-        st.error("Failed to load fallback data. Check CSV files.")
+    try:
+        df, real_data, data_source = load_data(None)  # Fallback to CSV
+        if df is None:
+            st.error("Failed to load fallback data. Check CSV files.")
+            logger.error("Fallback data loading failed")
+            st.stop()
+        st.session_state.real_time_market_data = real_data or {}
+        analysis_df = generate_features(df, real_data, st.session_state.capital)
+        if analysis_df is None:
+            st.error("Failed to generate features. Check data processing.")
+            logger.error("Feature generation failed")
+            st.stop()
+        st.session_state.analysis_df = analysis_df
+        logger.info(f"Data loaded successfully from {data_source}")
+    except Exception as e:
+        st.error(f"Error loading fallback data: {str(e)}")
+        logger.error(f"Fallback data loading error: {str(e)}")
         st.stop()
-    st.session_state.real_time_market_data = real_data or {}
-    analysis_df = generate_features(df, real_data, st.session_state.capital)
-    if analysis_df is None:
-        st.error("Failed to generate features. Check data processing.")
-        st.stop()
-    st.session_state.analysis_df = analysis_df
 
 # Tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -341,7 +380,7 @@ with tab1:
         if "option_chain" in market_data and not market_data["option_chain"].empty:
             st.dataframe(market_data["option_chain"][["StrikeRate", "CPType", "LastRate", "IV", "OpenInterest", "Volume"]].head(10))
         else:
-            st.warning("Option chain data not available.")
+            st.warning("Option chain data not available. Try during market hours (9:15 AM–3:30 PM IST).")
     else:
         st.warning("No real-time market data available.")
     st.markdown(f"**Data Source**: {data_source}")
@@ -350,26 +389,30 @@ with tab1:
 with tab2:
     st.header("🔮 Volatility Forecast")
     if st.session_state.analysis_df is not None:
-        forecast_df, forecast_metrics = forecast_volatility_future(
-            st.session_state.analysis_df,
-            horizon=st.session_state.forecast_horizon
-        )
-        st.session_state.forecast_log = forecast_df
-        st.session_state.forecast_metrics = forecast_metrics
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Forecasted VIX", f"{forecast_metrics.get('forecasted_vix', 'N/A'):.2f}")
-        with col2:
-            st.metric("VIX Range Low", f"{forecast_metrics.get('vix_range_low', 'N/A'):.2f}")
-        with col3:
-            st.metric("VIX Range High", f"{forecast_metrics.get('vix_range_high', 'N/A'):.2f}")
-        
-        st.subheader("Forecast Trend")
-        if not forecast_df.empty:
-            st.line_chart(forecast_df[["VIX", "VIX_Forecast"]])
-        else:
-            st.warning("No forecast data available.")
+        try:
+            forecast_df, forecast_metrics = forecast_volatility_future(
+                st.session_state.analysis_df,
+                horizon=st.session_state.forecast_horizon
+            )
+            st.session_state.forecast_log = forecast_df
+            st.session_state.forecast_metrics = forecast_metrics
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Forecasted VIX", f"{forecast_metrics.get('forecasted_vix', 'N/A'):.2f}")
+            with col2:
+                st.metric("VIX Range Low", f"{forecast_metrics.get('vix_range_low', 'N/A'):.2f}")
+            with col3:
+                st.metric("VIX Range High", f"{forecast_metrics.get('vix_range_high', 'N/A'):.2f}")
+            
+            st.subheader("Forecast Trend")
+            if not forecast_df.empty:
+                st.line_chart(forecast_df[["VIX", "VIX_Forecast"]])
+            else:
+                st.warning("No forecast data available.")
+        except Exception as e:
+            st.error(f"Error generating forecast: {str(e)}")
+            logger.error(f"Volatility forecast error: {str(e)}")
     else:
         st.warning("No analysis data available for forecasting.")
 
@@ -377,48 +420,56 @@ with tab2:
 with tab3:
     st.header("🤖 Trading Strategy")
     if st.session_state.analysis_df is not None and st.session_state.real_time_market_data:
-        strategy = generate_trading_strategy(
-            st.session_state.analysis_df,
-            st.session_state.real_time_market_data,
-            st.session_state.capital,
-            st.session_state.risk_tolerance
-        )
-        st.session_state.generated_strategy = strategy
-        
-        if strategy:
-            st.markdown(f"**Recommended Strategy**: {strategy['Strategy']}")
-            st.markdown(f"**Confidence**: {strategy['Confidence']:.2%}")
-            st.markdown(f"**Deploy Amount**: ₹{strategy['Deploy']:.2f}")
+        try:
+            strategy = generate_trading_strategy(
+                st.session_state.analysis_df,
+                st.session_state.real_time_market_data,
+                st.session_state.capital,
+                st.session_state.risk_tolerance
+            )
+            st.session_state.generated_strategy = strategy
             
-            if st.button("Prepare Orders"):
-                orders = prepare_trade_orders(
-                    strategy,
-                    st.session_state.real_time_market_data,
-                    st.session_state.capital
-                )
-                st.session_state.prepared_orders = orders
-                if orders:
-                    st.success("Orders prepared successfully!")
-                    st.dataframe(pd.DataFrame(orders))
-                else:
-                    st.error("Failed to prepare orders.")
-            
-            if st.session_state.prepared_orders:
-                if st.button("Execute Orders"):
-                    success, response = execute_trade_orders(
-                        st.session_state.client,
-                        st.session_state.prepared_orders
+            if strategy:
+                st.markdown(f"**Recommended Strategy**: {strategy['Strategy']}")
+                st.markdown(f"**Confidence**: {strategy['Confidence']:.2%}")
+                st.markdown(f"**Deploy Amount**: ₹{strategy['Deploy']:.2f}")
+                
+                if st.button("Prepare Orders"):
+                    orders = prepare_trade_orders(
+                        strategy,
+                        st.session_state.real_time_market_data,
+                        st.session_state.capital
                     )
-                    if success:
-                        st.success("Orders executed successfully!")
-                        st.session_state.trades.extend(st.session_state.prepared_orders)
-                        st.session_state.prepared_orders = None
+                    st.session_state.prepared_orders = orders
+                    if orders:
+                        st.success("Orders prepared successfully!")
+                        st.dataframe(pd.DataFrame(orders))
+                        logger.info("Orders prepared successfully")
                     else:
-                        st.error("Order execution failed.")
-                        st.session_state.order_placement_errors.append(response)
-                        st.json(response)
-        else:
-            st.warning("No strategy generated.")
+                        st.error("Failed to prepare orders.")
+                        logger.error("Order preparation failed")
+                
+                if st.session_state.prepared_orders:
+                    if st.button("Execute Orders"):
+                        success, response = execute_trade_orders(
+                            st.session_state.client,
+                            st.session_state.prepared_orders
+                        )
+                        if success:
+                            st.success("Orders executed successfully!")
+                            st.session_state.trades.extend(st.session_state.prepared_orders)
+                            st.session_state.prepared_orders = None
+                            logger.info("Orders executed successfully")
+                        else:
+                            st.error("Order execution failed.")
+                            st.session_state.order_placement_errors.append(response)
+                            st.json(response)
+                            logger.error(f"Order execution failed: {response}")
+            else:
+                st.warning("No strategy generated.")
+        except Exception as e:
+            st.error(f"Error generating strategy: {str(e)}")
+            logger.error(f"Trading strategy error: {str(e)}")
     else:
         st.warning("No data available for strategy generation.")
 
@@ -472,6 +523,7 @@ with tab5:
             journal_df.to_csv(journal_file, index=False)
             st.session_state.journal_complete = True
             st.success("Trade logged successfully!")
+            logger.info("Trade logged successfully")
     
     st.subheader("Trade History")
     if not journal_df.empty:
@@ -483,31 +535,36 @@ with tab5:
 with tab6:
     st.header("📈 Backtest Results")
     if st.session_state.backtest_run and st.session_state.analysis_df is not None:
-        backtest_results = run_backtest(
-            st.session_state.analysis_df,
-            st.session_state.backtest_start_date,
-            st.session_state.backtest_end_date,
-            st.session_state.capital,
-            st.session_state.backtest_strategy
-        )
-        st.session_state.backtest_results = backtest_results
-        st.session_state.backtest_run = False
-        
-        if backtest_results:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Return", f"{backtest_results['total_return']:.2%}")
-            with col2:
-                st.metric("Sharpe Ratio", f"{backtest_results['sharpe_ratio']:.2f}")
-            with col3:
-                st.metric("Max Drawdown", f"{backtest_results['max_drawdown']:.2%}")
+        try:
+            backtest_results = run_backtest(
+                st.session_state.analysis_df,
+                st.session_state.backtest_start_date,
+                st.session_state.backtest_end_date,
+                st.session_state.capital,
+                st.session_state.backtest_strategy
+            )
+            st.session_state.backtest_results = backtest_results
+            st.session_state.backtest_run = False
             
-            st.subheader("Performance Chart")
-            if "cumulative_pnl" in backtest_results:
-                st.session_state.backtest_cumulative_pnl_chart_data = backtest_results["cumulative_pnl"]
-                st.line_chart(backtest_results["cumulative_pnl"])
-        else:
-            st.error("Backtest failed. Check data or parameters.")
+            if backtest_results:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Return", f"{backtest_results['total_return']:.2%}")
+                with col2:
+                    st.metric("Sharpe Ratio", f"{backtest_results['sharpe_ratio']:.2f}")
+                with col3:
+                    st.metric("Max Drawdown", f"{backtest_results['max_drawdown']:.2%}")
+                
+                st.subheader("Performance Chart")
+                if "cumulative_pnl" in backtest_results:
+                    st.session_state.backtest_cumulative_pnl_chart_data = backtest_results["cumulative_pnl"]
+                    st.line_chart(backtest_results["cumulative_pnl"])
+            else:
+                st.error("Backtest failed. Check data or parameters.")
+                logger.error("Backtest failed")
+        except Exception as e:
+            st.error(f"Error running backtest: {str(e)}")
+            logger.error(f"Backtest error: {str(e)}")
     else:
         st.info("Run a backtest from the sidebar to see results.")
 
@@ -515,29 +572,33 @@ with tab6:
 with tab7:
     st.header("⚠️ Risk Dashboard")
     if st.session_state.analysis_df is not None:
-        latest_data = st.session_state.analysis_df.iloc[-1]
-        risk_metrics = {
-            "VaR_95": latest_data.get("PnL_Day", 0) * -1.65,  # Simplified VaR
-            "Max_Loss": latest_data.get("PnL_Day", 0) * -2.33,  # 99% confidence
-            "Volatility_Regime": "High" if latest_data.get("VIX", 0) > 20 else "Medium" if latest_data.get("VIX", 0) > 15 else "Low"
-        }
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("VaR (95%)", f"₹{risk_metrics['VaR_95']:.2f}")
-        with col2:
-            st.metric("Max Loss (99%)", f"₹{risk_metrics['Max_Loss']:.2f}")
-        with col3:
-            regime_class = {
-                "Low": "regime-low",
-                "Medium": "regime-medium",
-                "High": "regime-high"
-            }.get(risk_metrics["Volatility_Regime"], "regime-medium")
-            st.markdown(f"<span class='regime-badge {regime_class}'>{risk_metrics['Volatility_Regime']}</span>", unsafe_allow_html=True)
-        
-        st.subheader("Risk Exposure")
-        st.gauge = f"<div class='gauge'>{portfolio_summary['exposure']:.1f}%</div>"
-        st.markdown(st.gauge, unsafe_allow_html=True)
+        try:
+            latest_data = st.session_state.analysis_df.iloc[-1]
+            risk_metrics = {
+                "VaR_95": latest_data.get("PnL_Day", 0) * -1.65,  # Simplified VaR
+                "Max_Loss": latest_data.get("PnL_Day", 0) * -2.33,  # 99% confidence
+                "Volatility_Regime": "High" if latest_data.get("VIX", 0) > 20 else "Medium" if latest_data.get("VIX", 0) > 15 else "Low"
+            }
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("VaR (95%)", f"₹{risk_metrics['VaR_95']:.2f}")
+            with col2:
+                st.metric("Max Loss (99%)", f"₹{risk_metrics['Max_Loss']:.2f}")
+            with col3:
+                regime_class = {
+                    "Low": "regime-low",
+                    "Medium": "regime-medium",
+                    "High": "regime-high"
+                }.get(risk_metrics["Volatility_Regime"], "regime-medium")
+                st.markdown(f"<span class='regime-badge {regime_class}'>{risk_metrics['Volatility_Regime']}</span>", unsafe_allow_html=True)
+            
+            st.subheader("Risk Exposure")
+            st.gauge = f"<div class='gauge'>{portfolio_summary['exposure']:.1f}%</div>"
+            st.markdown(st.gauge, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error generating risk dashboard: {str(e)}")
+            logger.error(f"Risk dashboard error: {str(e)}")
     else:
         st.warning("No data available for risk dashboard.")
 
