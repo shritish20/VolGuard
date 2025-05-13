@@ -165,6 +165,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "query_input" not in st.session_state:
     st.session_state.query_input = ""
+if "capital" not in st.session_state:
+    st.session_state.capital = 1000000  # Default capital to prevent AttributeError
 
 # Initialize SmartBhai GPT
 smartbhai_gpt = None
@@ -239,7 +241,7 @@ with st.sidebar:
 
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
-        capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, format="%d")
+        capital = st.number_input("Capital (₹)", min_value=100000, value=st.session_state.capital, step=100000, format="%d")
         st.session_state.capital = capital
         risk_tolerance = st.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
         st.session_state.risk_tolerance = risk_tolerance
