@@ -4,10 +4,8 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 import logging
-from smartbhai_gpt import SmartBhaiGPT  # Import SmartBhai GPT class
-
-# Import modularized components
-from fivepaisa_api import initialize_5paisa_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions, fetch_market_depth_by_scrip
+from smartbhai_gpt import SmartBhaiGPT
+from upstox_api import initialize_upstox_client, fetch_all_api_portfolio_data, prepare_trade_orders, execute_trade_orders, square_off_positions, fetch_market_depth_by_scrip
 from data_processing import load_data, generate_features, FEATURE_COLS
 from volatility_forecasting import forecast_volatility_future
 from backtesting import run_backtest
@@ -20,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Page config
 st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
 
-# Custom CSS (updated to include enhanced SmartBhai GPT widget styling)
+# Custom CSS
 st.markdown("""
     <style>
         .main { background: linear-gradient(135deg, #1a1a2e, #0f1c2e); color: #e5e5e5; font-family: 'Inter', sans-serif; }
@@ -46,7 +44,6 @@ st.markdown("""
         .stButton>button { background: #e94560; color: white; border-radius: 10px; padding: 12px 25px; font-size: 16px; }
         .stButton>button:hover { transform: scale(1.05); background: #ffcc00; }
         .footer { text-align: center; padding: 20px; color: #a0a0a0; font-size: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 30px; }
-        /* Enhanced SmartBhai GPT Widget Styling */
         .smartbhai-container {
             background: #1e2a44;
             border-radius: 12px;
@@ -164,7 +161,6 @@ if "active_strategy_details" not in st.session_state:
     st.session_state.active_strategy_details = None
 if "order_placement_errors" not in st.session_state:
     st.session_state.order_placement_errors = []
-# Initialize chat history and query input for SmartBhai GPT
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "query_input" not in st.session_state:
@@ -178,25 +174,23 @@ except Exception as e:
     st.sidebar.error(f"Bhai, SmartBhai GPT load nahi hua: {str(e)}")
 
 # Fetch portfolio data
-def fetch_portfolio_data(client, capital):
+def fetch_portfolio_data(upstox_client, capital):
     portfolio_summary = {
         "weekly_pnl": 0.0,
         "margin_used": 0.0,
         "exposure": 0.0,
         "total_capital": capital
     }
-    if client is None or not client.get_access_token():
+    if not upstox_client or not upstox_client.get("access_token"):
         logger.warning("Client not available for portfolio data")
         return portfolio_summary
     try:
-        portfolio_data = fetch_all_api_portfolio_data(client)
+        portfolio_data = fetch_all_api_portfolio_data(upstox_client)
         st.session_state.api_portfolio_data = portfolio_data
-        margin_data = portfolio_data.get("margin", {})
-        positions_data = portfolio_data.get("positions", [])
-        if isinstance(margin_data, dict):
-            portfolio_summary["margin_used"] = margin_data.get("UtilizedMargin", 0.0)
-        if isinstance(positions_data, list):
-            portfolio_summary["weekly_pnl"] = sum(pos.get("BookedPL", 0.0) + pos.get("UnrealizedMTM", 0.0) for pos in positions_data if isinstance(pos, dict))
+        margin_data = portfolio_data.get("margin", {}).get("data", {})
+        positions_data = portfolio_data.get("positions", {}).get("data", [])
+        portfolio_summary["margin_used"] = margin_data.get("utilized_margin", 0.0) if isinstance(margin_data, dict) else 0.0
+        portfolio_summary["weekly_pnl"] = sum(pos.get("unrealized_mtm", 0.0) + pos.get("realized_profit", 0.0) for pos in positions_data if isinstance(pos, dict))
         portfolio_summary["exposure"] = (portfolio_summary["margin_used"] / capital * 100) if capital > 0 else 0.0
         return portfolio_summary
     except Exception as e:
@@ -204,49 +198,45 @@ def fetch_portfolio_data(client, capital):
         return portfolio_summary
 
 # Calculate position PnL with LTP
-def calculate_position_pnl_with_ltp(client, positions_data):
-    if not client or not client.get_access_token() or not positions_data:
+def calculate_position_pnl_with_ltp(upstox_client, positions_data):
+    if not upstox_client or not upstox_client.get("access_token") or not positions_data:
         return positions_data
     updated_positions = []
     for pos in positions_data:
         if not isinstance(pos, dict):
             updated_positions.append(pos)
             continue
-        scrip_code = pos.get("ScripCode")
-        exchange = pos.get("Exch")
-        exchange_type = pos.get("ExchType")
-        buy_avg_price = pos.get("BuyAvgPrice", 0.0)
-        sell_avg_price = pos.get("SellAvgPrice", 0.0)
-        buy_qty = pos.get("BuyQty", 0)
-        sell_qty = pos.get("SellQty", 0)
-        net_qty = buy_qty - sell_qty
-        if scrip_code and exchange and exchange_type and net_qty != 0:
+        instrument_key = pos.get("instrument_key")
+        buy_avg_price = pos.get("buy_avg_price", 0.0)
+        sell_avg_price = pos.get("sell_avg_price", 0.0)
+        quantity = pos.get("quantity", 0)
+        if instrument_key and quantity != 0:
             try:
-                market_data = fetch_market_depth_by_scrip(client, Exchange=exchange, ExchangeType=exchange_type, ScripCode=scrip_code)
+                market_data = fetch_market_depth_by_scrip(upstox_client, instrument_key=instrument_key)
                 ltp = market_data["Data"][0].get("LastTradedPrice", 0.0) if market_data and market_data.get("Data") else 0.0
-                position_pnl = net_qty * (ltp - buy_avg_price) if net_qty > 0 else abs(net_qty) * (sell_avg_price - ltp)
+                position_pnl = quantity * (ltp - buy_avg_price) if quantity > 0 else abs(quantity) * (sell_avg_price - ltp)
                 pos['CurrentPnL'] = position_pnl
                 pos['LTP'] = ltp
             except Exception as e:
-                logger.warning(f"Could not fetch LTP for ScripCode {scrip_code}: {e}")
-                pos['CurrentPnL'] = pos.get("UnrealizedMTM", 0.0)
+                logger.warning(f"Could not fetch LTP for {instrument_key}: {e}")
+                pos['CurrentPnL'] = pos.get("unrealized_mtm", 0.0)
                 pos['LTP'] = 0.0
         updated_positions.append(pos)
     return updated_positions
 
 # Sidebar
 with st.sidebar:
-    st.header("🔑 5paisa Login")
-    totp_code = st.text_input("TOTP (from Authenticator App)", type="password")
-    if st.button("Login to 5paisa"):
-        st.session_state.client = initialize_5paisa_client(st.secrets, totp_code)
-        if st.session_state.client and st.session_state.client.get_access_token():
+    st.header("🔑 Upstox Login")
+    access_token = st.text_input("Access Token", type="password")
+    if st.button("Login to Upstox"):
+        st.session_state.client = initialize_upstox_client(access_token)
+        if st.session_state.client and st.session_state.client.get("access_token"):
             st.session_state.logged_in = True
-            st.success("✅ Logged in to 5paisa!")
+            st.success("✅ Logged in to Upstox!")
         else:
             st.session_state.logged_in = False
-            st.error("❌ Login failed. Check credentials and TOTP.")
-    
+            st.error("❌ Login failed. Check access token.")
+
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
         capital = st.number_input("Capital (₹)", min_value=100000, value=1000000, step=100000, format="%d")
@@ -265,464 +255,326 @@ with st.sidebar:
         st.session_state.backtest_end_date = end_date
         strategy_options = ["All Strategies", "Butterfly Spread", "Iron Condor", "Iron Fly", "Short Strangle", "Calendar Spread", "Jade Lizard", "Short Straddle", "Short Put Vertical Spread", "Short Call Vertical Spread", "Short Put", "Long Put"]
         strategy_choice = st.selectbox("Backtest Strategy Filter", strategy_options, index=0)
-        st.session_state.backtest_strategy_choice = strategy_choice
+        st.session_state.backtest_strategy = strategy_choice
+        if st.button("Run Backtest"):
+            st.session_state.backtest_run = True
+            st.session_state.backtest_results = None  # Reset previous results
+            st.success("Backtest started! Check the Backtest tab for results.")
+
         st.markdown("---")
-        st.header("⚠️ Emergency Actions")
-        st.warning("Use with EXTREME CAUTION!")
-        if st.button("🚨 Square Off All Positions"):
-            if square_off_positions(st.session_state.client):
-                st.success("✅ All positions squared off")
-            else:
-                st.error("❌ Failed to square off positions")
-    
-    # SmartBhai GPT Chat Widget
-    st.markdown("---")
-    st.markdown('<div class="smartbhai-container">', unsafe_allow_html=True)
-    st.markdown('<div class="smartbhai-title">🗣️ SmartBhai GPT</div>', unsafe_allow_html=True)
-    st.markdown('<div class="smartbhai-subtitle">Your trading copilot for options!</div>', unsafe_allow_html=True)
-    
-    # Input field with placeholder
-    query = st.text_input(
-        "Ask away...",
-        value=st.session_state.query_input,
-        key="gpt_query_input",
-        placeholder="E.g., 'What is IV?' or 'Check my straddle at 21000'",
-        help="Ask SmartBhai about trading strategies, options, or market insights."
-    )
-    
-    # Ask button
-    if st.button("Ask SmartBhai", key="smartbhai_button"):
-        if query and smartbhai_gpt:
-            with st.spinner("SmartBhai is thinking..."):
-                try:
-                    response = smartbhai_gpt.generate_response(query)
-                    st.session_state.chat_history.append({"query": query, "response": response})
-                    st.session_state.query_input = ""  # Clear input
-                except Exception as e:
-                    st.error(f"Bhai, kuch gadbad ho gaya: {str(e)}")
-        else:
-            st.error("Bhai, query ya SmartBhai GPT load nahi hua!")
-    
-    # Chat history with speech bubbles
-    if st.session_state.chat_history:
-        st.markdown('<div class="smartbhai-chat">', unsafe_allow_html=True)
-        for chat in st.session_state.chat_history:
-            st.markdown(f'<div class="chat-bubble user-bubble">You: {chat["query"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="chat-bubble smartbhai-bubble">SmartBhai: {chat["response"]} 😎</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div style="text-align: center; color: #a0a0a0; font-size: 12px; margin-top: 10px;">SmartBhai is a decision-support tool, not financial advice.</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Main Execution
-if not st.session_state.logged_in:
-    st.info("Please login to 5paisa from the sidebar.")
-else:
-    st.markdown("<h1 style='color: #e94560; text-align: center;'>🛡️ VolGuard Pro: Your AI Trading Copilot</h1>", unsafe_allow_html=True)
-    run_button = st.button("📈 Run Analysis")
-    if run_button:
-        with st.spinner("Running Analysis..."):
-            st.session_state.backtest_run = False
-            st.session_state.backtest_results = None
-            st.session_state.backtest_cumulative_pnl_chart_data = None
-            st.session_state.prepared_orders = None
-            st.session_state.analysis_df = None
-            st.session_state.real_time_market_data = None
-            st.session_state.forecast_log = None
-            st.session_state.forecast_metrics = None
-            st.session_state.generated_strategy = None
-            st.session_state.api_portfolio_data = {}
-            st.session_state.active_strategy_details = None
-            st.session_state.order_placement_errors = []
-            df, real_data, data_source = load_data(st.session_state.client)
-            st.session_state.analysis_df = df
-            st.session_state.real_time_market_data = real_data
-            st.session_state.data_source = data_source
-            if st.session_state.client:
-                st.session_state.api_portfolio_data = fetch_all_api_portfolio_data(st.session_state.client)
-            if df is not None:
-                df_featured = generate_features(st.session_state.analysis_df, st.session_state.real_time_market_data, st.session_state.capital)
-                if df_featured is not None:
-                    st.session_state.analysis_df = df_featured
-                    backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf, cumulative_pnl_chart_data = run_backtest(
-                        st.session_state.analysis_df, st.session_state.capital, st.session_state.backtest_strategy_choice, st.session_state.backtest_start_date, st.session_state.backtest_end_date
-                    )
-                    st.session_state.backtest_run = True
-                    st.session_state.backtest_results = {
-                        "backtest_df": backtest_df,
-                        "total_pnl": total_pnl,
-                        "win_rate": win_rate,
-                        "max_drawdown": max_drawdown,
-                        "sharpe_ratio": sharpe_ratio,
-                        "sortino_ratio": sortino_ratio,
-                        "calmar_ratio": calmar_ratio,
-                        "strategy_perf": strategy_perf,
-                        "regime_perf": regime_perf
-                    }
-                    st.session_state.backtest_cumulative_pnl_chart_data = cumulative_pnl_chart_data
-                    with st.spinner("Predicting volatility..."):
-                        forecast_log, garch_vols, xgb_vols, blended_vols, realized_vol, confidence_score, rmse, feature_importances = forecast_volatility_future(st.session_state.analysis_df, st.session_state.forecast_horizon)
-                        st.session_state.forecast_log = forecast_log
-                        st.session_state.forecast_metrics = {
-                            "garch_vols": garch_vols, "xgb_vols": xgb_vols, "blended_vols": blended_vols,
-                            "realized_vol": realized_vol, "confidence_score": confidence_score,
-                            "rmse": rmse, "feature_importances": feature_importances
-                        }
-                    st.session_state.generated_strategy = generate_trading_strategy(
-                        st.session_state.analysis_df,
-                        st.session_state.forecast_log,
-                        st.session_state.forecast_metrics.get("realized_vol"),
-                        st.session_state.risk_tolerance,
-                        st.session_state.forecast_metrics.get("confidence_score"),
-                        st.session_state.capital,
-                        st.session_state.violations,
-                        st.session_state.journal_complete
-                    )
-                    if st.session_state.generated_strategy and not st.session_state.generated_strategy.get("Discipline_Lock", False):
-                        st.session_state.active_strategy_details = st.session_state.generated_strategy
+        if st.button("Square Off All Positions"):
+            if st.session_state.logged_in and st.session_state.client:
+                success = square_off_positions(st.session_state.client)
+                if success:
+                    st.success("All positions squared off successfully!")
                 else:
-                    st.error("Analysis failed: Feature generation error")
+                    st.error("Failed to square off positions. Check logs.")
             else:
-                st.error("Analysis failed: Data loading error")
+                st.error("Not logged in to Upstox.")
 
-    tabs = st.tabs(["📊 Snapshot", "📈 Forecast", "🧪 Strategy", "💰 Portfolio", "📝 Journal", "📉 Backtest", "🛡️ Risk Dashboard"])
+# Main App
+st.title("🛡️ VolGuard Pro")
+st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
 
-    # Snapshot Tab
-    with tabs[0]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📊 Market Snapshot")
-        if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
-            df = st.session_state.analysis_df
-            latest_date = df.index[-1].strftime("%d-%b-%Y")
-            last_nifty = df["NIFTY_Close"].iloc[-1]
-            prev_nifty = df["NIFTY_Close"].iloc[-2] if len(df) >= 2 else last_nifty
-            last_vix = df["VIX"].iloc[-1]
-            regime = "LOW" if last_vix < 15 else "MEDIUM" if last_vix < 20 else "HIGH"
-            if st.session_state.generated_strategy:
-                regime = st.session_state.generated_strategy["Regime"]
-            regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high", "EVENT-DRIVEN": "regime-event"}.get(regime, "regime-low")
-            st.markdown(f'<div style="text-align: center;"><span class="regime-badge {regime_class}">{regime} Market Regime</span></div>', unsafe_allow_html=True)
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("NIFTY 50", f"{last_nifty:,.2f}", f"{(last_nifty - prev_nifty)/prev_nifty*100:+.2f}%")
-            with col2:
-                st.metric("India VIX", f"{last_vix:.2f}%", f"{df['VIX_Change_Pct'].iloc[-1]:+.2f}%")
-            with col3:
-                st.metric("PCR", f"{df['PCR'].iloc[-1]:.2f}" if 'PCR' in df.columns else "N/A")
-            with col4:
-                st.metric("Straddle Price", f"₹{df['Straddle_Price'].iloc[-1]:,.2f}" if 'Straddle_Price' in df.columns else "N/A")
-            st.markdown(f"**Last Updated**: {latest_date} | **Source**: {st.session_state.get('data_source', 'Unknown')}")
-            if st.session_state.real_time_market_data:
-                with st.expander("Raw 5paisa API Data"):
-                    st.json(st.session_state.real_time_market_data)
+# Load Data
+if st.session_state.logged_in:
+    df, real_data, data_source = load_data(st.session_state.client)
+    if df is None or real_data is None:
+        st.error("Failed to load data. Check Upstox API or CSV files.")
+        st.stop()
+    st.session_state.real_time_market_data = real_data
+    analysis_df = generate_features(df, real_data, st.session_state.capital)
+    if analysis_df is None:
+        st.error("Failed to generate features. Check data processing.")
+        st.stop()
+    st.session_state.analysis_df = analysis_df
+else:
+    st.warning("Please log in to Upstox to access real-time data.")
+    df, real_data, data_source = load_data(None)  # Fallback to CSV
+    if df is None:
+        st.error("Failed to load fallback data. Check CSV files.")
+        st.stop()
+    st.session_state.real_time_market_data = real_data or {}
+    analysis_df = generate_features(df, real_data, st.session_state.capital)
+    if analysis_df is None:
+        st.error("Failed to generate features. Check data processing.")
+        st.stop()
+    st.session_state.analysis_df = analysis_df
+
+# Tabs
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📊 Market Snapshot",
+    "🔮 Volatility Forecast",
+    "🤖 Trading Strategy",
+    "💼 Portfolio",
+    "📝 Journal",
+    "📈 Backtest",
+    "⚠️ Risk Dashboard"
+])
+
+# Tab 1: Market Snapshot
+with tab1:
+    st.header("📊 Market Snapshot")
+    if st.session_state.real_time_market_data:
+        market_data = st.session_state.real_time_market_data
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("NIFTY Spot", f"{market_data.get('nifty_spot', 'N/A'):.2f}")
+        with col2:
+            st.metric("VIX", f"{market_data.get('vix', 'N/A'):.2f}")
+        with col3:
+            st.metric("PCR", f"{market_data.get('pcr', 'N/A'):.2f}")
+        with col4:
+            st.metric("ATM Straddle", f"{market_data.get('straddle_price', 'N/A'):.2f}")
+        
+        col5, col6, col7 = st.columns(3)
+        with col5:
+            st.metric("ATM Strike", f"{market_data.get('atm_strike', 'N/A'):.2f}")
+        with col6:
+            st.metric("Max Pain", f"{market_data.get('max_pain_strike', 'N/A'):.2f}")
+        with col7:
+            st.metric("Max Pain Diff %", f"{market_data.get('max_pain_diff_pct', 'N/A'):.2f}%")
+        
+        st.subheader("Option Chain")
+        if "option_chain" in market_data and not market_data["option_chain"].empty:
+            st.dataframe(market_data["option_chain"][["StrikeRate", "CPType", "LastRate", "IV", "OpenInterest", "Volume"]].head(10))
         else:
-            st.info("Run analysis to see market snapshot")
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.warning("Option chain data not available.")
+    else:
+        st.warning("No real-time market data available.")
+    st.markdown(f"**Data Source**: {data_source}")
 
-    # Forecast Tab
-    with tabs[1]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📈 Volatility Forecast")
-        if st.session_state.forecast_log is not None and not st.session_state.forecast_log.empty:
-            forecast_log = st.session_state.forecast_log
-            forecast_metrics = st.session_state.forecast_metrics
+# Tab 2: Volatility Forecast
+with tab2:
+    st.header("🔮 Volatility Forecast")
+    if st.session_state.analysis_df is not None:
+        forecast_df, forecast_metrics = forecast_volatility_future(
+            st.session_state.analysis_df,
+            horizon=st.session_state.forecast_horizon
+        )
+        st.session_state.forecast_log = forecast_df
+        st.session_state.forecast_metrics = forecast_metrics
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Forecasted VIX", f"{forecast_metrics.get('forecasted_vix', 'N/A'):.2f}")
+        with col2:
+            st.metric("VIX Range Low", f"{forecast_metrics.get('vix_range_low', 'N/A'):.2f}")
+        with col3:
+            st.metric("VIX Range High", f"{forecast_metrics.get('vix_range_high', 'N/A'):.2f}")
+        
+        st.subheader("Forecast Trend")
+        if not forecast_df.empty:
+            st.line_chart(forecast_df[["VIX", "VIX_Forecast"]])
+        else:
+            st.warning("No forecast data available.")
+    else:
+        st.warning("No analysis data available for forecasting.")
+
+# Tab 3: Trading Strategy
+with tab3:
+    st.header("🤖 Trading Strategy")
+    if st.session_state.analysis_df is not None and st.session_state.real_time_market_data:
+        strategy = generate_trading_strategy(
+            st.session_state.analysis_df,
+            st.session_state.real_time_market_data,
+            st.session_state.capital,
+            st.session_state.risk_tolerance
+        )
+        st.session_state.generated_strategy = strategy
+        
+        if strategy:
+            st.markdown(f"**Recommended Strategy**: {strategy['Strategy']}")
+            st.markdown(f"**Confidence**: {strategy['Confidence']:.2%}")
+            st.markdown(f"**Deploy Amount**: ₹{strategy['Deploy']:.2f}")
+            
+            if st.button("Prepare Orders"):
+                orders = prepare_trade_orders(
+                    strategy,
+                    st.session_state.real_time_market_data,
+                    st.session_state.capital
+                )
+                st.session_state.prepared_orders = orders
+                if orders:
+                    st.success("Orders prepared successfully!")
+                    st.dataframe(pd.DataFrame(orders))
+                else:
+                    st.error("Failed to prepare orders.")
+            
+            if st.session_state.prepared_orders:
+                if st.button("Execute Orders"):
+                    success, response = execute_trade_orders(
+                        st.session_state.client,
+                        st.session_state.prepared_orders
+                    )
+                    if success:
+                        st.success("Orders executed successfully!")
+                        st.session_state.trades.extend(st.session_state.prepared_orders)
+                        st.session_state.prepared_orders = None
+                    else:
+                        st.error("Order execution failed.")
+                        st.session_state.order_placement_errors.append(response)
+                        st.json(response)
+        else:
+            st.warning("No strategy generated.")
+    else:
+        st.warning("No data available for strategy generation.")
+
+# Tab 4: Portfolio
+with tab4:
+    st.header("💼 Portfolio")
+    portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Weekly PnL", f"₹{portfolio_summary['weekly_pnl']:.2f}")
+    with col2:
+        st.metric("Margin Used", f"₹{portfolio_summary['margin_used']:.2f}")
+    with col3:
+        st.metric("Exposure", f"{portfolio_summary['exposure']:.2f}%")
+    
+    st.subheader("Open Positions")
+    positions_data = st.session_state.api_portfolio_data.get("positions", {}).get("data", [])
+    positions_data = calculate_position_pnl_with_ltp(st.session_state.client, positions_data)
+    if positions_data:
+        positions_df = pd.DataFrame(positions_data)
+        if not positions_df.empty:
+            st.dataframe(positions_df[["instrument_key", "quantity", "buy_avg_price", "LTP", "CurrentPnL"]])
+        else:
+            st.info("No open positions.")
+    else:
+        st.info("No open positions.")
+
+# Tab 5: Journal
+with tab5:
+    st.header("📝 Trading Journal")
+    journal_file = "journal_log.csv"
+    if os.path.exists(journal_file):
+        journal_df = pd.read_csv(journal_file)
+    else:
+        journal_df = pd.DataFrame(columns=["Date", "Strategy", "PnL", "Notes"])
+    
+    with st.form("journal_form"):
+        date = st.date_input("Trade Date", value=datetime.now().date())
+        strategy = st.text_input("Strategy")
+        pnl = st.number_input("PnL (₹)", format="%.2f")
+        notes = st.text_area("Notes")
+        submitted = st.form_submit_button("Log Trade")
+        if submitted:
+            new_entry = pd.DataFrame({
+                "Date": [date],
+                "Strategy": [strategy],
+                "PnL": [pnl],
+                "Notes": [notes]
+            })
+            journal_df = pd.concat([journal_df, new_entry], ignore_index=True)
+            journal_df.to_csv(journal_file, index=False)
+            st.session_state.journal_complete = True
+            st.success("Trade logged successfully!")
+    
+    st.subheader("Trade History")
+    if not journal_df.empty:
+        st.dataframe(journal_df)
+    else:
+        st.info("No trades logged yet.")
+
+# Tab 6: Backtest
+with tab6:
+    st.header("📈 Backtest Results")
+    if st.session_state.backtest_run and st.session_state.analysis_df is not None:
+        backtest_results = run_backtest(
+            st.session_state.analysis_df,
+            st.session_state.backtest_start_date,
+            st.session_state.backtest_end_date,
+            st.session_state.capital,
+            st.session_state.backtest_strategy
+        )
+        st.session_state.backtest_results = backtest_results
+        st.session_state.backtest_run = False
+        
+        if backtest_results:
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Avg Blended Volatility", f"{np.mean(forecast_log['Blended_Vol']):.2f}%")
+                st.metric("Total Return", f"{backtest_results['total_return']:.2%}")
             with col2:
-                st.metric("Realized Volatility", f"{forecast_metrics['realized_vol']:.2f}%")
+                st.metric("Sharpe Ratio", f"{backtest_results['sharpe_ratio']:.2f}")
             with col3:
-                st.metric("Model RMSE", f"{forecast_metrics['rmse']:.2f}%")
-                st.markdown(f'<div class="gauge">{int(forecast_metrics["confidence_score"])}%</div><div style="text-align: center;">Confidence</div>', unsafe_allow_html=True)
-            st.line_chart(pd.DataFrame({
-                "GARCH": forecast_log["GARCH_Vol"],
-                "XGBoost": forecast_log["XGBoost_Vol"],
-                "Blended": forecast_log["Blended_Vol"]
-            }).set_index(forecast_log["Date"]), color=["#e94560", "#00d4ff", "#ffcc00"])
-            st.markdown("### Feature Importance")
-            if forecast_metrics.get("feature_importances") is not None:
-                feature_importance = pd.DataFrame({
-                    'Feature': FEATURE_COLS,
-                    'Importance': forecast_metrics["feature_importances"]
-                }).sort_values(by='Importance', ascending=False)
-                st.dataframe(feature_importance, use_container_width=True)
+                st.metric("Max Drawdown", f"{backtest_results['max_drawdown']:.2%}")
+            
+            st.subheader("Performance Chart")
+            if "cumulative_pnl" in backtest_results:
+                st.session_state.backtest_cumulative_pnl_chart_data = backtest_results["cumulative_pnl"]
+                st.line_chart(backtest_results["cumulative_pnl"])
         else:
-            st.info("Run analysis to see volatility forecast")
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.error("Backtest failed. Check data or parameters.")
+    else:
+        st.info("Run a backtest from the sidebar to see results.")
 
-    # Strategy Tab
-    with tabs[2]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🧪 Trading Strategy")
-        if st.session_state.generated_strategy and st.session_state.generated_strategy.get("Discipline_Lock", False):
-            st.markdown('<div class="alert-banner">⚠️ Discipline Lock: Complete Journaling</div>', unsafe_allow_html=True)
-        elif st.session_state.generated_strategy:
-            strategy = st.session_state.generated_strategy
-            real_data = st.session_state.real_time_market_data
-            capital = st.session_state.capital
-            regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high", "EVENT-DRIVEN": "regime-event"}.get(strategy["Regime"], "regime-low")
-            st.markdown('<div class="strategy-carousel">', unsafe_allow_html=True)
-            st.markdown(f"""
-                <div class="strategy-card">
-                    <h4>{strategy["Strategy"]}</h4>
-                    <span class="regime-badge {regime_class}">{strategy["Regime"]} Regime</span>
-                    <p><b>Reason:</b> {strategy["Reason"]}</p>
-                    <p><b>Confidence:</b> {strategy["Confidence"]:.2f}</p>
-                    <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                    <p><b>Capital Deploy:</b> ₹{strategy["Deploy"]:,.0f}</p>
-                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                    <p><b>Exposure:</b> {strategy["Exposure"]:.2f}%</p>
-                    <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-            if strategy["Risk_Flags"]:
-                st.markdown(f'<div class="alert-banner">⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}</div>', unsafe_allow_html=True)
-            if strategy.get("Behavior_Warnings"):
-                for warning in strategy["Behavior_Warnings"]:
-                    st.warning(f"⚠️ Behavioral Warning: {warning}")
-            st.markdown("---")
-            st.subheader("Ready to Trade?")
-            st.session_state.active_strategy_details = strategy
-            if st.button("📝 Prepare Orders"):
-                st.session_state.prepared_orders = prepare_trade_orders(strategy, real_data, capital)
-                st.session_state.order_placement_errors = []
-            if st.session_state.prepared_orders:
-                st.markdown("### Proposed Order Details")
-                st.warning("REVIEW CAREFULLY BEFORE PLACING!")
-                orders_df = pd.DataFrame(st.session_state.prepared_orders)
-                orders_display_cols = ['Leg_Type', 'Strike', 'Expiry', 'Quantity_Lots', 'Quantity_Units', 'Proposed_Price', 'Last_Price_API', 'Stop_Loss_Price', 'Take_Profit_Price', 'ScripCode']
-                st.dataframe(orders_df[orders_display_cols], use_container_width=True)
-                if st.session_state.order_placement_errors:
-                    st.error("Previous order placement failed:")
-                    for error in st.session_state.order_placement_errors:
-                        st.write(f"- {error}")
-                if st.button("✅ Confirm and Place Orders"):
-                    success, details = execute_trade_orders(st.session_state.client, st.session_state.prepared_orders)
-                    if success:
-                        st.success("✅ Orders placed successfully!")
-                    else:
-                        st.session_state.order_placement_errors = [resp["Response"].get("Message", "Unknown error") for resp in details["responses"] if resp["Response"].get("Status") != 0]
-                        st.error("❌ Order placement failed. See errors above.")
-            else:
-                st.info("Click 'Prepare Orders' to see order details")
-        else:
-            st.info("Run analysis to generate a strategy")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Portfolio Tab
-    with tabs[3]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("💰 Portfolio Overview")
-        portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
+# Tab 7: Risk Dashboard
+with tab7:
+    st.header("⚠️ Risk Dashboard")
+    if st.session_state.analysis_df is not None:
+        latest_data = st.session_state.analysis_df.iloc[-1]
+        risk_metrics = {
+            "VaR_95": latest_data.get("PnL_Day", 0) * -1.65,  # Simplified VaR
+            "Max_Loss": latest_data.get("PnL_Day", 0) * -2.33,  # 99% confidence
+            "Volatility_Regime": "High" if latest_data.get("VIX", 0) > 20 else "Medium" if latest_data.get("VIX", 0) > 15 else "Low"
+        }
+        
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Current P&L", f"₹{portfolio_summary['weekly_pnl']:,.2f}")
+            st.metric("VaR (95%)", f"₹{risk_metrics['VaR_95']:.2f}")
         with col2:
-            st.metric("Margin Used", f"₹{portfolio_summary['margin_used']:,.2f}")
+            st.metric("Max Loss (99%)", f"₹{risk_metrics['Max_Loss']:.2f}")
         with col3:
-            st.metric("Exposure", f"{portfolio_summary['exposure']:.2f}%")
-        st.markdown("---")
-        if st.session_state.api_portfolio_data:
-            st.subheader("Account Data")
-            with st.expander("📂 Holdings"):
-                holdings_data = st.session_state.api_portfolio_data.get("holdings")
-                if holdings_data and isinstance(holdings_data, list):
-                    st.dataframe(pd.DataFrame(holdings_data), use_container_width=True)
-                else:
-                    st.info("No holdings found")
-            with st.expander("💲 Margin Details"):
-                margin_data = st.session_state.api_portfolio_data.get("margin")
-                if margin_data and isinstance(margin_data, dict):
-                    st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in margin_data.items()]), use_container_width=True)
-                else:
-                    st.info("No margin data found")
-            with st.expander("💹 Open Positions"):
-                positions_data = st.session_state.api_portfolio_data.get("positions")
-                if positions_data and isinstance(positions_data, list):
-                    positions_with_pnl = calculate_position_pnl_with_ltp(st.session_state.client, positions_data)
-                    positions_df = pd.DataFrame(positions_with_pnl)
-                    format_mapping = {col: '₹{:,.2f}' for col in ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM']}
-                    cols_to_format = {col: fmt for col, fmt in format_mapping.items() if col in positions_df.columns}
-                    st.dataframe(positions_df.style.format(cols_to_format), use_container_width=True)
-                else:
-                    st.info("No open positions found")
-            with st.expander("📋 Order Book"):
-                order_book_data = st.session_state.api_portfolio_data.get("order_book")
-                if order_book_data and isinstance(order_book_data, list):
-                    st.dataframe(pd.DataFrame(order_book_data), use_container_width=True)
-                else:
-                    st.info("No open orders found")
-            with st.expander("📜 Trade Book"):
-                trade_book_data = st.session_state.api_portfolio_data.get("trade_book")
-                if trade_book_data and isinstance(trade_book_data, list):
-                    st.dataframe(pd.DataFrame(trade_book_data), use_container_width=True)
-                else:
-                    st.info("No executed trades found")
-            with st.expander("📢 Market Status"):
-                market_status_data = st.session_state.api_portfolio_data.get("market_status")
-                if market_status_data:
-                    st.json(market_status_data)
-                else:
-                    st.info("Market status not available")
-        else:
-            st.info("Run analysis to fetch portfolio data")
-        st.markdown('</div>', unsafe_allow_html=True)
+            regime_class = {
+                "Low": "regime-low",
+                "Medium": "regime-medium",
+                "High": "regime-high"
+            }.get(risk_metrics["Volatility_Regime"], "regime-medium")
+            st.markdown(f"<span class='regime-badge {regime_class}'>{risk_metrics['Volatility_Regime']}</span>", unsafe_allow_html=True)
+        
+        st.subheader("Risk Exposure")
+        st.gauge = f"<div class='gauge'>{portfolio_summary['exposure']:.1f}%</div>"
+        st.markdown(st.gauge, unsafe_allow_html=True)
+    else:
+        st.warning("No data available for risk dashboard.")
 
-    # Journal Tab
-    with tabs[4]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📝 Discipline Hub")
-        with st.form(key="journal_form"):
-            st.markdown("Reflect on your trading decisions")
-            reason_strategy = st.selectbox("Why this strategy?", ["High IV", "Low Risk", "Event Opportunity", "Bullish Bias", "Bearish Bias", "Range Bound", "Expiry Play", "Other"])
-            override_risk = st.radio("Override risk flags?", ("No", "Yes"), index=0)
-            expected_outcome = st.text_area("Trade plan and outcome")
-            lessons_learned = st.text_area("Lessons learned (optional)")
-            submit_journal = st.form_submit_button("💾 Save Journal Entry")
-            if submit_journal:
-                score = (3 if override_risk == "No" else 0) + (2 if reason_strategy != "Other" else 0) + (3 if expected_outcome else 0) + (1 if lessons_learned else 0)
-                portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
-                if portfolio_summary['weekly_pnl'] > 0:
-                    score += 1
-                score = min(score, 10)
-                journal_entry = {
-                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Strategy_Reason": reason_strategy,
-                    "Override_Risk": override_risk,
-                    "Expected_Outcome": expected_outcome,
-                    "Lessons_Learned": lessons_learned,
-                    "Discipline_Score": score
-                }
-                try:
-                    pd.DataFrame([journal_entry]).to_csv("journal_log.csv", mode='a', header=not os.path.exists("journal_log.csv"), index=False, encoding='utf-8')
-                    st.success(f"✅ Journal Entry Saved! Score: {score}/10")
-                    if score >= 7 and st.session_state.violations > 0:
-                        st.session_state.violations = 0
-                        st.session_state.journal_complete = True
-                        st.success("🔓 Discipline Lock Removed!")
-                except Exception as e:
-                    st.error(f"❌ Error saving journal: {e}")
-        st.markdown("### Past Entries")
-        if os.path.exists("journal_log.csv"):
-            try:
-                journal_df = pd.read_csv("journal_log.csv", encoding='utf-8')
-                journal_df['Date'] = pd.to_datetime(journal_df['Date']).dt.strftime("%Y-%m-%d %H:%M")
-                st.dataframe(journal_df, use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error reading journal: {e}")
-        else:
-            st.info("No journal entries found")
-        st.markdown('</div>', unsafe_allow_html=True)
+# SmartBhai GPT Chat Interface
+st.markdown("---")
+st.markdown("<div class='smartbhai-container'>", unsafe_allow_html=True)
+st.markdown("<div class='smartbhai-title'>💬 SmartBhai GPT</div>", unsafe_allow_html=True)
+st.markdown("<div class='smartbhai-subtitle'>Ask about IV, strategies, or market buzz!</div>", unsafe_allow_html=True)
 
-    # Backtest Tab
-    with tabs[5]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📉 Backtest Results")
-        if st.session_state.backtest_run and st.session_state.backtest_results:
-            results = st.session_state.backtest_results
-            if st.session_state.backtest_cumulative_pnl_chart_data is not None:
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
-                with col2:
-                    st.metric("Win Rate", f"{results['win_rate']*100:.2f}%")
-                with col3:
-                    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
-                with col4:
-                    st.metric("Max Drawdown", f"₹{results['max_drawdown']:,.2f}")
-                st.markdown("### Cumulative P&L")
-                st.line_chart(st.session_state.backtest_cumulative_pnl_chart_data, color="#e94560")
-                st.markdown("### Performance by Strategy")
-                if not results["strategy_perf"].empty:
-                    st.dataframe(results["strategy_perf"].style.format({"sum": "₹{:,.2f}", "mean": "₹{:,.2f}", "Win_Rate": "{:.2%}"}), use_container_width=True)
-                st.markdown("### Performance by Regime")
-                if not results["regime_perf"].empty:
-                    st.dataframe(results["regime_perf"].style.format({"sum": "₹{:,.2f}", "mean": "₹{:,.2f}", "Win_Rate": "{:.2%}"}), use_container_width=True)
-                st.markdown("### Detailed Backtest Trades")
-                if not results["backtest_df"].empty:
-                    display_cols = ['Date', 'Event', 'Regime', 'Strategy', 'PnL', 'Cumulative_PnL', 'Strategy_Cum_PnL', 'Capital_Deployed', 'Max_Loss', 'Max_Profit', 'Risk_Reward', 'Notes']
-                    display_cols_filtered = [col for col in display_cols if col in results["backtest_df"].columns]
-                    st.dataframe(results["backtest_df"][display_cols_filtered].style.format({
-                        "PnL": "₹{:,.2f}",
-                        "Cumulative_PnL": "₹{:,.2f}",
-                        "Strategy_Cum_PnL": "₹{:,.2f}",
-                        "Capital_Deployed": "₹{:,.2f}",
-                        "Max_Loss": "₹{:,.2f}",
-                        "Max_Profit": lambda x: f'₹{x:,.2f}' if x != float('inf') else 'Unlimited',
-                        "Risk_Reward": "{:.2f}"
-                    }), use_container_width=True)
-        else:
-            st.info("Run analysis to view backtest results")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Risk Dashboard Tab
-    with tabs[6]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🛡️ Live Risk Management Dashboard")
-        st.markdown("### Portfolio Risk Summary")
-        portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Capital", f"₹{portfolio_summary.get('total_capital', st.session_state.capital):,.2f}")
-        with col2:
-            st.metric("Today's P&L", f"₹{portfolio_summary['weekly_pnl']:,.2f}")
-        with col3:
-            st.metric("Margin Used", f"₹{portfolio_summary['margin_used']:,.2f}")
-        st.metric("Current Exposure", f"{portfolio_summary['exposure']:.2f}%")
-        st.markdown("---")
-        st.markdown("### Open Positions")
-        positions_data = st.session_state.api_portfolio_data.get("positions", [])
-        if positions_data:
-            positions_with_pnl = calculate_position_pnl_with_ltp(st.session_state.client, positions_data)
-            if positions_with_pnl:
-                positions_df = pd.DataFrame(positions_with_pnl)
-                format_mapping = {col: '₹{:,.2f}' for col in ['BuyAvgPrice', 'SellAvgPrice', 'LTP', 'CurrentPnL', 'BookedPL', 'UnrealizedMTM']}
-                cols_to_format = {col: fmt for col, fmt in format_mapping.items() if col in positions_df.columns}
-                st.dataframe(positions_df.style.format(cols_to_format), use_container_width=True)
+if smartbhai_gpt:
+    with st.container():
+        # Chat history
+        st.markdown("<div class='smartbhai-chat'>", unsafe_allow_html=True)
+        for chat in st.session_state.chat_history:
+            if chat["role"] == "user":
+                st.markdown(f"<div class='chat-bubble user-bubble'>{chat['message']}</div>", unsafe_allow_html=True)
             else:
-                st.info("Could not calculate PnL for positions")
-        else:
-            st.info("No open positions found")
-        st.markdown("---")
-        st.markdown("### Active Strategy Risk")
-        if st.session_state.active_strategy_details:
-            strategy = st.session_state.active_strategy_details
-            regime_class = {"LOW": "regime-low", "MEDIUM": "regime-medium", "HIGH": "regime-high", "EVENT-DRIVEN": "regime-event"}.get(strategy["Regime"], "regime-low")
-            st.markdown(f"""
-                <div class="strategy-card">
-                    <h4>{strategy["Strategy"]}</h4>
-                    <span class="regime-badge {regime_class}">{strategy["Regime"]} Regime</span>
-                    <p><b>Reason:</b> {strategy["Reason"]}</p>
-                    <p><b>Risk-Reward:</b> {strategy["Risk_Reward"]:.2f}:1</p>
-                    <p><b>Capital Deploy:</b> ₹{strategy["Deploy"]:,.0f}</p>
-                    <p><b>Max Loss:</b> ₹{strategy["Max_Loss"]:,.0f}</p>
-                    <p><b>Tags:</b> {', '.join(strategy["Tags"])}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if strategy["Risk_Flags"]:
-                st.warning(f'⚠️ Risk Flags: {", ".join(strategy["Risk_Flags"])}')
-            if strategy.get("Behavior_Warnings"):
-                for warning in strategy["Behavior_Warnings"]:
-                    st.warning(f"⚠️ Behavioral Warning: {warning}")
-        st.markdown("---")
-        st.markdown("### Value at Risk (VaR)")
-        st.info("Simplified VaR for illustration")
-        if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
-            df_var = st.session_state.analysis_df.copy()
-            df_var['NIFTY_Daily_Return'] = df_var['NIFTY_Close'].pct_change()
-            df_var = df_var.dropna(subset=['NIFTY_Daily_Return'])
-            if not df_var.empty:
-                confidence_level = 0.99
-                worst_loss_pct = np.percentile(df_var['NIFTY_Daily_Return'], (1 - confidence_level) * 100)
-                current_value = portfolio_summary.get('total_capital', st.session_state.capital) + portfolio_summary.get('weekly_pnl', 0.0)
-                var_absolute = current_value * abs(worst_loss_pct)
-                st.write(f"**Historical 1-Day VaR ({confidence_level*100:.0f}%):** ₹{var_absolute:,.2f}")
-                st.caption("Assumes portfolio moves with NIFTY. Does not account for option greeks.")
-            else:
-                st.info("Insufficient data for VaR")
-        else:
-            st.info("Run analysis for VaR calculation")
-        st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(f"<div class='chat-bubble smartbhai-bubble'>{chat['message']}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Input form
+        with st.form("smartbhai_form", clear_on_submit=True):
+            query = st.text_input("Ask SmartBhai:", key="query_input", placeholder="Bhai, IV kya hai? Strategy kya lagau?")
+            submit = st.form_submit_button("Send", use_container_width=True)
+            if submit and query:
+                response = smartbhai_gpt.generate_response(query)
+                st.session_state.chat_history.append({"role": "user", "message": query})
+                st.session_state.chat_history.append({"role": "assistant", "message": response})
+                st.rerun()
+else:
+    st.error("SmartBhai GPT is not available.")
 
-    st.markdown('<div class="footer">Built with ❤️ by Shritish Shukla & Salman Azim | © 2025 VolGuard</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Footer
+st.markdown("""
+    <div class='footer'>
+        VolGuard Pro | Built with ❤️ by Shritish | Powered by Upstox API & Streamlit
+        <br>
+        <small>Disclaimer: Trading involves risks. Do your own research.</small>
+    </div>
+""", unsafe_allow_html=True)
