@@ -25,16 +25,27 @@ def parse_upstox_date_string(date_string):
         logger.warning(f"Invalid date format: {date_string}")
         return None
 
-# Initialize Upstox client
+# Initialize Upstox client with validation
 def initialize_upstox_client(access_token):
+    if not access_token or not isinstance(access_token, str) or len(access_token.strip()) == 0:
+        logger.error("Access token is empty or invalid")
+        return None
+
     try:
         logger.info("Initializing Upstox client")
         configuration = upstox_client.Configuration()
         configuration.access_token = access_token
         client = upstox_client.ApiClient(configuration)
+        user_api = upstox_client.UserApi(client)
+
+        # Validate token by making a test API call (fetch user profile)
+        user_profile = user_api.get_profile(api_version="v2")
+        if not user_profile or not user_profile.data:
+            logger.error("Token validation failed: Unable to fetch user profile")
+            return None
+
         options_api = upstox_client.OptionsApi(client)
         portfolio_api = upstox_client.PortfolioApi(client)
-        user_api = upstox_client.UserApi(client)
         order_api = upstox_client.OrderApi(client)
         market_quote_api = upstox_client.MarketQuoteApi(client)
         logger.info("Upstox client initialized successfully")
@@ -47,6 +58,9 @@ def initialize_upstox_client(access_token):
             "market_quote_api": market_quote_api,
             "access_token": access_token
         }
+    except ApiException as e:
+        logger.error(f"Upstox API error during initialization: {str(e)}")
+        return None
     except Exception as e:
         logger.error(f"Error initializing Upstox client: {str(e)}")
         return None
