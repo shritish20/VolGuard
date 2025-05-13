@@ -1,826 +1,273 @@
 import logging
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from scipy.stats import norm
-import math # Import math for log and sqrt
+from datetime import datetime, date # Import date specifically
 
-from data_processing import FEATURE_COLS # Import FEATURE_COLS
-
-# Setup logging
+# Setup logging for this module
 logger = logging.getLogger(__name__)
 
-# --- Constants for Transaction Costs (Illustrative - Adjust Based on Broker) ---
-# These are examples; check your broker's charges
-BROKERAGE_PER_LOT = 20 # Example: ₹20 per lot per side (buy/sell)
-EXCHANGE_TRANSACTION_CHARGE_PCT = 0.00053 # Example: NSE F&O percentage
-SEBI_TURNOVER_FEE_PCT = 0.0001 # Example: SEBI fee percentage
-STT_SELL_OPTIONS_PCT = 0.017 # Example: 0.017% on Sell side (Premium Value)
-CLEARING_CHARGE_PER_LOT = 1 # Example: ₹1 per lot per side
-GST_ON_TOTAL_COSTS_PCT = 0.18 # 18% GST on Brokerage + Exchange Charges + SEBI Fee + Clearing Charge
-STAMP_DUTY_PCT = 0.003 # Example: 0.003% on Buy side (Premium Value)
+# === Backtesting Function ===
 
-# --- Black-Scholes Option Pricing Model ---
-def black_scholes(S, K, T, r, sigma, option_type='call'):
+def run_backtest(analysis_df: pd.DataFrame, start_date: date, end_date: date, initial_capital: float, strategy_filter: str = "All Strategies"):
     """
-    Calculates the theoretical price of a European option using the Black-Scholes model.
+    Runs a backtest simulation of trading strategies based on signals in the
+    analysis DataFrame over a specified date range.
 
-    Parameters:
-    S (float): Underlying asset price
-    K (float): Strike price
-    T (float): Time to expiry in years (e.g., 30 days / 365)
-    r (float): Risk-free interest rate (annual, decimal)
-    sigma (float): Volatility (annual, decimal)
-    option_type (str): 'call' for a call option, 'put' for a put option.
+    Args:
+        analysis_df (pd.DataFrame): DataFrame containing historical data with
+                                   generated features and strategy recommendations.
+                                   Must have a datetime index and columns used by
+                                   the strategy logic (e.g., 'Recommended_Strategy',
+                                   'PnL_Day'). Expected to be sorted by date.
+        start_date (date): The start date for the backtest period (inclusive).
+        end_date (date): The end date for the backtest period (inclusive).
+        initial_capital (float): The starting capital for the backtest.
+        strategy_filter (str): Optional. Filter backtest to days where this specific
+                               strategy was recommended ('All Strategies' to include all).
 
     Returns:
-    float: The theoretical option price.
+        dict or None: A dictionary containing backtest performance metrics and
+                      trade log, or None if backtesting fails.
+        Example return dict:
+        {
+            'total_return': float,
+            'sharpe_ratio': float,
+            'max_drawdown': float,
+            'trade_log': pd.DataFrame, # Detailed log of simulated trades
+            'cumulative_pnl': pd.Series # Time series of cumulative PnL
+        }
     """
-    # Prevent division by zero or log of zero/negative
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-        return 0.0
+    logger.info(f"Starting backtest from {start_date} to {end_date} with initial capital ₹{initial_capital}.")
+    logger.info(f"Strategy filter: {strategy_filter}")
 
-    d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
+    # --- 1. Validate and Prepare Data ---
+    if analysis_df is None or analysis_df.empty:
+        logger.error("Analysis DataFrame is empty or None. Cannot run backtest.")
+        return None
 
-    if option_type == 'call':
-        price = S * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
-    elif option_type == 'put':
-        price = K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+    # Ensure analysis_df has a datetime index and is sorted
+    try:
+        analysis_df.index = pd.to_datetime(analysis_df.index).normalize()
+        analysis_df = analysis_df.sort_index()
+    except Exception as e:
+        logger.error(f"Error processing analysis_df index: {str(e)}. Cannot run backtest.", exc_info=True)
+        return None
+
+    # Ensure essential columns for backtesting exist
+    required_cols = ['Recommended_Strategy', 'PnL_Day'] # Assuming these columns are in analysis_df
+    if not all(col in analysis_df.columns for col in required_cols):
+        missing_cols = [col for col in required_cols if col not in analysis_df.columns]
+        logger.error(f"Analysis DataFrame missing required columns for backtesting: {missing_cols}. Ensure strategy generation and data processing are correct.")
+        return None
+
+    # Filter the analysis DataFrame for the specified date range
+    # Use .loc with string formatted dates for robust range slicing
+    try:
+        backtest_df = analysis_df.loc[str(start_date):str(end_date)].copy() # Work on a copy
+        logger.info(f"Filtered data for backtest period. Shape: {backtest_df.shape}")
+    except KeyError:
+        logger.error(f"Date range {start_date} to {end_date} not found in analysis_df index.")
+        logger.info(f"Analysis DataFrame index range: {analysis_df.index.min().date()} to {analysis_df.index.max().date()}")
+        return None
+    except Exception as e:
+        logger.error(f"Error filtering data for backtest date range: {str(e)}", exc_info=True)
+        return None
+
+
+    if backtest_df.empty:
+        logger.warning(f"Filtered DataFrame for backtest period ({start_date} to {end_date}) is empty. No data to backtest.")
+        return { # Return zero/empty results gracefully
+            'total_return': 0.0,
+            'sharpe_ratio': 0.0,
+            'max_drawdown': 0.0,
+            'trade_log': pd.DataFrame(columns=['Date', 'Strategy', 'Action', 'PnL', 'Cumulative_PnL']),
+            'cumulative_pnl': pd.Series([0.0], index=[pd.to_datetime(start_date).normalize()])
+        }
+
+    # --- 2. Simulate Trading ---
+    capital = initial_capital # Current capital during backtest
+    cumulative_pnl = 0.0 # Cumulative PnL during backtest
+    daily_pnls = [] # List to store daily PnL for cumulative calculation and metrics
+    trade_log_list = [] # List to store details of simulated trades
+
+    logger.info("Starting backtest simulation loop.")
+
+    # Iterate through the filtered DataFrame day by day
+    # Ensure index is DateTimeIndex for iteration
+    if not isinstance(backtest_df.index, pd.DatetimeIndex):
+        logger.error("Backtest DataFrame index is not DatetimeIndex. Cannot iterate.")
+        return None
+
+    # Assuming 'Recommended_Strategy' column exists and contains strategy names or 'None'/'No Trade'
+    # Assuming 'PnL_Day' column exists and represents the synthetic daily PnL if a trade was active
+
+    for date_index, row in backtest_df.iterrows():
+        date_only = date_index.date() # Get just the date part
+        # Ensure row data is accessible and expected columns exist
+        recommended_strategy = row.get('Recommended_Strategy')
+        daily_pnl = pd.to_numeric(row.get('PnL_Day'), errors='coerce').fillna(0.0) # Get synthetic daily PnL, default to 0 if NaN
+
+        # Check if a strategy was recommended for this day AND if it matches the filter (if filter is active)
+        if recommended_strategy and recommended_strategy != 'None' and recommended_strategy != 'No Trade':
+             # Apply the strategy filter if it's not "All Strategies"
+             if strategy_filter == "All Strategies" or recommended_strategy == strategy_filter:
+
+                # --- Simulate Trade Action (Entry/Holding/Exit) ---
+                # In this simplified backtest, we assume:
+                # - A strategy recommendation implies being in a trade for the day.
+                # - 'PnL_Day' represents the outcome of that trade for the day.
+                # - We are always in the recommended trade for the full day if filtered.
+
+                # Update cumulative PnL
+                cumulative_pnl += daily_pnl
+                # Log the daily PnL for later metrics
+                daily_pnls.append(daily_pnl)
+
+                # Log the simulated trade/day action
+                trade_log_list.append({
+                    'Date': date_only,
+                    'Strategy': recommended_strategy,
+                    'Action': 'Trade Active', # Simplified action
+                    'PnL': daily_pnl,
+                    'Cumulative_PnL': cumulative_pnl
+                })
+                logger.debug(f"{date_only}: Strategy '{recommended_strategy}' active. Daily PnL: {daily_pnl:.2f}, Cumulative PnL: {cumulative_pnl:.2f}")
+
+             else:
+                 # Log days where a strategy was recommended but filtered out
+                 logger.debug(f"{date_only}: Strategy '{recommended_strategy}' recommended, but filtered out.")
+                 daily_pnls.append(0.0) # Add 0 PnL for filtered out days
+                 trade_log_list.append({ # Log a 'No Trade' action due to filter
+                    'Date': date_only,
+                    'Strategy': recommended_strategy, # Still log the recommended strategy
+                    'Action': f'Filtered ({strategy_filter})', # Indicate it was filtered
+                    'PnL': 0.0,
+                    'Cumulative_PnL': cumulative_pnl # Cumulative PnL doesn't change
+                 })
+
+
+        else:
+            # Log days where no strategy was recommended
+            logger.debug(f"{date_only}: No strategy recommended or 'None'/'No Trade'.")
+            daily_pnls.append(0.0) # Add 0 PnL for days with no trade
+            trade_log_list.append({ # Log a 'No Trade' action
+                 'Date': date_only,
+                 'Strategy': recommended_strategy if recommended_strategy else 'N/A',
+                 'Action': 'No Trade',
+                 'PnL': 0.0,
+                 'Cumulative_PnL': cumulative_pnl # Cumulative PnL doesn't change
+            })
+
+
+    logger.info("Backtest simulation loop finished.")
+
+    # --- 3. Calculate Performance Metrics ---
+    logger.info("Calculating backtest performance metrics.")
+
+    # Create DataFrame for trade log
+    trade_log_df = pd.DataFrame(trade_log_list)
+    # Ensure 'Date' column is datetime and set as index
+    if 'Date' in trade_log_df.columns:
+        trade_log_df['Date'] = pd.to_datetime(trade_log_df['Date']).normalize()
+        trade_log_df = trade_log_df.set_index('Date') # Set Date as index
+
+    # Calculate Cumulative PnL Series
+    # Ensure 'PnL' column exists and is numeric before calculating cumulative sum
+    if 'PnL' in trade_log_df.columns:
+         trade_log_df['PnL'] = pd.to_numeric(trade_log_df['PnL'], errors='coerce').fillna(0.0)
+         cumulative_pnl_series = trade_log_df['PnL'].cumsum() # Calculate cumulative sum of daily PnLs
+         # If trade_log_df is empty, cumulative_pnl_series will be empty. Add initial capital point.
+         if cumulative_pnl_series.empty:
+             cumulative_pnl_series = pd.Series([0.0], index=[pd.to_datetime(start_date).normalize()])
+             logger.warning("Cumulative PnL series is empty, defaulting to initial date with 0.0 PnL.")
+         # Add the initial capital as a starting point for the PnL series visualization
+         cumulative_pnl_series = pd.concat([pd.Series([0.0], index=[pd.to_datetime(start_date).normalize()]), cumulative_pnl_series])
+         # Remove any duplicate index entries that might occur from concat
+         cumulative_pnl_series = cumulative_pnl_series.groupby(cumulative_pnl_series.index).last()
+         cumulative_pnl_series = cumulative_pnl_series.sort_index() # Ensure sorted by date
+
     else:
-        raise ValueError("Option type must be 'call' or 'put'")
-
-    return max(0.0, price) # Option price cannot be negative
-
-# --- Calculate Transaction Costs ---
-def calculate_transaction_costs(strategy, trade_type, num_lots, premium_per_lot):
-    """
-    Calculates estimated transaction costs for a trade leg.
-
-    Parameters:
-    strategy (str): The trading strategy name.
-    trade_type (str): "BUY" or "SELL"
-    num_lots (int): Number of lots traded.
-    premium_per_lot (float): Premium paid/received per lot.
-
-    Returns:
-    float: Estimated total transaction cost for this leg.
-    """
-    if num_lots <= 0 or premium_per_lot < 0:
-        return 0.0
-
-    brokerage = BROKERAGE_PER_LOT * num_lots
-    # Exchange charges, SEBI fee based on turnover (lots * lot_size * underlying_price_approx - or use premium?)
-    # Using premium value is more accurate for options transaction costs
-    turnover = premium_per_lot * num_lots * 25 # Assuming Nifty lot size 25 - make this dynamic?
-    exchange_charge = turnover * EXCHANGE_TRANSACTION_CHARGE_PCT
-    sebi_fee = turnover * SEBI_TURNOVER_FEE_PCT
-    clearing_charge = CLEARING_CHARGE_PER_LOT * num_lots
-
-    total_statutory_charges_base = exchange_charge + sebi_fee + clearing_charge
-    gst = (brokerage + total_statutory_charges_base) * GST_ON_TOTAL_COSTS_PCT
-
-    stt = 0.0
-    stamp_duty = 0.0
-
-    if trade_type == "SELL":
-        # STT on premium value on the sell side for options
-        stt = premium_per_lot * num_lots * 25 * STT_SELL_OPTIONS_PCT
-    elif trade_type == "BUY":
-        # Stamp duty on premium value on the buy side
-        stamp_duty = premium_per_lot * num_lots * 25 * STAMP_DUTY_PCT # Stamp duty is often very small/negligible
-
-    total_costs = brokerage + total_statutory_charges_base + gst + stt + stamp_duty
-
-    return total_costs
+         logger.error("PnL column missing from trade log. Cannot calculate cumulative PnL.")
+         cumulative_pnl_series = pd.Series([0.0], index=[pd.to_datetime(start_date).normalize()])
 
 
-def run_strategy_engine(day_data, avg_vol_forecast, portfolio_pnl, capital):
-    """
-    Determines the trading strategy based on market regime and indicators.
-    (Logic remains similar, but deployment/max_loss are based on strategy type)
-    """
-    # ... (Strategy engine logic is the same as before) ...
-    try:
-        # Use day_data (real historical/live features) for strategy decision
-        iv = day_data.get("ATM_IV", 0.0)
-        hv = day_data.get("Realized_Vol", 0.0)
-        iv_hv_gap = iv - hv
-        iv_skew = day_data.get("IV_Skew", 0.0)
-        dte = day_data.get("Days_to_Expiry", 0)
-        event_flag = day_data.get("Event_Flag", 0)
-        pcr = day_data.get("PCR", 1.0)
-        vix_change_pct = day_data.get("VIX_Change_Pct", 0.0)
+    # Calculate Total Return
+    # Total Return = (Ending Cumulative PnL) / Initial Capital
+    # Handle case where trade_log_df is empty (cumulative_pnl remains 0.0)
+    if not trade_log_df.empty and 'Cumulative_PnL' in trade_log_df.columns:
+         # Use the last value of the Cumulative_PnL column from the trade log DataFrame
+         final_cumulative_pnl = trade_log_df['Cumulative_PnL'].iloc[-1]
+    else:
+         final_cumulative_pnl = 0.0 # Default to 0.0 if trade log is empty
 
-        # Drawdown limit check based on total capital
-        if portfolio_pnl < -0.10 * capital: # 10% drawdown limit
-            return None, None, "Portfolio drawdown limit reached", [], 0, 0, 0, [] # Added empty list for legs
+    # Calculate Total Return relative to initial capital
+    total_return = (final_cumulative_pnl / initial_capital) if initial_capital != 0 else 0.0
+    logger.info(f"Total Return: {total_return:.2%}")
 
 
-        # Determine regime based on blended forecast volatility (avg_vol_forecast)
-        if avg_vol_forecast is None:
-             regime = "MEDIUM" # Default if forecast failed
-        elif avg_vol_forecast < 15:
-            regime = "LOW"
-        elif avg_vol_forecast < 20:
-            regime = "MEDIUM"
+    # Calculate Sharpe Ratio
+    # Sharpe Ratio = (Average Daily Return - Risk-Free Rate) / Standard Deviation of Daily Returns
+    # Assuming Risk-Free Rate = 0 for simplicity in this backtest.
+    # Need a series of daily *returns*, not just PnL.
+    # Daily Return = Daily PnL / Starting Capital for the day. This requires tracking daily capital.
+    # OR, more simply, calculate daily returns from the *equity curve* (Cumulative PnL + Initial Capital).
+    equity_curve = cumulative_pnl_series + initial_capital # Ensure initial capital is numeric
+    equity_curve = pd.to_numeric(equity_curve, errors='coerce').fillna(initial_capital) # Fill NaNs in equity curve with initial capital
+
+    daily_returns = equity_curve.pct_change().dropna() # Calculate daily percentage change (returns), drop first NaN
+    # Annualize Sharpe Ratio assuming 252 trading days in a year
+    annualization_factor = np.sqrt(252) # For annualizing standard deviation of daily returns
+
+    sharpe_ratio = 0.0 # Default Sharpe Ratio
+    if not daily_returns.empty:
+        mean_daily_return = daily_returns.mean()
+        std_daily_return = daily_returns.std()
+        # Avoid division by zero if standard deviation is zero (e.g., no trading activity, all PnL is 0)
+        if std_daily_return != 0:
+            sharpe_ratio = (mean_daily_return / std_daily_return) * annualization_factor
         else:
-            regime = "HIGH"
-
-        # Add Event-Driven regime check
-        if event_flag == 1 or dte <= 3: # Within 3 days of expiry or explicit event flag
-             regime = "EVENT-DRIVEN"
-
-
-        strategy = "Undefined"
-        reason = "N/A"
-        tags = []
-        risk_reward = 1.0 # Base risk-reward
-        strategy_legs_definition = [] # Define the legs for the chosen strategy
-
-
-        # Strategy selection logic based on regime and real-time indicators
-        # Define legs with (strike_offset_from_atm, type, buy_sell, quantity_multiplier)
-        # strike_offset_from_atm: 0 for ATM, +ve for OTM Calls / ITM Puts, -ve for ITM Calls / OTM Puts
-        # This is a simplification; actual strikes would need to be looked up in the option chain data.
-        # For backtesting simulation, we'll derive strikes relative to the day's Nifty close.
-        # Let's use a simple points offset for strike selection in simulation for now.
-        # A more advanced backtest would find actual tradable strikes near these offsets.
-
-        strike_step = 50 # Nifty strike increments
-
-        if regime == "LOW":
-            if iv_hv_gap > 3 and dte < 15:
-                strategy = "Butterfly Spread (Call)"
-                reason = "Low vol & moderate expiry favors pinning strategies"
-                tags = ["Neutral", "Theta", "Expiry Play"]
-                risk_reward = 2.5
-                # Example Call Butterfly: Buy ITM (ATM - 100), Sell 2x ATM (ATM), Buy OTM (ATM + 100)
-                strike_offset = 100
-                strategy_legs_definition = [
-                    (-strike_offset, "CE", "B", 1), # Buy ITM Call
-                    (0, "CE", "S", 2),           # Sell 2x ATM Call
-                    (strike_offset, "CE", "B", 1)            # Buy OTM Call
-                ]
-
-            elif iv_skew < -1:
-                 strategy = "Short Put"
-                 reason = "Low forecast vol, negative IV skew suggests put selling opportunity"
-                 tags = ["Directional", "Bullish", "Premium Selling"]
-                 risk_reward = 1.5
-                 # Short OTM Put
-                 strike_offset = -100 # Sell 100 points below ATM
-                 strategy_legs_definition = [
-                     (strike_offset, "PE", "S", 1)
-                 ]
-
-            else:
-                strategy = "Iron Fly (Short Straddle + Bought Wings)"
-                reason = "Low volatility environment favors delta-neutral Iron Fly"
-                tags = ["Neutral", "Theta", "Range Bound"]
-                risk_reward = 1.8
-                # Sell ATM Straddle, Buy OTM wings (e.g., +/- 100 points)
-                strike_offset = 100
-                strategy_legs_definition = [
-                    (0, "CE", "S", 1),           # Sell ATM Call
-                    (0, "PE", "S", 1),           # Sell ATM Put
-                    (strike_offset, "CE", "B", 1), # Buy OTM Call wing
-                    (-strike_offset, "PE", "B", 1) # Buy OTM Put wing
-                ]
-
-        elif regime == "MEDIUM":
-            if iv_hv_gap > 2 and iv_skew > 0.5:
-                strategy = "Iron Condor"
-                reason = "Medium vol and skew favor wide-range Iron Condor"
-                tags = ["Neutral", "Theta", "Range Bound"]
-                risk_reward = 1.5
-                # Sell OTM Strangle, Buy further OTM wings (e.g., Sell +/- 100, Buy +/- 200)
-                sell_offset = 100
-                buy_offset = 200
-                strategy_legs_definition = [
-                    (sell_offset, "CE", "S", 1),    # Sell OTM Call
-                    (-sell_offset, "PE", "S", 1),   # Sell OTM Put
-                    (buy_offset, "CE", "B", 1),     # Buy further OTM Call wing
-                    (-buy_offset, "PE", "B", 1)     # Buy further OTM Put wing
-                ]
-
-            elif pcr > 1.1 and dte < 10:
-                 strategy = "Short Put Vertical Spread"
-                 reason = "Medium vol, bullish PCR, and short expiry"
-                 tags = ["Directional", "Bullish", "Defined Risk"]
-                 risk_reward = 1.2
-                 # Sell OTM Put, Buy further OTM Put (e.g., Sell -100, Buy -200)
-                 sell_offset = -100
-                 buy_offset = -200
-                 strategy_legs_definition = [
-                     (sell_offset, "PE", "S", 1),
-                     (buy_offset, "PE", "B", 1)
-                 ]
-
-            elif pcr < 0.9 and dte < 10:
-                 strategy = "Short Call Vertical Spread"
-                 reason = "Medium vol, bearish PCR, and short expiry"
-                 tags = ["Directional", "Bearish", "Defined Risk"]
-                 risk_reward = 1.2
-                 # Sell OTM Call, Buy further OTM Call (e.g., Sell +100, Buy +200)
-                 sell_offset = 100
-                 buy_offset = 200
-                 strategy_legs_definition = [
-                     (sell_offset, "CE", "S", 1),
-                     (buy_offset, "CE", "B", 1)
-                 ]
-
-            else:
-                strategy = "Short Strangle"
-                reason = "Balanced vol, premium-rich environment for Short Strangle"
-                tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
-                risk_reward = 1.6
-                # Sell OTM Strangle (e.g., +/- 100 points)
-                strike_offset = 100
-                strategy_legs_definition = [
-                    (strike_offset, "CE", "S", 1),
-                    (-strike_offset, "PE", "S", 1)
-                ]
-
-        elif regime == "HIGH":
-            if iv_hv_gap > 5 or vix_change_pct > 5:
-                strategy = "Jade Lizard"
-                reason = "High IV spike/gap favors Jade Lizard for defined upside risk"
-                tags = ["Skewed", "Volatility", "Defined Risk"]
-                risk_reward = 1.0
-                # Short OTM Call, Short OTM Put, Long further OTM Put (e.g., Short +100 CE, Short -100 PE, Long -200 PE)
-                call_sell_offset = 100
-                put_sell_offset = -100
-                put_buy_offset = -200
-                strategy_legs_definition = [
-                    (call_sell_offset, "CE", "S", 1),
-                    (put_sell_offset, "PE", "S", 1),
-                    (put_buy_offset, "PE", "B", 1)
-                ]
-
-            elif dte < 10 and iv_hv_gap > 5:
-                 strategy = "Iron Condor" # Still viable for premium capture
-                 reason = "High vol and near expiry favors wide premium collection"
-                 tags = ["Neutral", "Theta", "Range Bound"]
-                 risk_reward = 1.3
-                 # Use wider strikes in high vol (e.g., Sell +/- 150, Buy +/- 300)
-                 sell_offset = 150
-                 buy_offset = 300
-                 strategy_legs_definition = [
-                    (sell_offset, "CE", "S", 1),
-                    (-sell_offset, "PE", "S", 1),
-                    (buy_offset, "CE", "B", 1),
-                    (-buy_offset, "PE", "B", 1)
-                 ]
-            elif iv_skew < -2:
-                 strategy = "Long Put"
-                 reason = "High vol suggests potential downside risk, protective put"
-                 tags = ["Directional", "Bearish", "Protection"]
-                 risk_reward = 2.0
-                 # Buy OTM Put (e.g., -100 points)
-                 strike_offset = -100
-                 strategy_legs_definition = [
-                     (strike_offset, "PE", "B", 1)
-                 ]
-            else:
-                 strategy = "Short Strangle"
-                 reason = "High volatility offers rich premium for Short Strangle (wider strikes needed)"
-                 tags = ["Neutral", "Premium Selling", "Volatility Harvest"]
-                 risk_reward = 1.5
-                 # Use wider strikes (e.g., +/- 150 points)
-                 strike_offset = 150
-                 strategy_legs_definition = [
-                    (strike_offset, "CE", "S", 1),
-                    (-strike_offset, "PE", "S", 1)
-                 ]
-
-
-        elif regime == "EVENT-DRIVEN":
-            if iv > 35 and dte < 3:
-                strategy = "Short Straddle"
-                reason = "Extreme IV + very near expiry event — max premium capture"
-                tags = ["Volatility", "Event", "Neutral"]
-                risk_reward = 1.8
-                 # Sell ATM Straddle
-                strategy_legs_definition = [
-                    (0, "CE", "S", 1),
-                    (0, "PE", "S", 1)
-                ]
-            elif dte < 7:
-                strategy = "Calendar Spread (Call)" # Simplified for simulation - assumes buying longer expiry
-                reason = "Event-based uncertainty and near expiry favors term structure opportunity"
-                tags = ["Volatility", "Event", "Calendar"]
-                risk_reward = 1.5
-                # Sell Near ATM Call, Buy Far ATM Call (Far not simulated yet, so this is indicative)
-                strategy_legs_definition = [
-                    (0, "CE", "S", 1) # Only near leg is defined for now
-                ]
-            else:
-                 strategy = "Iron Condor" # Capture premium before the event
-                 reason = "Event anticipation favors capturing premium with Iron Condor"
-                 tags = ["Neutral", "Event", "Range Bound"]
-                 risk_reward = 1.4
-                 # Use standard medium vol strikes for now
-                 sell_offset = 100
-                 buy_offset = 200
-                 strategy_legs_definition = [
-                    (sell_offset, "CE", "S", 1),
-                    (-sell_offset, "PE", "S", 1),
-                    (buy_offset, "CE", "B", 1),
-                    (-buy_offset, "PE", "B", 1)
-                 ]
-
-
-        # Capital allocation based on regime
-        capital_alloc_pct = {"LOW": 0.10, "MEDIUM": 0.08, "HIGH": 0.06, "EVENT-DRIVEN": 0.07}.get(regime, 0.07)
-        deploy_capital_base = capital * capital_alloc_pct # Base capital for the strategy
-
-
-        # Determine the number of lots based on the most expensive leg or total premium
-        # In a real scenario, you'd estimate the premium/max loss of the chosen strategy
-        # For simulation, let's approximate based on Straddle price and number of legs
-        approx_premium_per_lot_total = day_data.get("Straddle_Price", 200.0) * len(strategy_legs_definition) / 2 # Rough estimate
-        lots = max(1, int(deploy_capital_base / (approx_premium_per_lot_total * 25)) if approx_premium_per_lot_total > 0 else 1) # Target deploying approx base capital
-
-        # Ensure lots is a reasonable number
-        lots = min(lots, 20) # Cap at 20 lots for simulation
-
-        # Calculate actual deployed capital based on number of lots and estimated premium (rough)
-        deployed = lots * approx_premium_per_lot_total * 25 # Rough deployed value for reporting
-
-        # Max loss calculation (can be refined per strategy based on strikes)
-        # For now, use a simplified max loss percentage of deployed capital
-        max_loss_pct = {"Iron Condor": 0.02, "Butterfly Spread (Call)": 0.015, "Iron Fly (Short Straddle + Bought Wings)": 0.02, "Short Strangle": 0.03, "Calendar Spread (Call)": 0.015, "Jade Lizard": 0.025, "Short Straddle": 0.04, "Short Put Vertical Spread": 0.015, "Long Put": 0.03, "Short Put": 0.02, "Short Call Vertical Spread": 0.015}.get(strategy, 0.025)
-        max_loss = deployed * max_loss_pct # Max loss absolute value
-
-
-        return regime, strategy, reason, tags, deployed, max_loss, risk_reward, strategy_legs_definition, lots # Return lots and legs definition
-
-    except Exception as e:
-        logger.error(f"Error in backtest strategy engine: {str(e)}")
-        return None, None, f"Strategy engine failed: {str(e)}", [], 0, 0, 0, [], 0
-
-
-def calculate_trade_pnl(strategy, day_data_start, day_data_end, strategy_legs_definition, num_lots, initial_capital, risk_free_rate_daily):
-     """
-     Simulates daily PnL for a given strategy trade using Black-Scholes.
-     Calculates PnL based on option price changes and transaction costs.
-     """
-     try:
-        lot_size = 25
-        total_daily_pnl = 0.0
-        total_transaction_costs = 0.0
-
-        # Black-Scholes requires volatility as an annual decimal, time to expiry in years
-        volatility_annual_decimal = day_data_start.get("ATM_IV", 15.0) / 100.0 # Use ATM_IV as proxy, convert to decimal
-        days_to_expiry_start = day_data_start.get("Days_to_Expiry", 1)
-        days_to_expiry_end = day_data_end.get("Days_to_Expiry", max(0, days_to_expiry_start - 1)) # Ensure DTE doesn't increase
-
-        time_to_expiry_start_years = days_to_expiry_start / 365.0 if days_to_expiry_start > 0 else 0.0001 # Avoid T=0 initially
-        time_to_expiry_end_years = days_to_expiry_end / 365.0 if days_to_expiry_end > 0 else 0.0001 # Avoid T=0 initially
-
-        underlying_start = day_data_start.get("NIFTY_Close", 0.0)
-        underlying_end = day_data_end.get("NIFTY_Close", underlying_start)
-
-        # Simulate volatility change for the day (optional, adds realism)
-        # Could use VIX change or a random walk around the forecast
-        # For simplicity, let's use the average forecast volatility for pricing in this step
-        # A more complex model might use different vols for different strikes (skew)
-        volatility_start_of_day = day_data_start.get("ATM_IV", 15.0) / 100.0
-        volatility_end_of_day = day_data_end.get("ATM_IV", 15.0) / 100.0 # Use end-of-day ATM_IV from features
-
-        # Handle potential division by zero or log(0) in Black-Scholes parameters
-        if underlying_start <= 0 or underlying_end <= 0 or volatility_start_of_day <= 0:
-            logger.warning(f"Invalid data for option pricing on {day_data_start.name}. Underlying={underlying_start}/{underlying_end}, Vol={volatility_start_of_day}")
-            return 0.0 # Return 0 PnL if pricing inputs are invalid
-
-
-        for leg in strategy_legs_definition:
-            strike_offset_points, option_type_short, buy_sell, quantity_multiplier = leg
-            quantity_units = num_lots * lot_size * quantity_multiplier
-
-            # Calculate the strike price for this leg based on the day's ATM price and offset
-            # Find the nearest tradable strike to (underlying_start + strike_offset_points)
-            # In a real backtest, you'd need historical option chain data to find actual strikes.
-            # For this simulation, let's approximate by rounding to the nearest 50 or 100.
-            target_strike = underlying_start + strike_offset_points
-            strike_price = round(target_strike / strike_step) * strike_step # Round to nearest strike_step
-
-            option_type_bs = 'call' if option_type_short == 'CE' else 'put'
-
-            # Calculate option price at the start of the day
-            try:
-                 price_start = black_scholes(underlying_start, strike_price, time_to_expiry_start_years, risk_free_rate_daily*365, volatility_start_of_day, option_type_bs)
-            except ValueError as e:
-                 logger.error(f"BS Error (Start) for {strategy} {option_type_short} K={strike_price}: {e}")
-                 price_start = 0.0 # Default to 0 if BS fails
-
-
-            # Calculate option price at the end of the day
-            # Use end-of-day underlying and potentially end-of-day volatility
-            try:
-                 price_end = black_scholes(underlying_end, strike_price, time_to_expiry_end_years, risk_free_rate_daily*365, volatility_end_of_day, option_type_bs)
-            except ValueError as e:
-                 logger.error(f"BS Error (End) for {strategy} {option_type_short} K={strike_price}: {e}")
-                 price_end = 0.0 # Default to 0 if BS fails
-
-
-            # Calculate PnL for this leg for the day
-            # For a BUY trade, PnL = (Price_End - Price_Start) * Quantity
-            # For a SELL trade, PnL = (Price_Start - Price_End) * Quantity (you profit if the price goes down)
-            if buy_sell == "B":
-                leg_pnl = (price_end - price_start) * quantity_units
-            elif buy_sell == "S":
-                leg_pnl = (price_start - price_end) * quantity_units
-            else:
-                leg_pnl = 0.0
-                logger.warning(f"Unknown buy_sell type: {buy_sell}")
-
-
-            total_daily_pnl += leg_pnl
-
-            # Calculate transaction costs for entering and potentially exiting (assuming daily PnL closure for simplicity)
-            # A more realistic backtest would track positions and apply costs on open/close events.
-            # For simplicity here, let's apply costs as if the position was opened and closed daily.
-            # This overestimates costs but provides a conservative estimate.
-            # A better approach: apply cost when strategy is ENTERED and when EXITED (either by time or stop-loss/target)
-            # Let's refactor to apply costs only on the first day a strategy is active.
-
-            # This simplified model applies costs on the first day of the strategy only.
-            # This requires tracking if this is the first day of this strategy instance.
-            # For now, let's stick to applying costs per leg, perhaps scaled down.
-            # A truly realistic backtest needs to manage position entry/exit explicitly.
-
-            # Let's calculate costs per leg for opening the position
-            # We need the premium at the time of opening. Use price_start as initial premium proxy.
-            transaction_cost_leg = calculate_transaction_costs(strategy, buy_sell, num_lots * quantity_multiplier, price_start / lot_size) # Cost per unit
-
-            total_transaction_costs += transaction_cost_leg
-
-
-        # Subtract total transaction costs (applied once per strategy instance in a real backtest)
-        # For this simplified daily PnL calculation, let's apply a fraction of the costs daily
-        # or just apply full costs on day 1. Let's apply full costs on the first day for simplicity.
-        # This needs logic in the main backtest loop to know the first day.
-
-        # Let's refine the backtest loop instead to handle strategy entry/exit and apply costs there.
-        # For NOW, within this simplified daily PnL, let's just return the gross PnL.
-        # Transaction costs will be applied in the main backtest loop on the day the strategy starts.
-
-
-        return total_daily_pnl # Return gross PnL for the day
-
-
-     except Exception as e: # <--- This was the misplaced block
-        logger.error(f"Error calculating trade PnL using Black-Scholes for {strategy} on {day_data_start.name}: {str(e)}", exc_info=True)
-        return 0.0 # Return 0 PnL on error
-
-
-# Backtesting Function
-def run_backtest(df, capital, strategy_choice, start_date, end_date):
-    try:
-        logger.info(f"Starting robust backtest for {strategy_choice} from {start_date} to {end_date}")
-        if df is None or df.empty:
-            logger.error("Backtest failed: No data available")
-            # Need to return 10 values including the empty DataFrame for chart data
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-        # Ensure index is datetime and unique, then slice and copy
-        df.index = pd.to_datetime(df.index).normalize()
-        df = df[~df.index.duplicated(keep='first')] # Remove duplicates keeping the first
-        df = df.sort_index() # Sort by date
-        df = df.loc[start_date:end_date].copy() # Slice and copy
-
-        if len(df) < 50:
-            logger.warning(f"Backtest failed: Insufficient data ({len(df)} days) in selected range.")
-            # Need to return 10 values including the empty DataFrame for chart data
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-
-        required_cols = ["NIFTY_Close", "ATM_IV", "Realized_Vol", "IV_Skew", "Days_to_Expiry", "Event_Flag", "Total_Capital", "Straddle_Price", "PCR", "VIX_Change_Pct", "Spot_MaxPain_Diff_Pct"]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            logger.error(f"Backtest failed: Missing required columns after date slicing: {missing_cols}")
-             # Need to return 10 values including the empty DataFrame for chart data
-            return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-
-        backtest_results = []
-        portfolio_pnl = 0.0
-        risk_free_rate_annual = 0.06 # Annual risk-free rate (adjust as needed)
-
-        current_strategy = None
-        strategy_entry_date = None
-        strategy_legs_active = []
-        strategy_lots = 0
-        deployed_capital_for_strategy = 0 # Initialize deployed capital
-        max_loss_for_strategy = 0 # Initialize max loss
-        risk_reward_for_strategy = 0 # Initialize risk reward
-
-
-        # Backtest loop - iterates through days in the selected range
-        for i in range(1, len(df)):
-            try:
-                day_data_end = df.iloc[i] # Data at the end of the current day
-                day_data_start = df.iloc[i-1] # Data at the start of the current day (previous day's close)
-                date = day_data_end.name
-
-                # Use the historical realized vol from the past few days
-                avg_vol_for_strategy = df["Realized_Vol"].iloc[max(0, i-5):i].mean()
-
-                # --- Strategy Decision and Entry ---
-                # Only run strategy engine if no strategy is currently active
-                if current_strategy is None:
-                    regime, strategy_name, reason, tags, deploy, max_loss, risk_reward, strategy_legs_definition, lots = run_strategy_engine(
-                        day_data_start, avg_vol_for_strategy, portfolio_pnl, capital # Use start-of-day data for decision
-                    )
-
-                    # Filter strategies if a specific one is chosen
-                    if strategy_name is not None and (strategy_choice == "All Strategies" or strategy_name == strategy_choice):
-                         # Decide to enter the strategy
-                         current_strategy = strategy_name
-                         strategy_entry_date = date # Strategy starts today
-                         strategy_legs_active = strategy_legs_definition # Store legs definition
-                         strategy_lots = lots # Store number of lots
-                         deployed_capital_for_strategy = deploy # Store deployed capital for this instance
-                         max_loss_for_strategy = max_loss # Store max loss for this instance
-                         risk_reward_for_strategy = risk_reward # Store risk reward for this instance
-
-
-                         # Calculate and apply transaction costs on entry
-                         entry_costs = 0.0
-                         lot_size = 25 # Assuming Nifty lot size
-                         strike_step = 50 # Nifty strike increments
-
-                         for leg in strategy_legs_active:
-                             strike_offset_points, option_type_short, buy_sell, quantity_multiplier = leg
-                             quantity_units = strategy_lots * lot_size * quantity_multiplier
-
-                             # Need to get the estimated premium at entry (use start-of-day Black-Scholes price)
-                             target_strike = day_data_start.get("NIFTY_Close", 0.0) + strike_offset_points
-                             # Ensure strike price is a reasonable value > 0
-                             strike_price = round(target_strike / strike_step) * strike_step if target_strike > 0 else 50 # Round to nearest strike_step, default to 50 if target is <= 0
-                             strike_price = max(strike_price, 1) # Ensure strike is at least 1
-
-                             option_type_bs = 'call' if option_type_short == 'CE' else 'put'
-                             days_to_expiry_entry = day_data_start.get("Days_to_Expiry", 1)
-                             time_to_expiry_entry_years = days_to_expiry_entry / 365.0 if days_to_expiry_entry > 0 else 0.0001
-                             volatility_entry = day_data_start.get("ATM_IV", 15.0) / 100.0
-                             # Ensure volatility is positive and reasonable
-                             volatility_entry = max(volatility_entry, 0.0001) # Ensure volatility is > 0
-
-                             try:
-                                  premium_per_unit_entry = black_scholes(
-                                      day_data_start.get("NIFTY_Close", 0.0),
-                                      strike_price,
-                                      time_to_expiry_entry_years,
-                                      risk_free_rate_annual, # Use annual rate for BS
-                                      volatility_entry,
-                                      option_type_bs
-                                  )
-                             except ValueError:
-                                  premium_per_unit_entry = 0.0
-                                  logger.warning(f"BS Error at entry cost calculation for {strategy_name} {option_type_short} K={strike_price} on {date}")
-
-                             # Ensure premium is not negative for cost calculation
-                             premium_per_unit_entry = max(0.0, premium_per_unit_entry)
-
-                             entry_costs += calculate_transaction_costs(strategy_name, buy_sell, strategy_lots * quantity_multiplier, premium_per_unit_entry * lot_size) # Pass premium per lot
-
-
-                         portfolio_pnl -= entry_costs # Subtract entry costs from portfolio PnL
-
-
-                         backtest_results.append({
-                            "Date": date,
-                            "Event": "ENTRY",
-                            "Regime": regime,
-                            "Strategy": current_strategy,
-                            "PnL": -entry_costs, # Record entry costs as negative PnL on entry day
-                            "Cumulative_PnL": portfolio_pnl,
-                            "Capital_Deployed": deployed_capital_for_strategy,
-                            "Max_Loss": max_loss_for_strategy,
-                            "Risk_Reward": risk_reward_for_strategy,
-                            "Notes": f"Entered {current_strategy} ({strategy_lots} lots)"
-                         })
-                         logger.debug(f"Entered strategy {current_strategy} on {date}. Entry Costs: {entry_costs:.2f}")
-
-
-                # --- Daily PnL Calculation for Active Strategy ---
-                if current_strategy is not None:
-                    # Calculate PnL for the current day for the active strategy
-                    # Pass the annual risk-free rate to calculate_trade_pnl, it will convert to daily for BS
-                    daily_gross_pnl = calculate_trade_pnl(
-                        current_strategy, day_data_start, day_data_end, strategy_legs_active, strategy_lots, capital, risk_free_rate_annual # Pass annual rate
-                    )
-
-                    portfolio_pnl += daily_gross_pnl # Add daily PnL to portfolio
-
-
-                    # Record daily PnL
-                    backtest_results.append({
-                        "Date": date,
-                        "Event": "DAILY_PNL",
-                        "Regime": None, # Regime is determined at entry
-                        "Strategy": current_strategy,
-                        "PnL": daily_gross_pnl,
-                        "Cumulative_PnL": portfolio_pnl,
-                        "Capital_Deployed": deployed_capital_for_strategy, # Report deployed capital while active
-                        "Max_Loss": max_loss_for_strategy,
-                        "Risk_Reward": risk_reward_for_strategy,
-                        "Notes": "Daily PnL"
-                    })
-
-
-                    # --- Strategy Exit Conditions (Simplified) ---
-                    # Exit if DTE is 0 or 1 (end of expiry cycle for the primary legs)
-                    # A real backtest would have stop-loss, target, and time-based exits.
-                    if day_data_end.get("Days_to_Expiry", 0) <= 1: # Exit on expiry day or day before
-                         exit_costs = 0.0 # Assuming minimal exit costs at expiry
-
-                         portfolio_pnl -= exit_costs # Subtract exit costs
-
-                         backtest_results.append({
-                             "Date": date,
-                             "Event": "EXIT (Expiry)",
-                             "Regime": None,
-                             "Strategy": current_strategy,
-                             "PnL": -exit_costs, # Record exit costs
-                             "Cumulative_PnL": portfolio_pnl,
-                             "Capital_Deployed": 0, # Capital is freed up
-                             "Max_Loss": 0,
-                             "Risk_Reward": 0,
-                             "Notes": "Exited due to expiry"
-                         })
-                         logger.debug(f"Exited strategy {current_strategy} on {date} due to expiry.")
-
-                         # Reset active strategy
-                         current_strategy = None
-                         strategy_entry_date = None
-                         strategy_legs_active = []
-                         strategy_lots = 0
-                         deployed_capital_for_strategy = 0
-                         max_loss_for_strategy = 0
-                         risk_reward_for_strategy = 0
-
-
-            except Exception as e:
-                # This except block is for errors *within* the daily loop iteration
-                logger.error(f"Error in backtest loop at date {date}: {str(e)}", exc_info=True)
-                # If an error occurs during trading simulation for an active strategy, exit it.
-                if current_strategy is not None:
-                     logger.warning(f"Force exiting strategy {current_strategy} on {date} due to error.")
-                     backtest_results.append({
-                         "Date": date,
-                         "Event": "EXIT (Error)",
-                         "Regime": None,
-                         "Strategy": current_strategy,
-                         "PnL": 0, # Assume 0 PnL for the exit on error day
-                         "Cumulative_PnL": portfolio_pnl,
-                         "Capital_Deployed": 0,
-                         "Max_Loss": 0,
-                         "Risk_Reward": 0,
-                         "Notes": f"Exited due to error: {e}"
-                     })
-                     current_strategy = None
-                     strategy_entry_date = None
-                     strategy_legs_active = []
-                     strategy_lots = 0
-                     deployed_capital_for_strategy = 0
-                     max_loss_for_strategy = 0
-                     risk_reward_for_strategy = 0
-
-                continue # Continue backtest even if one day fails
-
-
-        backtest_df = pd.DataFrame(backtest_results)
-
-        if backtest_df.empty:
-            logger.warning(f"No trades generated for {strategy_choice} from {start_date} to {end_date}")
-            # Need to return 10 values including the empty DataFrame for chart data
-            return backtest_df, 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-
-        # --- Performance Metrics Calculation ---
-        # Need to calculate metrics based on DAILY returns on the *entire* capital
-        # Create a daily PnL series, aligning with all dates in the backtest range
-        # Filter for DAILY_PNL events to get the gross daily PnL from active strategies
-        daily_gross_pnl_series = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].set_index('Date')['PnL']
-        # Filter for cost events (ENTRY, EXIT, ERROR) to get the cost PnL
-        costs_series = backtest_df[backtest_df['Event'].isin(['ENTRY', 'EXIT (Expiry)', 'EXIT (Error)'])].set_index('Date')['PnL']
-
-        # Combine all PnL events into a single daily series
-        # Use add with fill_value=0 to correctly sum PnL and costs that might happen on the same day
-        all_daily_pnl_events = daily_gross_pnl_series.add(costs_series, fill_value=0).sort_index()
-
-        # Reindex to include all dates in the backtest range, filling missing days with 0 PnL
-        # Get the full date range from the original sliced df
-        full_date_range = pd.date_range(start=df.index[0], end=df.index[-1], freq='B') # Business days
-        # Align the combined PnL series to the full date range
-        daily_total_pnl = all_daily_pnl_events.reindex(full_date_range, fill_value=0).sort_index()
-
-
-        # Calculate cumulative PnL over the full range starting from initial capital
-        cumulative_pnl_full = daily_total_pnl.cumsum() + capital # Add initial capital
-
-        # Calculate daily returns based on capital at start of each day
-        # Capital at start of day t = Capital at end of day t-1
-        # Use .iloc to avoid potential issues with missing dates in index after shift
-        capital_at_start_of_day = cumulative_pnl_full.shift(1).fillna(capital)
-        daily_returns = daily_total_pnl / capital_at_start_of_day
-
-        # Drop the first day's return if it's NaN (due to shift)
-        daily_returns = daily_returns.dropna()
-
-        # Total PnL is the last value of the cumulative PnL relative to initial capital
-        total_pnl = cumulative_pnl_full.iloc[-1] - capital if not cumulative_pnl_full.empty else 0
-
-
-        # Calculate Max Drawdown correctly from the full cumulative PnL series
-        if not cumulative_pnl_full.empty:
-            cumulative_pnl_values = cumulative_pnl_full.values
-            peak_values = np.maximum.accumulate(cumulative_pnl_values)
-            drawdown_values = peak_values - cumulative_pnl_values
-            max_drawdown_abs = np.max(drawdown_values) # Absolute max drawdown
-            # We report Max Drawdown as an absolute negative number or 0
-            max_drawdown = -max_drawdown_abs if max_drawdown_abs > 0 else 0
-        else:
-            max_drawdown = 0
-
-
-        # Ensure NIFTY returns are aligned for comparison
-        # Reindex the original sliced df to align with the dates present in daily_returns
-        df_aligned_for_returns = df.reindex(daily_returns.index)
-        # Calculate Nifty returns for the aligned dates
-        nifty_daily_returns = df_aligned_for_returns["NIFTY_Close"].pct_change()
-        # Reindex again to ensure perfect alignment and drop any NaNs
-        nifty_daily_returns = nifty_daily_returns.reindex(daily_returns.index).dropna()
-
-        # Reindex daily_returns to match nifty_daily_returns for excess return calculation
-        daily_returns_aligned = daily_returns.reindex(nifty_daily_returns.index).fillna(0)
-
-        # Calculate excess returns
-        risk_free_rate_daily = risk_free_rate_annual / 252 # Daily risk-free rate
-        # Ensure risk_free_rate_daily is broadcast correctly
-        excess_returns = daily_returns_aligned - nifty_daily_returns - risk_free_rate_daily
-
-
-        # Ensure there are enough data points for standard deviation for Sharpe/Sortino (>1)
-        sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(252) if excess_returns.std() != 0 and len(excess_returns) > 1 else 0
-        # Calculate standard deviation of negative excess returns only
-        sortino_std_negative = excess_returns[excess_returns < 0].std()
-        sortino_ratio = excess_returns.mean() / sortino_std_negative * np.sqrt(252) if sortino_std_negative != 0 and len(excess_returns[excess_returns < 0]) > 1 else 0
-        # Calmar Ratio = Annualized Return / Max Drawdown (%)
-        annualized_return = (cumulative_pnl_full.iloc[-1] / capital)**(252/len(cumulative_pnl_full)) - 1 if capital > 0 and len(cumulative_pnl_full) > 0 else 0 # Approx annualized return
-        calmar_ratio = annualized_return / (max_drawdown_abs / capital) if (max_drawdown_abs / capital) > 0 else float('inf') # Use absolute max drawdown %
-
-
-        # Win Rate (calculated based on trades, not daily PnL)
-        # A "trade" starts with ENTRY and ends with EXIT
-        # Need to pair ENTRY and EXIT events to determine individual trade outcomes
-        # This is more complex than counting daily PnL days. Let's keep the simplified daily win rate for now.
-        # Let's calculate win rate based on days where the active strategy had positive gross PnL
-        days_with_active_strategy = backtest_df[backtest_df['Event'] == 'DAILY_PNL']
-        win_rate = (days_with_active_strategy['PnL'] > 0).sum() / len(days_with_active_strategy) if len(days_with_active_strategy) > 0 else 0
-
-
-        # Performance by Strategy and Regime (recalculate based on the PnL recorded in backtest_df)
-        # Filter for DAILY_PNL events to aggregate strategy performance
-        strategy_perf = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].groupby("Strategy")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
-        # Win rate by strategy is trickier with daily PnL - counts days with positive PnL while that strategy was active
-        strategy_win_rates = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].groupby("Strategy")["PnL"].apply(lambda x: (x > 0).sum() / len(x) if len(x) > 0 else 0).reset_index(name="Win_Rate")
-        strategy_perf = pd.merge(strategy_perf, strategy_win_rates, on="Strategy")
-
-        regime_perf = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].groupby("Regime")["PnL"].agg(['sum', 'count', 'mean']).reset_index()
-        # Win rate by regime - counts days with positive PnL while in that regime (during active strategy)
-        regime_win_rates = backtest_df[backtest_df['Event'] == 'DAILY_PNL'].groupby("Regime")["PnL"].apply(lambda x: (x > 0).sum() / len(x) if len(x) > 0 else 0).reset_index(name="Win_Rate")
-        regime_perf = pd.merge(regime_perf, regime_win_rates, on="Regime")
-
-
-        logger.debug("Robust backtest completed successfully")
-
-        # Return the refined cumulative PnL for charting
-        cumulative_pnl_chart_data = pd.DataFrame({'Cumulative_PnL': cumulative_pnl_full})
-
-
-        # Ensure the backtest_df index is datetime for display in Streamlit
-        if 'Date' in backtest_df.columns:
-             backtest_df['Date'] = pd.to_datetime(backtest_df['Date'])
-             # backtest_df.set_index('Date', inplace=True) # Set index if needed for display, but often better to keep 'Date' as a column
-
-        # Ensure return values are correct even if metrics are not calculated (e.g., insufficient trades)
-        total_pnl = total_pnl if pd.notna(total_pnl) else 0
-        win_rate = win_rate if pd.notna(win_rate) else 0
-        max_drawdown = max_drawdown if pd.notna(max_drawdown) else 0
-        sharpe_ratio = sharpe_ratio if pd.notna(sharpe_ratio) and sharpe_ratio != float('inf') and sharpe_ratio != float('-inf') else 0
-        sortino_ratio = sortino_ratio if pd.notna(sortino_ratio) and sortino_ratio != float('inf') and sortino_ratio != float('-inf') else 0
-        calmar_ratio = calmar_ratio if pd.notna(calmar_ratio) and calmar_ratio != float('inf') and calmar_ratio != float('-inf') else 0
-
-
-        return backtest_df, total_pnl, win_rate, max_drawdown, sharpe_ratio, sortino_ratio, calmar_ratio, strategy_perf, regime_perf, cumulative_pnl_chart_data # Return cumulative PnL for charting
-
-    except Exception as e:
-        # This except block is for errors *outside* the daily loop, like data loading issues
-        logger.error(f"Error running backtest: {str(e)}", exc_info=True)
-        # Return default empty values in case of an error
-        return pd.DataFrame(), 0, 0, 0, 0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+             logger.warning("Standard deviation of daily returns is zero. Sharpe Ratio cannot be calculated (set to 0.0).")
+             sharpe_ratio = 0.0 # Set to 0 if std dev is 0
+    else:
+        logger.warning("Daily returns series is empty. Sharpe Ratio cannot be calculated (set to 0.0).")
+        sharpe_ratio = 0.0 # Set to 0 if no daily returns
+
+
+    logger.info(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+
+
+    # Calculate Maximum Drawdown
+    # Drawdown = (Peak - Trough) / Peak
+    # Max Drawdown is the largest percentage drop from a peak in the equity curve.
+    # Need to handle cases where equity curve is flat or only increasing.
+    max_drawdown = 0.0 # Default Max Drawdown
+
+    if not equity_curve.empty:
+        # Calculate the cumulative maximum of the equity curve
+        cumulative_max = equity_curve.cummax()
+        # Calculate the drawdown from the cumulative maximum
+        drawdowns = (cumulative_max - equity_curve) / cumulative_max
+        # Find the maximum value in the drawdowns series
+        max_drawdown = drawdowns.max()
+        if pd.isna(max_drawdown): max_drawdown = 0.0 # Ensure it's 0.0 if max is NaN
+
+    logger.info(f"Maximum Drawdown: {max_drawdown:.2%}")
+
+
+    # --- 4. Prepare Results Dictionary ---
+    results = {
+        'total_return': total_return,
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown,
+        'trade_log': trade_log_df, # Return the full trade log DataFrame
+        'cumulative_pnl': cumulative_pnl_series # Return the cumulative PnL Series
+    }
+
+    logger.info("Backtesting process completed successfully.")
+    return results
+
+# The __main__ block is removed as this module's functions are intended to be imported
+# and used by other parts of the application.
+# To test this function, you would typically call it from a separate script
+# with a dummy analysis_df DataFrame containing dates, 'Recommended_Strategy',
+# and 'PnL_Day' columns, along with backtest parameters.
