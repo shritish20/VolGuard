@@ -180,18 +180,11 @@ except Exception as e:
     st.sidebar.error(f"Bhai, SmartBhai GPT load nahi hua: {str(e)}")
     logger.error(f"SmartBhai GPT initialization failed: {str(e)}")
 
-# Check Upstox API hours for live market depth
+# Check Upstox API hours for live market depth (only for trading actions)
 def is_market_depth_hours():
     now = datetime.now().time()
     start = datetime.strptime("09:15", "%H:%M").time()
     end = datetime.strptime("15:30", "%H:%M").time()
-    return start <= now <= end
-
-# Check Upstox API data availability window (VIX, portfolio data)
-def is_api_data_available():
-    now = datetime.now().time()
-    start = datetime.strptime("05:30", "%H:%M").time()
-    end = datetime.strptime("23:59", "%H:%M").time()
     return start <= now <= end
 
 # Fetch portfolio data
@@ -310,23 +303,18 @@ with st.sidebar:
 st.title("🛡️ VolGuard Pro")
 st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
 
-# Check API data availability for informational purposes
-if not is_api_data_available():
-    st.info("ℹ️ Currently outside Upstox API data window (5:30 AM–12:00 AM IST). VIX and portfolio data may be unavailable. Historical data or fallback will be used.")
-else:
-    logger.info("Within Upstox API data window")
-
-# Check market depth hours for live trading data
+# Check market depth hours for live trading data (only for informational purposes, no warning)
 if not is_market_depth_hours():
-    st.info("ℹ️ Outside live market depth hours (9:15 AM–3:30 PM IST). Live LTP and order execution may be limited.")
+    logger.info("Outside live market depth hours (9:15 AM–3:30 PM IST). Live LTP and order execution may be limited.")
 
 # Load Data
 data_load_success = False
+data_source = "Unknown"
 if st.session_state.logged_in:
     try:
         df, real_data, data_source = load_data(st.session_state.client)
-        if df is not None and real_data is not None:
-            st.session_state.real_time_market_data = real_data
+        if df is not None:
+            st.session_state.real_time_market_data = real_data if real_data else {}
             analysis_df = generate_features(df, real_data, st.session_state.capital)
             if analysis_df is not None:
                 st.session_state.analysis_df = analysis_df
@@ -345,11 +333,11 @@ if st.session_state.logged_in:
         logger.error(f"Data loading error: {str(e)}")
         st.stop()
 else:
-    st.warning("Please log in to Upstox to access real-time data.")
+    st.info("Not logged in to Upstox. Using fallback data (CSV).")
     try:
         df, real_data, data_source = load_data(None)  # Fallback to CSV
         if df is not None:
-            st.session_state.real_time_market_data = real_data or {}
+            st.session_state.real_time_market_data = real_data if real_data else {}
             analysis_df = generate_features(df, real_data, st.session_state.capital)
             if analysis_df is not None:
                 st.session_state.analysis_df = analysis_df
@@ -386,29 +374,36 @@ with tab1:
         market_data = st.session_state.real_time_market_data
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("NIFTY Spot", f"{market_data.get('nifty_spot', 'N/A'):.2f}")
+            nifty_spot = market_data.get('nifty_spot', 'N/A')
+            st.metric("NIFTY Spot", f"{nifty_spot:.2f}" if isinstance(nifty_spot, (int, float)) else nifty_spot)
         with col2:
-            st.metric("VIX", f"{market_data.get('vix', 'N/A'):.2f}")
+            vix = market_data.get('vix', 'N/A')
+            st.metric("India VIX", f"{vix:.2f}" if isinstance(vix, (int, float)) else vix)
         with col3:
-            st.metric("PCR", f"{market_data.get('pcr', 'N/A'):.2f}")
+            pcr = market_data.get('pcr', 'N/A')
+            st.metric("PCR", f"{pcr:.2f}" if isinstance(pcr, (int, float)) else pcr)
         with col4:
-            st.metric("ATM Straddle", f"{market_data.get('straddle_price', 'N/A'):.2f}")
+            straddle_price = market_data.get('straddle_price', 'N/A')
+            st.metric("ATM Straddle", f"{straddle_price:.2f}" if isinstance(straddle_price, (int, float)) else straddle_price)
         
         col5, col6, col7 = st.columns(3)
         with col5:
-            st.metric("ATM Strike", f"{market_data.get('atm_strike', 'N/A'):.2f}")
+            atm_strike = market_data.get('atm_strike', 'N/A')
+            st.metric("ATM Strike", f"{atm_strike:.2f}" if isinstance(atm_strike, (int, float)) else atm_strike)
         with col6:
-            st.metric("Max Pain", f"{market_data.get('max_pain_strike', 'N/A'):.2f}")
+            max_pain_strike = market_data.get('max_pain_strike', 'N/A')
+            st.metric("Max Pain", f"{max_pain_strike:.2f}" if isinstance(max_pain_strike, (int, float)) else max_pain_strike)
         with col7:
-            st.metric("Max Pain Diff %", f"{market_data.get('max_pain_diff_pct', 'N/A'):.2f}%")
+            max_pain_diff_pct = market_data.get('max_pain_diff_pct', 'N/A')
+            st.metric("Max Pain Diff %", f"{max_pain_diff_pct:.2f}%" if isinstance(max_pain_diff_pct, (int, float)) else max_pain_diff_pct)
         
         st.subheader("Option Chain")
         if "option_chain" in market_data and not market_data["option_chain"].empty:
             st.dataframe(market_data["option_chain"][["StrikeRate", "CPType", "LastRate", "IV", "OpenInterest", "Volume"]].head(10))
         else:
-            st.warning("Option chain data not available.")
+            st.info("Option chain data not available in fallback.")
     else:
-        st.warning("No real-time market data available. Ensure you're logged in and data is accessible.")
+        st.error("No market data available. Check data source and logs.")
     if data_load_success:
         st.markdown(f"**Data Source**: {data_source}")
 
@@ -423,11 +418,14 @@ with tab2:
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Forecasted VIX", f"{forecast_metrics.get('forecasted_vix', 'N/A'):.2f}")
+                forecasted_vix = forecast_metrics.get('forecasted_vix', 'N/A')
+                st.metric("Forecasted VIX", f"{forecasted_vix:.2f}" if isinstance(forecasted_vix, (int, float)) else forecasted_vix)
             with col2:
-                st.metric("VIX Range Low", f"{forecast_metrics.get('vix_range_low', 'N/A'):.2f}")
+                vix_range_low = forecast_metrics.get('vix_range_low', 'N/A')
+                st.metric("VIX Range Low", f"{vix_range_low:.2f}" if isinstance(vix_range_low, (int, float)) else vix_range_low)
             with col3:
-                st.metric("VIX Range High", f"{forecast_metrics.get('vix_range_high', 'N/A'):.2f}")
+                vix_range_high = forecast_metrics.get('vix_range_high', 'N/A')
+                st.metric("VIX Range High", f"{vix_range_high:.2f}" if isinstance(vix_range_high, (int, float)) else vix_range_high)
             
             st.subheader("Forecast Trend")
             if not forecast_df.empty:
