@@ -180,11 +180,18 @@ except Exception as e:
     st.sidebar.error(f"Bhai, SmartBhai GPT load nahi hua: {str(e)}")
     logger.error(f"SmartBhai GPT initialization failed: {str(e)}")
 
-# Check Upstox API hours
-def is_market_hours():
+# Check Upstox API hours for live market depth
+def is_market_depth_hours():
     now = datetime.now().time()
     start = datetime.strptime("09:15", "%H:%M").time()
     end = datetime.strptime("15:30", "%H:%M").time()
+    return start <= now <= end
+
+# Check Upstox API data availability window (VIX, portfolio data)
+def is_api_data_available():
+    now = datetime.now().time()
+    start = datetime.strptime("05:30", "%H:%M").time()
+    end = datetime.strptime("23:59", "%H:%M").time()
     return start <= now <= end
 
 # Fetch portfolio data
@@ -303,26 +310,36 @@ with st.sidebar:
 st.title("🛡️ VolGuard Pro")
 st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
 
-# Check market hours
-if not is_market_hours():
-    st.warning("🕒 Currently outside Upstox market depth hours (9:15 AM–3:30 PM IST). Some data (e.g., option chain) may be limited. Using cached or fallback data.")
+# Check API data availability for informational purposes
+if not is_api_data_available():
+    st.info("ℹ️ Currently outside Upstox API data window (5:30 AM–12:00 AM IST). VIX and portfolio data may be unavailable. Historical data or fallback will be used.")
+else:
+    logger.info("Within Upstox API data window")
+
+# Check market depth hours for live trading data
+if not is_market_depth_hours():
+    st.info("ℹ️ Outside live market depth hours (9:15 AM–3:30 PM IST). Live LTP and order execution may be limited.")
 
 # Load Data
+data_load_success = False
 if st.session_state.logged_in:
     try:
         df, real_data, data_source = load_data(st.session_state.client)
-        if df is None or real_data is None:
+        if df is not None and real_data is not None:
+            st.session_state.real_time_market_data = real_data
+            analysis_df = generate_features(df, real_data, st.session_state.capital)
+            if analysis_df is not None:
+                st.session_state.analysis_df = analysis_df
+                data_load_success = True
+                logger.info(f"Data loaded successfully from {data_source}")
+            else:
+                st.error("Failed to generate features. Check data processing.")
+                logger.error("Feature generation failed")
+                st.stop()
+        else:
             st.error("Failed to load data. Check Upstox API or CSV files.")
             logger.error("Data loading failed from Upstox")
             st.stop()
-        st.session_state.real_time_market_data = real_data
-        analysis_df = generate_features(df, real_data, st.session_state.capital)
-        if analysis_df is None:
-            st.error("Failed to generate features. Check data processing.")
-            logger.error("Feature generation failed")
-            st.stop()
-        st.session_state.analysis_df = analysis_df
-        logger.info(f"Data loaded successfully from {data_source}")
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         logger.error(f"Data loading error: {str(e)}")
@@ -331,18 +348,21 @@ else:
     st.warning("Please log in to Upstox to access real-time data.")
     try:
         df, real_data, data_source = load_data(None)  # Fallback to CSV
-        if df is None:
+        if df is not None:
+            st.session_state.real_time_market_data = real_data or {}
+            analysis_df = generate_features(df, real_data, st.session_state.capital)
+            if analysis_df is not None:
+                st.session_state.analysis_df = analysis_df
+                data_load_success = True
+                logger.info(f"Data loaded successfully from {data_source}")
+            else:
+                st.error("Failed to generate features. Check data processing.")
+                logger.error("Feature generation failed")
+                st.stop()
+        else:
             st.error("Failed to load fallback data. Check CSV files.")
             logger.error("Fallback data loading failed")
             st.stop()
-        st.session_state.real_time_market_data = real_data or {}
-        analysis_df = generate_features(df, real_data, st.session_state.capital)
-        if analysis_df is None:
-            st.error("Failed to generate features. Check data processing.")
-            logger.error("Feature generation failed")
-            st.stop()
-        st.session_state.analysis_df = analysis_df
-        logger.info(f"Data loaded successfully from {data_source}")
     except Exception as e:
         st.error(f"Error loading fallback data: {str(e)}")
         logger.error(f"Fallback data loading error: {str(e)}")
@@ -362,7 +382,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # Tab 1: Market Snapshot
 with tab1:
     st.header("📊 Market Snapshot")
-    if st.session_state.real_time_market_data:
+    if st.session_state.real_time_market_data and data_load_success:
         market_data = st.session_state.real_time_market_data
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -386,10 +406,11 @@ with tab1:
         if "option_chain" in market_data and not market_data["option_chain"].empty:
             st.dataframe(market_data["option_chain"][["StrikeRate", "CPType", "LastRate", "IV", "OpenInterest", "Volume"]].head(10))
         else:
-            st.warning("Option chain data not available. Try during market hours (9:15 AM–3:30 PM IST).")
+            st.warning("Option chain data not available.")
     else:
-        st.warning("No real-time market data available.")
-    st.markdown(f"**Data Source**: {data_source}")
+        st.warning("No real-time market data available. Ensure you're logged in and data is accessible.")
+    if data_load_success:
+        st.markdown(f"**Data Source**: {data_source}")
 
 # Tab 2: Volatility Forecast
 with tab2:
