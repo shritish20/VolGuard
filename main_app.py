@@ -1262,7 +1262,9 @@ with tab7:
 
                 # Determine volatility regime based on VIX level from latest real-time data or analysis_df
                 # Prioritize VIX from real_time_market_data if available, otherwise use VIX from analysis_df (which might be synthetic historically)
-                latest_vix = pd.to_numeric(st.session_state.real_time_market_data.get("vix"), errors='coerce').fillna(pd.to_numeric(latest_data.get("VIX"), errors='coerce').fillna(15.0))
+                vix = pd.to_numeric(real_time_data.get("vix"), errors='coerce').mean() if real_time_data and real_time_data.get("vix") is not None else (pd.to_numeric(latest_analysis_data.get("VIX"), errors='coerce').mean() if latest_analysis_data.get("VIX") is not None else 15.0)
+
+
                 "Volatility_Regime": "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
                 # You could add an "Event" regime if there's an upcoming major event detected (e.g., using Event_Flag)
                 # "Volatility_Regime": "Event" if latest_data.get("Event_Flag", 0) == 1 else ("High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low"))
