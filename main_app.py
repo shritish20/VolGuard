@@ -244,15 +244,21 @@ with st.sidebar:
     st.header("🔑 Upstox Login")
     access_token = st.text_input("Access Token", type="password")
     if st.button("Login to Upstox"):
-        st.session_state.client = initialize_upstox_client(access_token)
-        if st.session_state.client and st.session_state.client.get("access_token"):
-            st.session_state.logged_in = True
-            st.success("✅ Logged in to Upstox!")
-            logger.info("Upstox login successful")
+        if not access_token:
+            st.error("❌ Access token cannot be empty.")
+            logger.error("Login attempted with empty access token")
         else:
-            st.session_state.logged_in = False
-            st.error("❌ Login failed. Check access token.")
-            logger.error("Upstox login failed")
+            client = initialize_upstox_client(access_token)
+            if client:
+                st.session_state.client = client
+                st.session_state.logged_in = True
+                st.success("✅ Logged in to Upstox!")
+                logger.info("Upstox login successful")
+            else:
+                st.session_state.logged_in = False
+                st.session_state.client = None
+                st.error("❌ Login failed. Invalid or expired access token. Get a new token from Upstox.")
+                logger.error("Upstox login failed: Invalid or expired token")
 
     if st.session_state.logged_in:
         st.header("⚙️ Trading Controls")
