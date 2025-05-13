@@ -14,4 +14,4 @@ pyjwt
 plotly
 python-dateutil
 pyotp
-
+upstox-python-sdk==2.14.0
