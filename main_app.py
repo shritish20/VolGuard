@@ -1248,21 +1248,96 @@ with tab7:
             # Use .get() with a default value and pd.to_numeric for safety
             pnl_day = pd.to_numeric(latest_data.get("PnL_Day"), errors='coerce').fillna(0.0)
 
+                    try:
+            # Get the latest data row from the analysis DataFrame for risk calculation context
+            # Ensure the DataFrame is not empty before accessing the last row
+            if st.session_state.analysis_df is None or st.session_state.analysis_df.empty:
+                logger.warning("Analysis DataFrame is empty. Cannot calculate risk metrics dependent on it.")
+                # Return minimal risk metrics or None if analysis_df is essential
+                pnl_day = 0.0
+                latest_data = None # Ensure latest_data is None if DF is empty
+            else:
+                latest_data = st.session_state.analysis_df.iloc[-1]
+                logger.debug(f"Latest data for risk dashboard: {latest_data.index}")
+                # Calculate simplified risk metrics based on available data
+                # Ensure 'PnL_Day' exists and is numeric for VaR/Max Loss approximation
+                # Use .get() with a default value and pd.to_numeric for safety
+                pnl_day = pd.to_numeric(latest_data.get("PnL_Day"), errors='coerce').fillna(0.0)
+
+
+            # --- Calculate metrics *before* defining the dictionary ---
+            # Calculate latest_vix value here using the corrected logic and pd.notna()
+            temp_vix_real = pd.to_numeric(st.session_state.real_time_market_data.get("vix"), errors='coerce') if st.session_state.real_time_market_data else np.nan
+            temp_vix_analysis = pd.to_numeric(latest_data.get("VIX"), errors='coerce') if latest_data is not None and latest_data.get("VIX") is not None else np.nan
+
+            # Prioritize VIX from real_time_market_data, fallback to analysis_df, then default 15.0
+            latest_vix = temp_vix_real if pd.notna(temp_vix_real) else (temp_vix_analysis if pd.notna(temp_vix_analysis) else 15.0)
+
+            # Determine volatility regime based on the calculated latest_vix
+            regime = "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
+            # You could add an "Event" regime check here if latest_data is available and has 'Event_Flag'
+            # if latest_data is not None and int(latest_data.get('Event_Flag', 0)) == 1:
+            #     regime = "Event"
+
+
+            # --- Define the Risk_metrics dictionary using the calculated values ---
             risk_metrics = {
                 # Simplified VaR (Value at Risk) and Max Loss approximations based on daily PnL std dev
-                # These are rough estimates and do NOT represent a rigorous portfolio VaR calculation.
-                # They assume daily PnL follows a normal distribution.
-                # Using a fixed standard deviation for simplicity, or could calculate from PnL_Day history.
-                # Let's use a simplified calculation based on the current day's synthetic PnL.
-                # For a more meaningful VaR, you'd typically need historical PnL distribution.
-                # Using a factor (based on z-score) applied to current PnL for a *very* rough idea.
+                # Use the calculated pnl_day
                 "VaR_95": abs(pnl_day) * 1.65,  # Approx 95th percentile potential loss
                 "Max_Loss": abs(pnl_day) * 2.33,  # Approx 99th percentile potential loss
-                # Note: These are simplified loss potentials based on a single day's synthetic PnL magnitude, not a portfolio-level risk metric.
+                # Use the calculated regime string for the Volatility_Regime key
+                "Volatility_Regime": regime
+                # You can add other calculated metrics here if needed
+                # "Latest_VIX_Value": latest_vix # Optionally add the calculated VIX value itself
+            }
+            logger.debug(f"Calculated risk metrics: {risk_metrics}")
 
-                # Determine volatility regime based on VIX level from latest real-time data or analysis_df
-                # Prioritize VIX from real_time_market_data if available, otherwise use VIX from analysis_df (which might be synthetic historically)
-                vix = pd.to_numeric(real_time_data.get("vix"), errors='coerce').mean() if real_time_data and real_time_data.get("vix") is not None else (pd.to_numeric(latest_analysis_data.get("VIX"), errors='coerce').mean() if latest_analysis_data.get("VIX") is not None else 15.0)
+            # Fetch portfolio summary again to get the latest exposure for the gauge/metric display
+            # This ensures the exposure metric is based on the most recent API data if logged in.
+            # This call is necessary here because the Portfolio tab's display uses this function
+            # and we need up-to-date exposure for the risk dashboard as well.
+            portfolio_summary_for_risk = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
+            logger.debug(f"Fetched portfolio summary for risk display: Exposure={portfolio_summary_for_risk.get('exposure', 0.0):.2f}%")
+
+
+            # Display risk metrics using columns
+            st.subheader("Key Risk Metrics") # Added subheader for clarity
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                # Safely display VaR (95%) - use .get() on the dictionary
+                var_95 = risk_metrics.get('VaR_95', 0.0)
+                st.metric("VaR (95%)", f"₹{var_95:.2f}")
+            with col2:
+                # Safely display Max Loss (99%) - use .get() on the dictionary
+                max_loss = risk_metrics.get('Max_Loss', 0.0)
+                st.metric("Max Loss (99%)", f"₹{max_loss:.2f}")
+            with col3:
+                # Display volatility regime as a styled badge - use the calculated 'regime' variable
+                # Determine CSS class based on volatility regime
+                regime_class = {
+                    "Low": "regime-low",
+                    "Medium": "regime-medium",
+                    "High": "regime-high",
+                    "Event": "regime-event" # Include if Event regime is used
+                }.get(regime, "regime-medium") # Default to medium if regime is unknown
+
+                # Use markdown with HTML to display the styled badge
+                st.markdown(f"<span class='regime-badge {regime_class}'>{regime} Regime</span>", unsafe_allow_html=True) # Added " Regime" for clarity
+
+
+            st.subheader("Risk Exposure (Margin Used / Capital)")
+            # Display exposure using a simple metric
+            # Safely get exposure from the portfolio summary fetched above
+            current_exposure = portfolio_summary_for_risk.get('exposure', 0.0)
+            st.metric("Current Exposure", f"{current_exposure:.2f}%")
+            # The original gauge div was commented out as it's just a static graphic placeholder in the CSS
+
+
+        except Exception as e:
+            st.error(f"❌ Error generating risk dashboard: {str(e)}. Check logs.")
+            logger.error(f"Risk dashboard error: {str(e)}.", exc_info=True)
+
 
 
                 "Volatility_Regime": "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
