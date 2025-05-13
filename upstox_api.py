@@ -22,6 +22,7 @@ def parse_upstox_date_string(date_string):
     try:
         return datetime.strptime(date_string, "%Y-%m-%d").date()
     except ValueError:
+        logger.warning(f"Invalid date format: {date_string}")
         return None
 
 # Initialize Upstox client
@@ -72,12 +73,19 @@ def fetch_real_time_market_data(upstox_client):
         res = requests.get(url, headers=headers, params={"instrument_key": "NSE_INDEX|India VIX"})
         vix_data = res.json().get('data', {}).get('NSE_INDEX|India VIX', {})
         vix = float(vix_data.get('last_price', 0.0))
-        logger.info(f"Fetched VIX: {vix}")
+        if vix == 0.0:
+            logger.warning("VIX is 0.0, likely invalid or unavailable")
+            vix = None
+        else:
+            logger.info(f"Fetched VIX: {vix}")
         time.sleep(0.5)  # Rate limiting
 
         # Fetch nearest expiry
         response = upstox_client['options_api'].get_option_contracts(instrument_key=instrument_key)
         contracts = response.to_dict().get("data", [])
+        if not contracts:
+            logger.warning("No option contracts returned")
+            return None
         expiry_dates = set()
         for contract in contracts:
             exp = contract.get("expiry")
@@ -87,9 +95,12 @@ def fetch_real_time_market_data(upstox_client):
                 expiry_dates.add(exp)
         expiry_list = sorted(expiry_dates)
         today = datetime.now().date()
-        valid_expiries = [e for e in expiry_list if e >= today]
-        nearest_expiry = valid_expiries[0] if valid_expiries else None
-        expiry_date_str = nearest_expiry.strftime("%Y-%m-%d") if nearest_expiry else None
+        valid_expiries = [e for e in expiry_list if e and e >= today]  # Ensure e is not None
+        if not valid_expiries:
+            logger.warning("No valid expiry dates found")
+            return None
+        nearest_expiry = valid_expiries[0]
+        expiry_date_str = nearest_expiry.strftime("%Y-%m-%d")
         logger.info(f"Fetched expiry: {expiry_date_str}")
         time.sleep(0.5)  # Rate limiting
 
@@ -110,7 +121,9 @@ def fetch_real_time_market_data(upstox_client):
                     pe_md = pe.get('market_data', {})
                     ce_gk = ce.get('option_greeks', {})
                     pe_gk = pe.get('option_greeks', {})
-                    strike = r['strike_price']
+                    strike = r.get('strike_price')
+                    if strike is None:
+                        continue
                     ce_oi = ce_md.get("oi", 0)
                     pe_oi = pe_md.get("oi", 0)
                     ce_oi_total += ce_oi
@@ -145,6 +158,8 @@ def fetch_real_time_market_data(upstox_client):
                 df_option_chain["LastRate"] = pd.to_numeric(df_option_chain["LastRate"], errors='coerce')
                 df_option_chain = df_option_chain.dropna(subset=["StrikeRate", "OpenInterest", "LastRate"]).copy()
                 logger.info(f"Option chain fetched: {len(df_option_chain)} rows")
+            else:
+                logger.warning("No option chain data returned")
 
         # Calculate ATM, Straddle, PCR, Max Pain
         if nifty_spot and not df_option_chain.empty:
@@ -177,7 +192,7 @@ def fetch_real_time_market_data(upstox_client):
         logger.error(f"Error fetching real-time data: {str(e)}")
         return None
 
-# Max Pain calculation (unchanged from 5paisa)
+# Max Pain calculation
 def calculate_max_pain(df: pd.DataFrame, nifty_spot: float):
     try:
         if df.empty or "StrikeRate" not in df.columns or "CPType" not in df.columns or "OpenInterest" not in df.columns:
@@ -335,7 +350,7 @@ def execute_trade_orders(upstox_client, prepared_orders):
     if not prepared_orders:
         logger.warning("No orders to execute")
         return False, {"error": "No orders provided"}
-    # Check market status (simplified; Upstox doesn't expose direct market status API)
+    # Check market status
     now = datetime.now()
     is_market_open = now.hour >= 9 and now.hour < 15 and now.weekday() < 5
     if not is_market_open:
