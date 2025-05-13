@@ -390,10 +390,7 @@ with tab2:
     st.header("🔮 Volatility Forecast")
     if st.session_state.analysis_df is not None:
         try:
-            forecast_df, forecast_metrics = forecast_volatility_future(
-                st.session_state.analysis_df,
-                horizon=st.session_state.forecast_horizon
-            )
+            forecast_df, forecast_metrics = forecast_volatility_future(st.session_state.analysis_df)
             st.session_state.forecast_log = forecast_df
             st.session_state.forecast_metrics = forecast_metrics
             
