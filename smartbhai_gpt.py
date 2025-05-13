@@ -2,81 +2,84 @@ import pandas as pd
 import re
 import streamlit as st
 import csv
-from fivepaisa_api import fetch_market_depth_by_scrip
+from upstox_api import fetch_market_depth_by_scrip
 
 class SmartBhaiGPT:
     def __init__(self, responses_file="responses.csv"):
-        # Load response templates
         try:
             self.responses = pd.read_csv(
                 responses_file,
-                quoting=csv.QUOTE_ALL,  # Force quoting to handle commas in text
+                quoting=csv.QUOTE_ALL,
                 encoding='utf-8'
             )
         except FileNotFoundError:
             raise FileNotFoundError("Bhai, responses.csv nahi mila! Check kar project folder mein.")
         except pd.errors.ParserError as e:
             raise ValueError(f"Bhai, responses.csv ka format galat hai! Error: {str(e)}")
-    
+
     def fetch_app_data(self, context_needed):
         """
-        Fetch real-time data (e.g., IV, gamma) from VolGuard Pro's data pipeline.
-        Primary: st.session_state.analysis_df (from generate_features).
-        Fallback 1: 5paisa API via fetch_market_depth_by_scrip.
+        Fetch real-time data from VolGuard Pro's data pipeline.
+        Primary: st.session_state.analysis_df.
+        Fallback 1: Upstox API via fetch_market_depth_by_scrip.
         Fallback 2: Static fallback_data.csv.
         """
         try:
-            # Primary source: st.session_state.analysis_df from generate_features
             if "analysis_df" in st.session_state and st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
                 df = st.session_state.analysis_df
-                latest_data = df.iloc[-1]  # Get the latest row
+                latest_data = df.iloc[-1]
                 portfolio_data = st.session_state.get("api_portfolio_data", {})
+                option_chain = st.session_state.real_time_market_data.get("option_chain", pd.DataFrame()) if st.session_state.real_time_market_data else pd.DataFrame()
+                atm_strike = st.session_state.real_time_market_data.get("atm_strike", "N/A") if st.session_state.real_time_market_data else "N/A"
+                atm_data = option_chain[option_chain["StrikeRate"] == atm_strike] if not option_chain.empty else pd.DataFrame()
+                ce_iv = atm_data[atm_data["CPType"] == "CE"]["IV"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else 30.0
+                ce_gamma = atm_data[atm_data["CPType"] == "CE"]["Gamma"].iloc[0] if "Gamma" in atm_data.columns and not atm_data[atm_data["CPType"] == "CE"].empty else 0.05
+                ce_delta = atm_data[atm_data["CPType"] == "CE"]["Delta"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else 0.4
+                ce_theta = atm_data[atm_data["CPType"] == "CE"]["Theta"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else -0.02
+                ce_vega = atm_data[atm_data["CPType"] == "CE"]["Vega"].iloc[0] if not atm_data[atm_data["CPType"] == "CE"].empty else 0.1
                 data = {
-                    "iv": latest_data.get("IV", 30.0),  # Implied Volatility
-                    "gamma": latest_data.get("Gamma", 0.05),
-                    "delta": latest_data.get("Delta", 0.4),
-                    "theta": latest_data.get("Theta", -0.02),
-                    "vega": latest_data.get("Vega", 0.1),
-                    "vix": latest_data.get("VIX", 25.0),  # India VIX
-                    "ivp": latest_data.get("IVP", 75.0),  # Implied Volatility Percentile
+                    "iv": ce_iv,
+                    "gamma": ce_gamma,
+                    "delta": ce_delta,
+                    "theta": ce_theta,
+                    "vega": ce_vega,
+                    "vix": latest_data.get("VIX", 25.0),
+                    "ivp": latest_data.get("IVP", 75.0),
                     "ivp_status": "high" if latest_data.get("IVP", 75.0) > 70 else "low",
-                    "margin": (portfolio_data.get("margin", {}).get("UtilizedMargin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0,
-                    "strike": latest_data.get("StrikePrice", "N/A"),
-                    "fii_flow": latest_data.get("FII_Flow", 0.0),  # FII net flow in crores
-                    "dii_flow": latest_data.get("DII_Flow", 0.0),  # DII net flow in crores
-                    "buzz_topic": latest_data.get("Buzz_Topic", "NIFTY expiry"),  # X buzz
-                    "sentiment": latest_data.get("Sentiment", 60),  # Bullish sentiment %
-                    "news_headline": latest_data.get("News_Headline", "No major news"),
-                    "impact": latest_data.get("Impact", 50),  # Bearish move probability
-                    "community_hedge": latest_data.get("Community_Hedge", 70),  # % users hedging
-                    "trade_count": latest_data.get("Trade_Count", 10),  # Total trades
-                    "trade_frequency": latest_data.get("Trade_Frequency", 2),  # Trades/day
-                    "revenge_count": latest_data.get("Revenge_Trades", 2),  # Revenge trades
-                    "bias": latest_data.get("Bias", "FOMO"),  # Detected bias
-                    "bias_count": latest_data.get("Bias_Count", 3),  # Bias occurrences
-                    "strategy": latest_data.get("Strategy", "Iron Condor"),  # Last strategy
-                    "win_rate": latest_data.get("Win_Rate", 60),  # Backtest win rate %
-                    "reason": latest_data.get("Failure_Reason", "IV spike"),  # Trade failure
-                    "dte": latest_data.get("DTE", 5),  # Days to Expiry
-                    "pnl": portfolio_data.get("pnl", 2.5),  # Portfolio PnL %
-                    "loss_risk": portfolio_data.get("loss_risk", 15),  # Potential loss %
-                    "breakeven": latest_data.get("Breakeven", "N/A")  # Breakeven price
+                    "margin": (portfolio_data.get("margin", {}).get("available_margin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0,
+                    "strike": atm_strike,
+                    "fii_flow": latest_data.get("FII_Index_Fut_Pos", 0.0) / 1e4,  # Convert to crores
+                    "dii_flow": latest_data.get("FII_Option_Pos", 0.0) / 1e4,  # Proxy for DII
+                    "buzz_topic": "NIFTY expiry",
+                    "sentiment": 60,
+                    "news_headline": "No major news",
+                    "impact": 50,
+                    "community_hedge": 70,
+                    "trade_count": len(portfolio_data.get("trade_book", {}).get("data", [])),
+                    "trade_frequency": len(portfolio_data.get("trade_book", {}).get("data", [])) / 7 or 2,
+                    "revenge_count": 2,
+                    "bias": "FOMO",
+                    "bias_count": 3,
+                    "strategy": st.session_state.get("active_strategy_details", {}).get("Strategy", "Iron Condor"),
+                    "win_rate": latest_data.get("Win_Rate", 60),
+                    "reason": "IV spike",
+                    "dte": latest_data.get("Days_to_Expiry", 5),
+                    "pnl": sum(pos.get("unrealized_mtm", 0.0) for pos in portfolio_data.get("positions", {}).get("data", [])) / st.session_state.get("capital", 1000000) * 100 or 2.5,
+                    "loss_risk": 15,
+                    "breakeven": "N/A"
                 }
             else:
                 raise ValueError("Analysis DataFrame not available")
-        
+
         except Exception as e:
-            # Fallback 1: Try 5paisa API
             try:
-                client = st.session_state.get("client")
-                if client and client.get_access_token():
-                    # Example: Fetch NIFTY options data (adjust ScripCode as needed)
-                    market_data = fetch_market_depth_by_scrip(client, Exchange="N", ExchangeType="D", ScripCode=999920000)  # NIFTY index placeholder
+                upstox_client = st.session_state.get("client")
+                if upstox_client and upstox_client.get("access_token"):
+                    market_data = fetch_market_depth_by_scrip(upstox_client, instrument_key="NSE_FO|46274")  # Example ATM CE
                     ltp = market_data["Data"][0].get("LastTradedPrice", 0.0) if market_data and market_data.get("Data") else 0.0
-                    # Mock option greeks (replace with actual option chain data if available)
                     portfolio_data = st.session_state.get("api_portfolio_data", {})
                     data = {
-                        "iv": 30.0,  # Replace with actual IV
+                        "iv": 30.0,
                         "gamma": 0.05,
                         "delta": 0.4,
                         "theta": -0.02,
@@ -84,7 +87,7 @@ class SmartBhaiGPT:
                         "vix": 25.0,
                         "ivp": 75.0,
                         "ivp_status": "high",
-                        "margin": (portfolio_data.get("margin", {}).get("UtilizedMargin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0,
+                        "margin": (portfolio_data.get("margin", {}).get("available_margin", 0.0) / st.session_state.get("capital", 1000000) * 100) or 85.0,
                         "strike": "N/A",
                         "fii_flow": 0.0,
                         "dii_flow": 0.0,
@@ -93,8 +96,8 @@ class SmartBhaiGPT:
                         "news_headline": "No major news",
                         "impact": 50,
                         "community_hedge": 70,
-                        "trade_count": 10,
-                        "trade_frequency": 2,
+                        "trade_count": len(portfolio_data.get("trade_book", {}).get("data", [])),
+                        "trade_frequency": len(portfolio_data.get("trade_book", {}).get("data", [])) / 7 or 2,
                         "revenge_count": 2,
                         "bias": "FOMO",
                         "bias_count": 3,
@@ -107,9 +110,8 @@ class SmartBhaiGPT:
                         "breakeven": "N/A"
                     }
                 else:
-                    raise ValueError("5paisa client not available")
+                    raise ValueError("Upstox client not available")
             except Exception as e2:
-                # Fallback 2: Load from fallback_data.csv
                 try:
                     fallback_df = pd.read_csv("fallback_data.csv", encoding='utf-8')
                     latest_fallback = fallback_df.iloc[-1]
@@ -145,7 +147,6 @@ class SmartBhaiGPT:
                         "breakeven": latest_fallback.get("breakeven", "N/A")
                     }
                 except Exception as e3:
-                    # Last resort: Hardcoded defaults
                     data = {
                         "iv": "N/A",
                         "gamma": "N/A",
@@ -178,34 +179,22 @@ class SmartBhaiGPT:
                         "breakeven": "N/A"
                     }
                     print(f"Error fetching data: Primary failed ({e}), API failed ({e2}), CSV failed ({e3})")
-        
-        # Return only the needed context
+
         return {key: data.get(key, "N/A") for key in context_needed.split(",")}
-    
+
     def generate_response(self, user_query):
-        """
-        Match user query to a response template and fill with app data.
-        """
         user_query = user_query.lower().strip()
-        
-        # Find matching response
         for _, row in self.responses.iterrows():
             pattern = row["query_pattern"]
             if re.search(pattern, user_query):
-                # Fetch required context (e.g., IV, gamma)
                 context = self.fetch_app_data(row["context_needed"])
-                
-                # Fill response template
                 try:
                     response = row["response_template"].format(**context)
                     return response
                 except KeyError:
                     return "Bhai, data thoda off lag raha hai. Try again! Do your own research!"
-        
-        # Fallback response for unmatched queries
         return "Bhai, yeh query thodi alag hai. Kya bol raha hai, thoda clearly bata? 😜 Do your own research!"
 
-# Test the class
 if __name__ == "__main__":
     gpt = SmartBhaiGPT()
     test_queries = [
