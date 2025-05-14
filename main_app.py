@@ -1329,7 +1329,7 @@ with tab7:
 
 
 
-                "Volatility_Regime": "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
+            "Volatility_Regime": "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
                 # You could add an "Event" regime if there's an upcoming major event detected (e.g., using Event_Flag)
                 # "Volatility_Regime": "Event" if latest_data.get("Event_Flag", 0) == 1 else ("High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low"))
             logger.debug(f"Calculated risk metrics: {risk_metrics}")
