@@ -366,7 +366,9 @@ with tab2:
         garch_forecast = model_fit.forecast(horizon=forecast_horizon)
         garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
-        forecast_dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)
+        # Dynamically set forecast dates starting from the day after the last date in CSV
+        last_date = nifty_df.index[-1]
+        forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
         forecast_df = pd.DataFrame({
             "Date": forecast_dates,
             "Day": forecast_dates.day_name(),
@@ -411,7 +413,7 @@ with tab3:
             with st.spinner("Loading XGBoost data and model..."):
                 xgb_df = pd.read_csv(xgb_csv_url)
                 xgb_df = xgb_df.dropna()
-                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']  # Added VIX back
+                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']
                 target = 'Next_5D_Realized_Vol'
                 if not all(col in xgb_df.columns for col in features + [target]):
                     st.error("CSV missing required columns!")
@@ -499,7 +501,7 @@ with tab3:
         event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
         fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
-        vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, step=0.1)  # Added VIX input back
+        vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, step=0.1)
 
     if st.button("Predict Volatility"):
         try:
@@ -518,13 +520,30 @@ with tab3:
                     'Event_Impact_Score': [event_score_input],
                     'FII_DII_Net_Long': [fii_dii_input],
                     'PCR': [pcr_input],
-                    'VIX': [vix_input]  # Added VIX back
+                    'VIX': [vix_input]
                 })
 
                 # Predict and convert to percentage
                 prediction = xgb_model.predict(new_data)[0]
                 st.session_state.xgb_prediction = prediction
                 st.markdown(f"<div class='metric-card'><h4>Predicted Next 5-Day Realized Volatility</h4><p>{prediction:.2f}%</p></div>", unsafe_allow_html=True)
+
+                # Show prediction dates (dynamic based on CSV last date)
+                last_date = nifty_df.index[-1]
+                xgb_forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=5)
+                xgb_forecast_df = pd.DataFrame({
+                    "Date": xgb_forecast_dates,
+                    "Day": xgb_forecast_dates.day_name(),
+                    "Predicted Volatility (%)": np.round([prediction]*5, 2)
+                })
+                st.subheader("XGBoost Prediction Dates")
+                for idx, row in xgb_forecast_df.iterrows():
+                    st.markdown(f"""
+                        <div class='metric-card'>
+                            <h4>{row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                            <p>Predicted Volatility: {row['Predicted Volatility (%)']}%</p>
+                        </div>
+                    """, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error predicting volatility: {e}")
 
@@ -543,7 +562,7 @@ with tab4:
         nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
         realized_vol = compute_realized_vol(nifty_df)
 
-        # GARCH Forecast
+        # GARCH Forecast (7 days)
         log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
         model = arch_model(log_returns, vol="Garch", p=1, q=1)
         model_fit = model.fit(disp="off")
@@ -551,12 +570,12 @@ with tab4:
         garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
 
-        # XGBoost Prediction
+        # XGBoost Prediction (5 days, extend to 7 days for plot)
         xgb_vol = st.session_state.get('xgb_prediction', 15.0)
-        xgb_vols = [xgb_vol] * 7
+        xgb_vols = [xgb_vol] * 7  # Extend XGBoost prediction to 7 days for consistency in plot
 
         # ATM IV and Metrics from VolGuard
-        atm_iv = st.session_state.atm_iv if st.session_state.atm_iv is not None else 20.0  # Use stored ATM IV
+        atm_iv = st.session_state.atm_iv if st.session_state.atm_iv is not None else 20.0
         atm_iv_vols = [atm_iv] * 7
         pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 1.0
         straddle_price = st.session_state.volguard_data['straddle_price'] if st.session_state.volguard_data else 0
@@ -566,10 +585,11 @@ with tab4:
         # Realized Volatility
         rv_vols = [realized_vol] * 7
 
-        # Plot
-        dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)
+        # Plot with dynamic dates (7 days for consistency across all metrics)
+        last_date = nifty_df.index[-1]
+        forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
         plot_df = pd.DataFrame({
-            "Date": dates,
+            "Date": forecast_dates,
             "GARCH Forecast": garch_vols,
             "XGBoost Prediction": xgb_vols,
             "Realized Volatility": rv_vols,
@@ -581,7 +601,7 @@ with tab4:
         fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["Realized Volatility"], mode='lines+markers', name='Realized Volatility', line=dict(color='#00adb5')))
         fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["ATM IV"], mode='lines+markers', name='ATM IV', line=dict(color='#f4e7ba')))
         fig.update_layout(
-            title="Volatility Comparison (May 15–21, 2025)",
+            title=f"Volatility Comparison ({forecast_dates[0].strftime('%b %d')}–{forecast_dates[-1].strftime('%b %d, %Y')})",
             xaxis_title="Date",
             yaxis_title="Volatility (%)",
             template="plotly_dark",
