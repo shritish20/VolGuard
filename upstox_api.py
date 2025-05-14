@@ -1,7 +1,6 @@
 import logging
 import pandas as pd
 import requests
-import time
 from datetime import datetime
 import upstox_client
 from upstox_client.rest import ApiException
@@ -12,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # === INIT CLIENT ===
 def initialize_upstox_client(access_token: str):
+    """Initialize Upstox API client with access token."""
     if not access_token:
         logger.error("Access token is missing.")
         return None
@@ -21,27 +21,30 @@ def initialize_upstox_client(access_token: str):
         client = upstox_client.ApiClient(configuration)
 
         user_api = upstox_client.UserApi(client)
-        user_profile = user_api.get_profile(api_version="v2")
+        user_profile = user_api.get_profile(api_version="2")
         logger.info(f"Token validated for {user_profile.data.get('user_name')}")
         return {
             "client": client,
             "access_token": access_token,
             "user_api": user_api,
-            "options_api": upstox_client.OptionsApi(client),
+            "options_api": upstox_client.OptionApi(client),
             "portfolio_api": upstox_client.PortfolioApi(client),
             "order_api": upstox_client.OrderApi(client),
         }
     except ApiException as e:
-        logger.error(f"Token validation failed: {e.body}")
+        logger.error(f"Token validation failed: {e}")
         return None
 
 # === FETCH VIX ===
 def fetch_vix(access_token):
+    """Fetch India VIX value."""
     try:
         url = f"{base_url}/market-quote/quotes"
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
         res = requests.get(url, headers=headers, params={"instrument_key": "NSE_INDEX|India VIX"})
-        vix = res.json().get("data", {}).get("NSE_INDEX|India VIX", {}).get("last_price")
+        res.raise_for_status()
+        data = res.json().get("data", {}).get("NSE_INDEX|India VIX", {})
+        vix = data.get("last_price")
         return float(vix) if vix else None
     except Exception as e:
         logger.error(f"Error fetching VIX: {e}")
@@ -49,9 +52,10 @@ def fetch_vix(access_token):
 
 # === FETCH OPTION CHAIN ===
 def get_nearest_expiry(options_api):
+    """Get the nearest expiry date for NIFTY options."""
     try:
-        contracts = options_api.get_option_contracts(instrument_key="NSE_INDEX|Nifty 50").to_dict().get("data", [])
-        expiry_dates = sorted({datetime.strptime(c["expiry"], "%Y-%m-%d") for c in contracts})
+        contracts = options_api.get_option_contracts(instrument_key="NSE_INDEX|Nifty 50", api_version="2").data
+        expiry_dates = sorted({datetime.strptime(c.expiry_date, "%Y-%m-%d") for c in contracts})
         today = datetime.now()
         return next((e.strftime("%Y-%m-%d") for e in expiry_dates if e >= today), None)
     except Exception as e:
@@ -59,30 +63,37 @@ def get_nearest_expiry(options_api):
         return None
 
 def fetch_option_chain(options_api, expiry):
+    """Fetch option chain for given expiry."""
     try:
-        chain = options_api.get_put_call_option_chain(instrument_key="NSE_INDEX|Nifty 50", expiry_date=expiry)
-        return chain.to_dict().get("data", [])
+        chain = options_api.get_full_market_quote(
+            instrument_key=f"NSE_INDEX|Nifty 50&expiry={expiry}",
+            api_version="2"
+        )
+        return chain.data if chain and chain.data else []
     except Exception as e:
         logger.error(f"Error fetching option chain: {e}")
         return []
 
 # === PROCESS CHAIN + METRICS ===
 def process_chain(chain):
+    """Process option chain data into a DataFrame."""
+    if not chain:
+        return pd.DataFrame(), 0, 0
     rows, ce_oi, pe_oi = [], 0, 0
     for item in chain:
         ce, pe = item.get("call_options", {}), item.get("put_options", {})
         ce_md, pe_md = ce.get("market_data", {}), pe.get("market_data", {})
         ce_gk, pe_gk = ce.get("option_greeks", {}), pe.get("option_greeks", {})
-        strike = item["strike_price"]
+        strike = item.get("strike_price", 0)
         ce_oi_val, pe_oi_val = ce_md.get("oi", 0), pe_md.get("oi", 0)
         row = {
             "Strike": strike,
-            "CE_LTP": ce_md.get("ltp"),
-            "CE_IV": ce_gk.get("iv"),
+            "CE_LTP": ce_md.get("last_price"),
+            "CE_IV": ce_gk.get("implied_volatility"),
             "CE_OI": ce_oi_val,
             "CE_Volume": ce_md.get("volume", 0),
-            "PE_LTP": pe_md.get("ltp"),
-            "PE_IV": pe_gk.get("iv"),
+            "PE_LTP": pe_md.get("last_price"),
+            "PE_IV": pe_gk.get("implied_volatility"),
             "PE_OI": pe_oi_val,
             "PE_Volume": pe_md.get("volume", 0),
             "Strike_PCR": pe_oi_val / ce_oi_val if ce_oi_val else 0,
@@ -95,19 +106,24 @@ def process_chain(chain):
     return pd.DataFrame(rows), ce_oi, pe_oi
 
 def calculate_metrics(df, ce_oi, pe_oi, spot):
+    """Calculate key option metrics like PCR, max pain, and straddle price."""
+    if df.empty or not spot:
+        return 0, None, 0, None
     atm_strike = df.iloc[(df["Strike"] - spot).abs().argsort()[:1]]["Strike"].values[0]
     pcr = round(pe_oi / ce_oi, 2) if ce_oi else 0
     straddle = df[df["Strike"] == atm_strike]
-    straddle_price = float(straddle["CE_LTP"].values[0] + straddle["PE_LTP"].values[0])
-    max_pain = df["Strike"][((df["Strike"] - df["Strike"].mean()) ** 2).argsort().iloc[0]]
+    straddle_price = float(straddle["CE_LTP"].values[0] + straddle["PE_LTP"].values[0]) if not straddle.empty else 0
+    max_pain = df["Strike"][((df["Strike"] - df["Strike"].mean()) ** 2).argsort().iloc[0]] if not df.empty else None
     return pcr, max_pain, straddle_price, atm_strike
 
 # === FETCH MARKET DEPTH ===
 def fetch_market_depth_by_scrip(access_token, token):
+    """Fetch market depth for a given instrument."""
     try:
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
         url = f"{base_url}/market-quote/depth"
         res = requests.get(url, headers=headers, params={"instrument_key": token})
+        res.raise_for_status()
         depth = res.json().get("data", {}).get(token, {}).get("depth", {})
         return {
             "bid_volume": sum(d.get("quantity", 0) for d in depth.get("buy", [])),
@@ -119,24 +135,29 @@ def fetch_market_depth_by_scrip(access_token, token):
 
 # === REAL-TIME MARKET SNAPSHOT ===
 def fetch_real_time_market_data(upstox_client):
+    """Fetch real-time market data snapshot."""
+    if not upstox_client:
+        return {}
     options_api = upstox_client["options_api"]
     access_token = upstox_client["access_token"]
 
     vix = fetch_vix(access_token)
     expiry = get_nearest_expiry(options_api)
     if not expiry:
+        logger.error("No expiry date found.")
         return {}
 
     chain = fetch_option_chain(options_api, expiry)
     if not chain:
+        logger.error("No option chain data retrieved.")
         return {}
 
-    spot = chain[0].get("underlying_spot_price")
+    spot = chain[0].get("underlying_spot_price") if chain else None
     df, ce_oi, pe_oi = process_chain(chain)
     pcr, max_pain, straddle_price, atm_strike = calculate_metrics(df, ce_oi, pe_oi, spot)
 
-    ce_depth = fetch_market_depth_by_scrip(access_token, df[df["Strike"] == atm_strike]["CE_Token"].values[0])
-    pe_depth = fetch_market_depth_by_scrip(access_token, df[df["Strike"] == atm_strike]["PE_Token"].values[0])
+    ce_depth = fetch_market_depth_by_scrip(access_token, df[df["Strike"] == atm_strike]["CE_Token"].values[0]) if not df.empty else {"bid_volume": 0, "ask_volume": 0}
+    pe_depth = fetch_market_depth_by_scrip(access_token, df[df["Strike"] == atm_strike]["PE_Token"].values[0]) if not df.empty else {"bid_volume": 0, "ask_volume": 0}
 
     return {
         "nifty_spot": spot,
@@ -154,37 +175,40 @@ def fetch_real_time_market_data(upstox_client):
 
 # === PORTFOLIO DATA ===
 def fetch_all_api_portfolio_data(upstox_client):
+    """Fetch all portfolio-related data."""
+    if not upstox_client:
+        return {}
     portfolio_api = upstox_client["portfolio_api"]
     order_api = upstox_client["order_api"]
     user_api = upstox_client["user_api"]
 
     data = {}
     try:
-        data['margin'] = user_api.get_user_fund_margin(api_version="v2").to_dict()
+        data['margin'] = user_api.get_user_fund_margin(api_version="2").to_dict()
     except Exception as e:
         logger.warning(f"Margin fetch failed: {e}")
         data['margin'] = {}
 
     try:
-        data['holdings'] = portfolio_api.get_holdings(api_version="v2").to_dict()
+        data['holdings'] = portfolio_api.get_holdings(api_version="2").to_dict()
     except Exception as e:
         logger.warning(f"Holdings fetch failed: {e}")
         data['holdings'] = {}
 
     try:
-        data['positions'] = portfolio_api.get_positions(api_version="v2").to_dict()
+        data['positions'] = portfolio_api.get_positions(api_version="2").to_dict()
     except Exception as e:
         logger.warning(f"Positions fetch failed: {e}")
         data['positions'] = {}
 
     try:
-        data['orders'] = order_api.get_order_book(api_version="v2").to_dict()
+        data['orders'] = order_api.get_order_book(api_version="2").to_dict()
     except Exception as e:
         logger.warning(f"Orders fetch failed: {e}")
         data['orders'] = {}
 
     try:
-        data['trades'] = order_api.get_trade_history(api_version="v2").to_dict()
+        data['trades'] = order_api.get_trade_book(api_version="2").to_dict()
     except Exception as e:
         logger.warning(f"Trades fetch failed: {e}")
         data['trades'] = {}
@@ -193,38 +217,35 @@ def fetch_all_api_portfolio_data(upstox_client):
 
 # === ORDER MANAGEMENT ===
 def prepare_trade_orders(strategy):
-    """
-    Prepares a list of trade orders based on the given strategy dict.
-    """
+    """Placeholder: Prepare trade orders based on strategy."""
     return strategy.get("Orders", [])
 
 def execute_trade_orders(upstox_client, orders):
-    """
-    Places trade orders via Upstox API.
-    """
+    """Execute trade orders via Upstox API."""
+    if not upstox_client or not orders:
+        return False, {"error": "Invalid client or no orders provided"}
     order_api = upstox_client["order_api"]
     results = []
     for order in orders:
         try:
-            res = order_api.place_order(body=order, api_version="v2")
+            res = order_api.place_order(body=order, api_version="2")
             results.append({"status": "success", "order_id": res.data.get("order_id")})
         except Exception as e:
             results.append({"status": "error", "error": str(e)})
-    return results
+    return len([r for r in results if r["status"] == "success"]) > 0, results
 
 def square_off_positions(upstox_client):
-    """
-    Squares off all open positions.
-    """
+    """Square off all open positions."""
+    if not upstox_client:
+        return False
     try:
         portfolio_api = upstox_client["portfolio_api"]
-        positions = portfolio_api.get_positions(api_version="v2").to_dict().get("data", [])
+        positions = portfolio_api.get_positions(api_version="2").to_dict().get("data", [])
         closed = 0
         for pos in positions:
             if pos.get("quantity", 0) != 0:
-                # Add actual square off logic here using order_api
-                closed += 1
-        return True if closed > 0 else False
+                closed += 1  # Placeholder for actual square-off logic
+        return closed > 0
     except Exception as e:
         logger.error(f"Error squaring off positions: {e}")
         return False
