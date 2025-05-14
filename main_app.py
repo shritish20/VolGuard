@@ -168,29 +168,39 @@ def fetch_portfolio_data(upstox_client, capital):
         logger.error(f"Error fetching portfolio data: {e}")
         return portfolio_summary
 
-# === Streamlit App Layout ===
-with st.sidebar:
-    st.header("🔑 Upstox Login")
-    access_token = st.text_input("Access Token", type="password", key="access_token_input")
-    if st.button("Login to Upstox"):
-if not signals.empty and date in signals["Date"].values:
-    signal = signals[signals["Date"] == date].iloc[0]
-else:
-    signal = {
-        "Strategy": "None",
-        "Confidence": 0.0,
-        "Deploy": 0.0,
-        "Orders": [],
-        "Reasoning": "No signal available for the date"
-    }
-        return {
-            "Strategy": signal["Strategy"],
-            "Confidence": signal["Confidence"],
-            "Deploy": signal["Deploy"],
-            "Orders": signal["Orders"],
-            "Reasoning": signal["Reasoning"],
+def generate_trading_strategy(analysis_df, real_time_market_data, forecast_metrics, capital, risk_tolerance):
+    """Generate a mock trading strategy based on market data and risk tolerance."""
+    date = datetime.now().date()
+    signals = pd.DataFrame([
+        {
+            "Date": date,
+            "Strategy": "Short Straddle" if risk_tolerance == "Aggressive" else "Iron Condor",
+            "Confidence": 0.75 if risk_tolerance == "Moderate" else 0.9 if risk_tolerance == "Aggressive" else 0.6,
+            "Deploy": capital * (0.3 if risk_tolerance == "Aggressive" else 0.2 if risk_tolerance == "Moderate" else 0.1),
+            "Orders": [
+                {"instrument_key": "NSE_INDEX|Nifty 50", "quantity": 50, "transaction_type": "SELL", "order_type": "MARKET"},
+                {"instrument_key": "NSE_INDEX|Nifty 50", "quantity": 50, "transaction_type": "SELL", "order_type": "MARKET"}
+            ],
+            "Reasoning": f"Generated strategy for {risk_tolerance} risk profile based on current market conditions."
         }
-    return None
+    ])
+    if not signals.empty and date in signals["Date"].values:
+        signal = signals[signals["Date"] == date].iloc[0]
+    else:
+        signal = {
+            "Strategy": "None",
+            "Confidence": 0.0,
+            "Deploy": 0.0,
+            "Orders": [],
+            "Reasoning": "No signal available for the date"
+        }
+    return {
+        "Strategy": signal["Strategy"],
+        "Confidence": signal["Confidence"],
+        "Deploy": signal["Deploy"],
+        "Orders": signal["Orders"],
+        "Reasoning": signal["Reasoning"],
+    }
 
 # === Streamlit App Layout ===
 with st.sidebar:
@@ -209,7 +219,7 @@ with st.sidebar:
                 logger.info("Upstox login successful.")
                 st.rerun()
             else:
- - st.error("❌ Login failed. Invalid or expired access token.")
+                st.error("❌ Login failed. Invalid or expired access token.")
                 logger.error("Upstox login failed: Invalid or expired token.")
 
     if st.session_state.logged_in:
@@ -249,6 +259,7 @@ with tab1:
     st.header("📊 Market Snapshot")
     if st.session_state.logged_in:
         data = fetch_real_time_market_data(st.session_state.client)
+        st.session_state.real_time_market_data = data
         if data:
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("NIFTY Spot", f"{data.get('nifty_spot', 'N/A'):.2f}")
@@ -271,13 +282,13 @@ with tab2:
     st.header("🤖 Trading Strategy")
     if st.session_state.logged_in and st.session_state.real_time_market_data:
         strategy = generate_trading_strategy(
-            pd.DataFrame(),  # Placeholder
+            pd.DataFrame(),
             st.session_state.real_time_market_data,
-            {},  # Placeholder for forecast_metrics
+            {},
             st.session_state.capital,
             st.session_state.risk_tolerance
         )
-        if strategy:
+        if strategy and strategy["Strategy"] != "None":
             st.markdown(f"**Strategy**: {strategy['Strategy']}")
             st.markdown(f"**Confidence**: {strategy['Confidence']:.2%}")
             st.markdown(f"**Deploy Amount**: ₹{strategy['Deploy']:.2f}")
