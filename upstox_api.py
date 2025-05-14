@@ -23,7 +23,7 @@ def initialize_upstox_client(access_token: str):
         "client": client,
         "access_token": access_token,
         "user_api": user_api,
-        "options_api": upstox_client.OptionsApi(client),  # Changed from OptionApi to OptionsApi
+        "options_api": upstox_client.OptionsApi(client),
         "portfolio_api": upstox_client.PortfolioApi(client),
         "order_api": upstox_client.OrderApi(client),
     }
@@ -41,18 +41,28 @@ def fetch_vix(access_token):
 # === FETCH OPTION CHAIN ===
 def get_nearest_expiry(options_api):
     """Get the nearest expiry date for NIFTY options."""
-    contracts = options_api.get_option_contracts(instrument_key="NSE_INDEX|Nifty 50", api_version="2").data
-    expiry_dates = sorted({datetime.strptime(c.expiry_date, "%Y-%m-%d") for c in contracts})
+    response = options_api.get_option_contracts(instrument_key="NSE_INDEX|Nifty 50")
+    contracts = response.to_dict().get("data", [])
+    expiry_dates = set()
+
+    for contract in contracts:
+        exp = contract.get("expiry")
+        if isinstance(exp, str):
+            exp = datetime.strptime(exp, "%Y-%m-%d")
+        expiry_dates.add(exp)
+
+    expiry_list = sorted(expiry_dates)
     today = datetime.now()
-    return next((e.strftime("%Y-%m-%d") for e in expiry_dates if e >= today), None)
+    valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
+    return valid_expiries[0]
 
 def fetch_option_chain(options_api, expiry):
     """Fetch option chain for given expiry."""
-    chain = options_api.get_full_market_quote(
+    res = options_api.get_full_market_quote(
         instrument_key=f"NSE_INDEX|Nifty 50&expiry={expiry}",
         api_version="2"
     )
-    return chain.data
+    return res.to_dict().get("data", [])
 
 # === PROCESS CHAIN + METRICS ===
 def process_chain(chain):
