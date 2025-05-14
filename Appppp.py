@@ -215,18 +215,6 @@ else:
     st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
 
 # === Helper Functions ===
-def load_india_vix():
-    try:
-        vix_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/india_vix.csv")
-        vix_df["Date"] = pd.to_datetime(vix_df["Date"], format="%d-%b-%Y", errors="coerce")
-        vix_df = vix_df.dropna(subset=["Date"]).set_index("Date")
-        vix_df = vix_df.rename(columns={"Close": "VIX_Close"})
-        vix_df = vix_df[["VIX_Close"]].dropna().sort_index()
-        return vix_df
-    except Exception as e:
-        logger.error(f"Error loading India VIX data: {e}")
-        return pd.DataFrame()
-
 def get_nearest_expiry(options_api, instrument_key):
     try:
         response = options_api.get_option_contracts(instrument_key=instrument_key)
@@ -414,10 +402,6 @@ def run_volguard(access_token):
         logger.error(f"Volguard run error: {e}")
         return None, None, None, None, None
 
-# === Load India VIX Data (Only for Snapshot) ===
-vix_df = load_india_vix()
-latest_vix = vix_df["VIX_Close"][-1] if not vix_df.empty else 15.0
-
 # === Streamlit Tabs ===
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Snapshot", "Forecast", "Prediction", "Strategies", "Dashboard"])
 
@@ -442,7 +426,6 @@ with tab1:
                         st.subheader("Market Snapshot")
                         st.markdown(f"<div class='metric-card'><h4>Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4>India VIX</h4><p>{latest_vix:.2f}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='highlight-card'><h4>ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
@@ -544,7 +527,7 @@ with tab3:
             with st.spinner("Loading XGBoost data and model..."):
                 xgb_df = pd.read_csv(xgb_csv_url)
                 xgb_df = xgb_df.dropna()
-                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']
+                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR']
                 target = 'Next_5D_Realized_Vol'
                 if not all(col in xgb_df.columns for col in features + [target]):
                     st.error("CSV missing required columns!")
@@ -630,7 +613,6 @@ with tab3:
         event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
         fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
-        vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, step=0.1)
 
     if st.button("Predict Volatility"):
         try:
@@ -647,8 +629,7 @@ with tab3:
                     'IVP': [ivp_input],
                     'Event_Impact_Score': [event_score_input],
                     'FII_DII_Net_Long': [fii_dii_input],
-                    'PCR': [pcr_input],
-                    'VIX': [vix_input]
+                    'PCR': [pcr_input]
                 })
 
                 prediction = xgb_model.predict(new_data)[0]
