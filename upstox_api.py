@@ -56,13 +56,14 @@ def get_nearest_expiry(options_api):
     valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
     return valid_expiries[0]
 
-def fetch_option_chain(options_api, expiry):
-    """Fetch option chain for given expiry."""
-    res = options_api.get_full_market_quote(
-        instrument_key=f"NSE_INDEX|Nifty 50&expiry={expiry}",
-        api_version="2"
-    )
-    return res.to_dict().get("data", [])
+def fetch_option_chain(options_api, expiry, access_token):
+    """Fetch option chain for given expiry using REST API."""
+    url = f"{base_url}/market-quote/quotes"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    # Format the instrument_key to include the expiry
+    instrument_key = f"NSE_INDEX|Nifty 50&expiry={expiry}"
+    res = requests.get(url, headers=headers, params={"instrument_key": instrument_key})
+    return res.json().get("data", [])
 
 # === PROCESS CHAIN + METRICS ===
 def process_chain(chain):
@@ -123,7 +124,7 @@ def fetch_real_time_market_data(upstox_client):
     vix = fetch_vix(access_token)
     expiry = get_nearest_expiry(options_api)
 
-    chain = fetch_option_chain(options_api, expiry)
+    chain = fetch_option_chain(options_api, expiry, access_token)
 
     spot = chain[0].get("underlying_spot_price") if chain else None
     df, ce_oi, pe_oi = process_chain(chain)
