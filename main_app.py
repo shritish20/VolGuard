@@ -346,7 +346,7 @@ with tab3:
             st.info("No open positions.")
 
         st.subheader("Fund Summary")
-        margin = st SESSION_STATE.api_portfolio_data.get("margin", {}).get("data", {})
+        margin = st.session_state.api_portfolio_data.get("margin", {}).get("data", {})
         if margin:
             st.dataframe(pd.DataFrame([margin]))
         else:
@@ -405,4 +405,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-)
+            )
