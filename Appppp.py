@@ -1,4 +1,4 @@
-# main.py (Updated)
+# main.py (Final Updated Version)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -26,7 +26,124 @@ xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro", layout="wide")
-# Existing CSS and styling remains the same...
+
+# === Custom CSS for Premium Look ===
+st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(135deg, #1E3A8A 0%, #111827 100%);
+            color: #F3F4F6;
+        }
+
+        .stApp {
+            background: transparent;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-around;
+            background: linear-gradient(90deg, #1E3A8A, #3B82F6);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+            animation: slideIn 0.5s ease-in-out;
+        }
+
+        .top-bar div {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .top-bar p {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #FBBF24;
+        }
+
+        .metric-card {
+            background: #1F2937;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .metric-card h4 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 10px 0;
+            font-size: 18px;
+            color: #FBBF24;
+        }
+
+        .metric-card p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #D1D5DB;
+        }
+
+        .alert-red {
+            background: #EF4444;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .alert-yellow {
+            background: #F59E0B;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .stButton>button {
+            background: linear-gradient(90deg, #3B82F6, #1E3A8A);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: 600;
+            transition: background 0.3s ease;
+        }
+
+        .stButton>button:hover {
+            background: linear-gradient(90deg, #1E3A8A, #3B82F6);
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            color: #FBBF24;
+            font-weight: 700;
+        }
+
+        .sidebar .sidebar-content {
+            background: #111827;
+            color: #F3F4F6;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # === Session State to Store Data ===
 if 'volguard_data' not in st.session_state:
@@ -60,6 +177,15 @@ if 'pnl_data' not in st.session_state:
 
 # Initialize prev_oi globally
 prev_oi = {}
+
+# === Logo and Tagline ===
+st.markdown("""
+    <div style='text-align: center; margin-bottom: 20px;'>
+        <img src='https://via.placeholder.com/150x50.png?text=VolGuard+Logo' alt='VolGuard Logo' style='height: 50px;'>
+        <h1>VolGuard Pro</h1>
+        <p style='color: #D1D5DB; font-style: italic; font-size: 16px;'>Shield Your Trades, Amplify Your Gains</p>
+    </div>
+""", unsafe_allow_html=True)
 
 # === Sidebar Controls ===
 st.sidebar.header("VolGuard Pro Controls")
@@ -103,7 +229,174 @@ def check_risk(capital_to_deploy, max_loss, daily_pnl):
     return "green", "Safe to trade."
 
 # === Helper Functions ===
-# Existing helper functions (get_nearest_expiry, fetch_option_chain, etc.) remain the same...
+def fetch_historical_data():
+    try:
+        configuration = upstox_client.Configuration()
+        configuration.access_token = st.session_state.access_token
+        client = upstox_client.ApiClient(configuration)
+        history_api = upstox_client.HistoryV3Api(client)
+        
+        to_date = datetime.now().strftime("%Y-%m-%d")
+        from_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        
+        response = history_api.get_historical_candle_data1(
+            instrument_key="NSE_INDEX|Nifty 50",
+            unit="day",
+            interval="1d",
+            to_date=to_date,
+            from_date=from_date
+        )
+        data = response.to_dict().get('data', [])
+        
+        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        df['returns'] = df['close'].pct_change().dropna()
+        return df
+    except Exception as e:
+        logger.error(f"Error fetching historical data: {e}")
+        return pd.DataFrame()
+
+def calculate_realized_vol(df, window=30):
+    if df.empty:
+        return 0
+    returns = df['returns'].dropna()
+    rolling_vol = returns.rolling(window=window).std() * np.sqrt(252) * 100
+    return rolling_vol[-1] if not rolling_vol.empty else 0
+
+def get_nearest_expiry():
+    try:
+        configuration = upstox_client.Configuration()
+        configuration.access_token = st.session_state.access_token
+        client = upstox_client.ApiClient(configuration)
+        options_api = upstox_client.OptionsApi(client)
+        
+        response = options_api.get_option_contracts(
+            instrument_key="NSE_INDEX|Nifty 50",
+            option_type="XX"
+        )
+        contracts = response.to_dict().get('data', [])
+        
+        today = datetime.now().date()
+        expiries = [datetime.strptime(contract.get('expiry_date'), "%Y-%m-%d").date() for contract in contracts]
+        future_expiries = [exp for exp in expiries if exp >= today]
+        if not future_expiries:
+            raise ValueError("No future expiries found.")
+        
+        nearest_expiry = min(future_expiries)
+        return nearest_expiry.strftime("%Y-%m-%d")
+    except Exception as e:
+        logger.error(f"Error fetching nearest expiry: {e}")
+        return (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+
+def fetch_option_chain(access_token, expiry_date):
+    try:
+        configuration = upstox_client.Configuration()
+        configuration.access_token = access_token
+        client = upstox_client.ApiClient(configuration)
+        options_api = upstox_client.OptionsApi(client)
+        
+        response = options_api.get_put_call_option_chain(
+            instrument_key="NSE_INDEX|Nifty 50",
+            expiry_date=expiry_date
+        )
+        option_data = response.to_dict().get('data', [])
+        
+        market_quote_api = upstox_client.MarketQuoteV3Api(client)
+        spot_response = market_quote_api.get_ltp(instrument_key="NSE_INDEX|Nifty 50")
+        spot_price = spot_response.to_dict().get('data', {}).get('NSE_INDEX|Nifty 50', {}).get('last_price', 0)
+        
+        if not option_data or not spot_price:
+            raise ValueError("Failed to fetch option chain or spot price.")
+        
+        return option_data, spot_price
+    except Exception as e:
+        logger.error(f"Error fetching option chain: {e}")
+        return [], 0
+
+def calculate_iv_skew(option_data, spot_price):
+    if not option_data:
+        return None, 0, 0
+    
+    strikes = []
+    ce_ltp = []
+    pe_ltp = []
+    ce_iv = []
+    pe_iv = []
+    ce_token = []
+    pe_token = []
+    
+    for item in option_data:
+        strike = item.get('strike_price', 0)
+        call_data = item.get('call_option', {})
+        put_data = item.get('put_option', {})
+        
+        strikes.append(strike)
+        ce_ltp.append(call_data.get('last_price', 0))
+        pe_ltp.append(put_data.get('last_price', 0))
+        ce_iv.append(call_data.get('iv', 0))
+        pe_iv.append(put_data.get('iv', 0))
+        ce_token.append(call_data.get('instrument_key', ''))
+        pe_token.append(put_data.get('instrument_key', ''))
+    
+    df = pd.DataFrame({
+        'Strike': strikes,
+        'CE_LTP': ce_ltp,
+        'PE_LTP': pe_ltp,
+        'CE_IV': ce_iv,
+        'PE_IV': pe_iv,
+        'CE_Token': ce_token,
+        'PE_Token': pe_token
+    })
+    
+    atm_strike = df.iloc[(df['Strike'] - spot_price).abs().argsort()[:1]]['Strike'].values[0]
+    atm_row = df[df['Strike'] == atm_strike]
+    atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if atm_row['CE_IV'].values[0] and atm_row['PE_IV'].values[0] else 0
+    
+    df['IV_Skew'] = df['CE_IV'] - df['PE_IV']
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df['Strike'], y=df['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#FBBF24')))
+    fig.add_trace(go.Scatter(x=df['Strike'], y=df['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#3B82F6')))
+    fig.add_trace(go.Scatter(x=df['Strike'], y=df['IV_Skew'], mode='lines', name='IV Skew', line=dict(color='#EF4444')))
+    fig.update_layout(
+        title='IV Skew Across Strikes',
+        xaxis_title='Strike Price',
+        yaxis_title='Implied Volatility (%)',
+        template='plotly_dark',
+        title_font=dict(size=20, color='#FBBF24'),
+        xaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
+        yaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
+    )
+    
+    return df, atm_strike, atm_iv, fig
+
+def run_volguard(access_token):
+    try:
+        expiry_date = get_nearest_expiry()
+        if not expiry_date:
+            raise ValueError("Could not determine expiry date.")
+        
+        option_data, spot_price = fetch_option_chain(access_token, expiry_date)
+        if not option_data or not spot_price:
+            raise ValueError("Failed to fetch option chain or spot price.")
+        
+        df, atm_strike, atm_iv, iv_skew_fig = calculate_iv_skew(option_data, spot_price)
+        if df.empty:
+            raise ValueError("Failed to process option chain data.")
+        
+        result = {
+            'nifty_spot': spot_price,
+            'atm_strike': atm_strike,
+            'iv_skew_data': df.to_dict(),
+            'expiry_date': expiry_date
+        }
+        
+        return result, df, iv_skew_fig, atm_strike, atm_iv
+    except Exception as e:
+        logger.error(f"Error in run_volguard: {e}")
+        st.error(f"Failed to run VolGuard: {str(e)}")
+        return None, pd.DataFrame(), None, 0, 0
 
 def fetch_portfolio(access_token):
     try:
@@ -157,85 +450,88 @@ def fetch_live_pnl(access_token, from_date, to_date):
         logger.error(f"P&L fetch error: {e}")
         return 0, []
 
-def fetch_live_market_data(access_token):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        market_quote_api = upstox_client.MarketQuoteV3Api(client)
-        
-        response = market_quote_api.get_ltp(instrument_key="NSE_INDEX|Nifty 50")
-        ltp_data = response.to_dict().get('data', {}).get('NSE_INDEX|Nifty 50', {}).get('last_price', 0)
-        return ltp_data
-    except ApiException as e:
-        logger.error(f"Live market data fetch error: {e}")
-        return 0
-
 def calculate_iron_fly(df, spot, atm_strike, capital, risk_profile):
-    atm_row = df[df['Strike'] == atm_strike]
-    short_call_strike = atm_strike
-    short_put_strike = atm_strike
-    short_call_price = atm_row['CE_LTP'].values[0]
-    short_put_price = atm_row['PE_LTP'].values[0]
-    
-    strike_diff = atm_strike * 0.05
-    long_call_strike = atm_strike + strike_diff
-    long_put_strike = atm_strike - strike_diff
-    
-    long_call_row = df.iloc[(df['Strike'] - long_call_strike).abs().argsort()[:1]]
-    long_put_row = df.iloc[(df['Strike'] - long_put_strike).abs().argsort()[:1]]
-    long_call_strike = long_call_row['Strike'].values[0]
-    long_put_strike = long_put_row['Strike'].values[0]
-    long_call_price = long_call_row['CE_LTP'].values[0]
-    long_put_price = long_put_row['PE_LTP'].values[0]
-    
-    lot_size = 25
-    position_size = int((capital * 0.3) / (short_call_price + short_put_price)) // lot_size
-    quantity = position_size * lot_size
-    
-    net_credit = (short_call_price + short_put_price - long_call_price - long_put_price) * quantity
-    max_profit = net_credit
-    
-    wing_width = long_call_strike - short_call_strike
-    max_loss = (wing_width * quantity) - net_credit
-    
-    breakeven_upper = short_call_strike + (net_credit / quantity)
-    breakeven_lower = short_put_strike - (net_credit / quantity)
-    
-    iv_rv = st.session_state.atm_iv - realized_vol if st.session_state.atm_iv else 0
-    confidence = 0.8 if iv_rv > 10 else 0.6
-    if risk_profile == "Conservative":
-        confidence *= 0.5
-    elif risk_profile == "Moderate":
-        confidence *= 0.8
-    
-    reasoning = f"""
-    - **Market Regime**: IV-RV = {iv_rv:.2f}% (High IV, suitable for Iron Fly).
-    - **Short Strikes**: ATM Call and Put at {atm_strike} (Spot: {spot}).
-    - **Long Strikes**: OTM Call at {long_call_strike}, OTM Put at {long_put_strike} (5% away).
-    - **Position Size**: {quantity} units ({position_size} lots).
-    """
-    
-    return {
-        "name": "Iron Fly",
-        "logic": "Neutral strategy for high IV regime",
-        "short_call_strike": short_call_strike,
-        "short_put_strike": short_put_strike,
-        "long_call_strike": long_call_strike,
-        "long_put_strike": long_put_strike,
-        "short_call_price": short_call_price,
-        "short_put_price": short_put_price,
-        "long_call_price": long_call_price,
-        "long_put_price": long_put_price,
-        "quantity": quantity,
-        "capital_required": capital * 0.3,
-        "max_loss": max_loss,
-        "max_profit": max_profit,
-        "breakeven_upper": breakeven_upper,
-        "breakeven_lower": breakeven_lower,
-        "confidence": confidence,
-        "reasoning": reasoning
-    }
+    try:
+        atm_row = df[df['Strike'] == atm_strike]
+        if atm_row.empty:
+            raise ValueError("ATM strike not found in option chain.")
+        
+        short_call_strike = atm_strike
+        short_put_strike = atm_strike
+        short_call_price = atm_row['CE_LTP'].values[0]
+        short_put_price = atm_row['PE_LTP'].values[0]
+        
+        strike_diff = spot * 0.05
+        long_call_strike = atm_strike + strike_diff
+        long_put_strike = atm_strike - strike_diff
+        
+        long_call_row = df.iloc[(df['Strike'] - long_call_strike).abs().argsort()[:1]]
+        long_put_row = df.iloc[(df['Strike'] - long_put_strike).abs().argsort()[:1]]
+        if long_call_row.empty or long_put_row.empty:
+            raise ValueError("Could not find OTM strikes for wings.")
+        
+        long_call_strike = long_call_row['Strike'].values[0]
+        long_put_strike = long_put_row['Strike'].values[0]
+        long_call_price = long_call_row['CE_LTP'].values[0]
+        long_put_price = long_put_row['PE_LTP'].values[0]
+        
+        lot_size = 25
+        position_size = int((capital * 0.3) / (short_call_price + short_put_price)) // lot_size
+        quantity = position_size * lot_size
+        
+        net_credit = (short_call_price + short_put_price - long_call_price - long_put_price) * quantity
+        max_profit = net_credit
+        
+        wing_width = long_call_strike - short_call_strike
+        max_loss = (wing_width * quantity) - net_credit
+        
+        breakeven_upper = short_call_strike + (net_credit / quantity)
+        breakeven_lower = short_put_strike - (net_credit / quantity)
+        
+        iv_rv = st.session_state.atm_iv - realized_vol if st.session_state.atm_iv else 0
+        confidence = 0.8 if iv_rv > 10 else 0.6
+        if risk_profile == "Conservative":
+            confidence *= 0.5
+        elif risk_profile == "Moderate":
+            confidence *= 0.8
+        
+        reasoning = f"""
+        - **Market Regime**: IV-RV = {iv_rv:.2f}% (High IV, suitable for Iron Fly).
+        - **Short Strikes**: ATM Call and Put at {atm_strike} (Spot: {spot}).
+        - **Long Strikes**: OTM Call at {long_call_strike}, OTM Put at {long_put_strike} (5% away).
+        - **Position Size**: {quantity} units ({position_size} lots).
+        """
+        
+        return {
+            "name": "Iron Fly",
+            "logic": "Neutral strategy for high IV regime",
+            "short_call_strike": short_call_strike,
+            "short_put_strike": short_put_strike,
+            "long_call_strike": long_call_strike,
+            "long_put_strike": long_put_strike,
+            "short_call_price": short_call_price,
+            "short_put_price": short_put_price,
+            "long_call_price": long_call_price,
+            "long_put_price": long_put_price,
+            "quantity": quantity,
+            "capital_required": capital * 0.3,
+            "max_loss": max_loss,
+            "max_profit": max_profit,
+            "breakeven_upper": breakeven_upper,
+            "breakeven_lower": breakeven_lower,
+            "confidence": confidence,
+            "reasoning": reasoning
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_iron_fly: {e}")
+        return {
+            "name": "Iron Fly",
+            "logic": "Neutral strategy for high IV regime",
+            "capital_required": capital * 0.3,
+            "max_loss": capital * 0.05,
+            "confidence": 0.5,
+            "reasoning": f"Failed to calculate details: {str(e)}"
+        }
 
 def place_iron_fly_orders(access_token, strategy, df):
     try:
@@ -356,11 +652,11 @@ with tab1:
             st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data... Please wait."):
+                st.session_state.access_token = access_token
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
                 if result:
                     st.session_state.volguard_data = result
                     st.session_state.atm_iv = atm_iv
-                    st.session_state.access_token = access_token
                     
                     holdings, positions = fetch_portfolio(access_token)
                     funds_margin = fetch_funds_and_margin(access_token)
@@ -377,15 +673,83 @@ with tab1:
                     st.session_state.daily_pnl = live_pnl
                     
                     st.success("Data fetched successfully!")
-                    # Existing Snapshot tab display code...
+                    
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.plotly_chart(iv_skew_fig, use_container_width=True)
+                    with col2:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> NIFTY Spot</h4><p>₹{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>strike</i> ATM Strike</h4><p>{atm_strike}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
 
-    if st.session_state.volguard_data:
-        if st.button("Refresh Live Market Data"):
-            with st.spinner("Fetching live market data..."):
-                live_spot = fetch_live_market_data(st.session_state.access_token)
-                if live_spot:
-                    st.session_state.volguard_data['nifty_spot'] = live_spot
-                    st.success(f"Updated NIFTY Spot Price: ₹{live_spot}")
+# === Tab 2: Forecast ===
+with tab2:
+    st.header("Volatility Forecast")
+    historical_data = fetch_historical_data()
+    realized_vol = calculate_realized_vol(historical_data)
+    if not historical_data.empty:
+        returns = historical_data['returns'].dropna() * 100
+        model = arch_model(returns, vol='Garch', p=1, q=1)
+        garch_fit = model.fit(disp='off')
+        forecast = garch_fit.forecast(horizon=5)
+        forecast_vol = np.sqrt(forecast.variance.values[-1, :]) * np.sqrt(252)
+        
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> Realized Volatility (30D)</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
+        st.subheader("5-Day Volatility Forecast")
+        forecast_df = pd.DataFrame({
+            'Day': [f"Day {i+1}" for i in range(5)],
+            'Forecasted Volatility (%)': forecast_vol
+        })
+        st.dataframe(forecast_df, use_container_width=True)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=forecast_df['Day'], y=forecast_df['Forecasted Volatility (%)'], mode='lines+markers', line=dict(color='#FBBF24')))
+        fig.update_layout(
+            title='5-Day Volatility Forecast',
+            xaxis_title='Day',
+            yaxis_title='Volatility (%)',
+            template='plotly_dark',
+            title_font=dict(size=20, color='#FBBF24'),
+            xaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
+            yaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.error("Failed to fetch historical data for forecasting.")
+
+# === Tab 3: Prediction ===
+with tab3:
+    st.header("NIFTY Prediction")
+    if not historical_data.empty:
+        data = historical_data[['close']].copy()
+        data['lag1'] = data['close'].shift(1)
+        data['lag2'] = data['close'].shift(2)
+        data['ma5'] = data['close'].rolling(window=5).mean()
+        data['volatility'] = data['close'].pct_change().rolling(window=5).std() * np.sqrt(252)
+        data = data.dropna()
+        
+        X = data[['lag1', 'lag2', 'ma5', 'volatility']]
+        y = data['close']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        xgb_model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
+        xgb_model.fit(X_train, y_train)
+        
+        y_pred = xgb_model.predict(X_test)
+        mse = mean_squared_error(y_test, y_pred)
+        mae = mean_absolute_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        
+        latest_data = X.iloc[-1:].copy()
+        prediction = xgb_model.predict(latest_data)[0]
+        st.session_state.xgb_prediction = prediction
+        
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>prediction</i> Predicted NIFTY Close</h4><p>₹{prediction:.2f}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>error</i> Model MSE</h4><p>{mse:.2f}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>error</i> Model MAE</h4><p>{mae:.2f}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>score</i> Model R²</h4><p>{r2:.2f}</p></div>", unsafe_allow_html=True)
+    else:
+        st.error("Failed to fetch historical data for prediction.")
 
 # === Tab 4: Strategies ===
 with tab4:
@@ -469,7 +833,9 @@ with tab4:
 with tab5:
     st.header("Dashboard: Risk & Performance")
     st.subheader("Volatility Insights")
-    # Existing volatility insights code...
+    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> Realized Volatility (30D)</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> ATM Implied Volatility</h4><p>{st.session_state.atm_iv if st.session_state.atm_iv else 0:.2f}%</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>difference</i> IV-RV Spread</h4><p>{(st.session_state.atm_iv - realized_vol) if st.session_state.atm_iv else 0:.2f}%</p></div>", unsafe_allow_html=True)
 
     st.subheader("Portfolio Overview")
     col1, col2, col3 = st.columns(3)
