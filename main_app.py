@@ -27,7 +27,7 @@ try:
     from backtesting import run_backtest
     from strategy_generation import generate_trading_strategy
 except ImportError as e:
-    st.error(f"❌ Missing required module: {e}. Please check your dependencies.")
+    st.error(f"âŒ Missing required module: {e}. Please check your dependencies.")
     logging.error(f"Module import failed: {e}")
     st.stop()
 
@@ -45,7 +45,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # === Streamlit Page Configuration ===
-st.set_page_config(page_title="VolGuard Pro", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="VolGuard Pro", page_icon="ðŸ›¡ï¸", layout="wide")
 
 # === Custom CSS Styling ===
 st.markdown(
@@ -439,32 +439,32 @@ def calculate_position_pnl_with_ltp(upstox_client, positions_data):
 
 # === Streamlit App Layout ===
 with st.sidebar:
-    st.header("🔑 Upstox Login")
+    st.header("ðŸ”‘ Upstox Login")
     access_token = st.text_input(
         "Access Token", type="password", key="access_token_input"
     )
     if st.button("Login to Upstox", key="login_button"):
         if not access_token:
-            st.error("❌ Access token cannot be empty.")
+            st.error("âŒ Access token cannot be empty.")
             logger.error("Login attempted with empty access token.")
         else:
             client_objects = initialize_upstox_client(access_token)
             if client_objects:
                 st.session_state.client = client_objects
                 st.session_state.logged_in = True
-                st.success("✅ Logged in to Upstox!")
+                st.success("âœ… Logged in to Upstox!")
                 logger.info("Upstox login successful.")
                 st.rerun()
             else:
                 st.session_state.logged_in = False
                 st.session_state.client = None
-                st.error("❌ Login failed. Invalid or expired access token.")
+                st.error("âŒ Login failed. Invalid or expired access token.")
                 logger.error("Upstox login failed: Invalid or expired token.")
 
     if st.session_state.logged_in:
-        st.header("⚙️ Trading Controls")
+        st.header("âš™ï¸ Trading Controls")
         capital = st.number_input(
-            "Capital (₹)",
+            "Capital (â‚¹)",
             min_value=100000,
             value=st.session_state.capital,
             step=100000,
@@ -543,25 +543,25 @@ with st.sidebar:
                     st.info("Attempting to square off all open positions...")
                     success = square_off_positions(st.session_state.client)
                     if success:
-                        st.success("✅ Square off process initiated successfully!")
+                        st.success("âœ… Square off process initiated successfully!")
                         logger.info("Square off process initiated.")
                     else:
-                        st.error("❌ Failed to initiate square off process.")
+                        st.error("âŒ Failed to initiate square off process.")
                         logger.error("Failed to initiate square off process.")
                 else:
-                    st.warning("⏰ Market is closed. Cannot square off positions.")
+                    st.warning("â° Market is closed. Cannot square off positions.")
                     logger.warning("Square off attempted outside market hours.")
             else:
                 st.error("Not logged in to Upstox.")
                 logger.warning("Square off attempted without login.")
 
 # === Main App ===
-st.title("🛡️ VolGuard Pro")
+st.title("ðŸ›¡ï¸ VolGuard Pro")
 st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
 
 if not is_market_hours():
     st.warning(
-        "⚠️ Outside standard market hours (9:15 AM–3:30 PM IST, Mon-Fri). Live trading actions may be limited."
+        "âš ï¸ Outside standard market hours (9:15 AMâ€“3:30 PM IST, Mon-Fri). Live trading actions may be limited."
     )
     logger.info("App running outside standard market hours.")
 
@@ -584,46 +584,46 @@ try:
             data_load_success = True
             logger.info("Features generated successfully.")
         else:
-            st.error("❌ Failed to generate features from loaded data.")
+            st.error("âŒ Failed to generate features from loaded data.")
             logger.error("Feature generation failed during app load.")
             st.session_state.analysis_df = None
     else:
         logger.error(
             f"Data loading failed: load_data returned None or empty DataFrame from {data_source_tag}."
         )
-        st.error(f"❌ Could not load necessary data from {data_source_tag}.")
+        st.error(f"âŒ Could not load necessary data from {data_source_tag}.")
         st.session_state.analysis_df = None
         st.session_state.real_time_market_data = real_data_loaded if real_data_loaded else {}
 except Exception as e:
     logger.critical(f"Critical error during data loading: {str(e)}", exc_info=True)
-    st.error(f"❌ A critical error occurred during data loading: {str(e)}.")
+    st.error(f"âŒ A critical error occurred during data loading: {str(e)}.")
     data_load_success = False
     st.session_state.analysis_df = None
     st.session_state.real_time_market_data = {}
 
 if not data_load_success and not st.session_state.real_time_market_data:
-    st.error("❌ VolGuard Pro cannot function without essential market data.")
+    st.error("âŒ VolGuard Pro cannot function without essential market data.")
     st.stop()
 elif not data_load_success:
-    st.warning("⚠️ Historical data or feature generation failed. Some sections may not be available.")
+    st.warning("âš ï¸ Historical data or feature generation failed. Some sections may not be available.")
     logger.warning("App continuing with only real-time data.")
 
 # === Tabs ===
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     [
-        "📊 Market Snapshot",
-        "🔮 Volatility Forecast",
-        "🤖 Trading Strategy",
-        "💼 Portfolio",
-        "📝 Journal",
-        "📈 Backtest",
-        "⚠️ Risk Dashboard",
-        "💬 SmartBhai",
+        "ðŸ“Š Market Snapshot",
+        "ðŸ”® Volatility Forecast",
+        "ðŸ¤– Trading Strategy",
+        "ðŸ’¼ Portfolio",
+        "ðŸ“ Journal",
+        "ðŸ“ˆ Backtest",
+        "âš ï¸ Risk Dashboard",
+        "ðŸ’¬ SmartBhai",
     ]
 )
 
 with tab1:
-    st.header("📊 Market Snapshot")
+    st.header("ðŸ“Š Market Snapshot")
     if st.session_state.real_time_market_data:
         market_data = st.session_state.real_time_market_data
         col1, col2, col3, col4 = st.columns(4)
@@ -705,7 +705,7 @@ with tab1:
     st.markdown(f"**Data Source**: {data_source_tag}")
 
 with tab2:
-    st.header("🔮 Volatility Forecast")
+    st.header("ðŸ”® Volatility Forecast")
     if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
         try:
             logger.info("Running volatility forecast.")
@@ -807,7 +807,7 @@ with tab2:
                 logger.warning("Feature importances data missing.")
 
         except Exception as e:
-            st.error(f"❌ Error generating volatility forecast: {str(e)}.")
+            st.error(f"âŒ Error generating volatility forecast: {str(e)}.")
             logger.error(f"Volatility forecast error: {str(e)}.", exc_info=True)
             st.session_state.forecast_log = None
             st.session_state.forecast_metrics = None
@@ -816,7 +816,7 @@ with tab2:
         logger.warning("Analysis DataFrame not available for volatility forecasting.")
 
 with tab3:
-    st.header("🤖 Trading Strategy")
+    st.header("ðŸ¤– Trading Strategy")
     if (
         st.session_state.analysis_df is not None
         and not st.session_state.analysis_df.empty
@@ -840,7 +840,7 @@ with tab3:
                 st.markdown(f"**Confidence**: {strategy.get('Confidence', 0.0):.2%}")
                 deploy_amount = strategy.get("Deploy", 0.0)
                 st.markdown(
-                    f"**Deploy Amount**: ₹{deploy_amount:.2f}"
+                    f"**Deploy Amount**: â‚¹{deploy_amount:.2f}"
                     if isinstance(deploy_amount, (int, float))
                     else f"Deploy Amount: {deploy_amount}"
                 )
@@ -857,16 +857,16 @@ with tab3:
                         )
                         st.session_state.prepared_orders = prepared_orders
                         if prepared_orders and isinstance(prepared_orders, list) and len(prepared_orders) > 0:
-                            st.success(f"✅ {len(prepared_orders)} Orders prepared successfully!")
+                            st.success(f"âœ… {len(prepared_orders)} Orders prepared successfully!")
                             st.subheader("Prepared Orders Preview")
                             st.dataframe(pd.DataFrame(prepared_orders))
                             logger.info(f"{len(prepared_orders)} Orders prepared successfully.")
                         else:
-                            st.warning("⚠️ Failed to prepare orders.")
+                            st.warning("âš ï¸ Failed to prepare orders.")
                             logger.warning("Order preparation failed.")
                             st.session_state.prepared_orders = None
                     else:
-                        st.warning("⏰ Market is closed. Cannot prepare live orders.")
+                        st.warning("â° Market is closed. Cannot prepare live orders.")
                         st.session_state.prepared_orders = None
 
                 if (
@@ -877,7 +877,7 @@ with tab3:
                     if is_market_hours():
                         with st.form("execute_orders_form", clear_on_submit=False):
                             st.subheader("Ready to Execute")
-                            st.warning("🚨 Clicking 'Execute Orders' will place REAL orders.")
+                            st.warning("ðŸš¨ Clicking 'Execute Orders' will place REAL orders.")
                             confirm_execution = st.checkbox(
                                 "Confirm: I understand this will place live orders."
                             )
@@ -889,21 +889,21 @@ with tab3:
                                     st.session_state.prepared_orders.copy(),
                                 )
                                 if success:
-                                    st.success("✅ Orders executed successfully!")
+                                    st.success("âœ… Orders executed successfully!")
                                     logger.info("Orders executed successfully via API.")
                                     st.session_state.trades.extend(st.session_state.prepared_orders)
                                     st.session_state.prepared_orders = None
                                     st.session_state.order_placement_errors.append(response_details)
                                 else:
-                                    st.error("❌ Order execution failed.")
+                                    st.error("âŒ Order execution failed.")
                                     logger.error(f"Order execution failed: {response_details}")
                                     st.session_state.order_placement_errors.append(response_details)
                                 st.subheader("Execution Response Details")
                                 st.json(response_details)
                             elif execute_button_clicked:
-                                st.error("❌ Please confirm before executing orders.")
+                                st.error("âŒ Please confirm before executing orders.")
                     else:
-                        st.warning("⏰ Market is closed. Cannot execute live orders.")
+                        st.warning("â° Market is closed. Cannot execute live orders.")
                 elif st.session_state.prepared_orders is not None:
                     st.info("Please log in to Upstox to execute prepared orders.")
 
@@ -912,10 +912,10 @@ with tab3:
                     for error in st.session_state.order_placement_errors[-3:]:  # Limit to last 3
                         st.json(error)
             else:
-                st.info("⚠️ No strategy generated based on current conditions.")
+                st.info("âš ï¸ No strategy generated based on current conditions.")
                 st.session_state.generated_strategy = None
         except Exception as e:
-            st.error(f"❌ Error generating strategy: {str(e)}.")
+            st.error(f"âŒ Error generating strategy: {str(e)}.")
             logger.error(f"Trading strategy generation error: {str(e)}.", exc_info=True)
             st.session_state.generated_strategy = None
             st.session_state.prepared_orders = None
@@ -924,17 +924,17 @@ with tab3:
         logger.warning("Essential data missing for trading strategy generation.")
 
 with tab4:
-    st.header("💼 Portfolio")
+    st.header("ðŸ’¼ Portfolio")
     if st.session_state.logged_in and st.session_state.client:
         logger.info("Fetching portfolio data for display.")
         portfolio_summary = fetch_portfolio_data(st.session_state.client, st.session_state.capital)
         col1, col2, col3 = st.columns(3)
         with col1:
             weekly_pnl = portfolio_summary.get("weekly_pnl", 0.0)
-            st.metric("Weekly PnL", f"₹{weekly_pnl:.2f}")
+            st.metric("Weekly PnL", f"â‚¹{weekly_pnl:.2f}")
         with col2:
             margin_used = portfolio_summary.get("margin_used", 0.0)
-            st.metric("Margin Used", f"₹{margin_used:.2f}")
+            st.metric("Margin Used", f"â‚¹{margin_used:.2f}")
         with col3:
             exposure = portfolio_summary.get("exposure", 0.0)
             st.metric("Exposure", f"{exposure:.2f}%")
@@ -985,7 +985,7 @@ with tab4:
                     if pd.api.types.is_numeric_dtype(fund_df[col]):
                         fund_df[col] = pd.to_numeric(fund_df[col], errors="coerce")
                         fund_df[col] = fund_df[col].apply(
-                            lambda x: f"₹{x:.2f}" if pd.notna(x) else "N/A"
+                            lambda x: f"â‚¹{x:.2f}" if pd.notna(x) else "N/A"
                         )
                 st.dataframe(fund_df)
             else:
@@ -1046,7 +1046,7 @@ with tab4:
         logger.info("User not logged in, Portfolio tab showing login message.")
 
 with tab5:
-    st.header("📝 Trading Journal")
+    st.header("ðŸ“ Trading Journal")
     journal_file = Path("journal_log.csv")
     try:
         if journal_file.exists():
@@ -1057,7 +1057,7 @@ with tab5:
             journal_df = pd.DataFrame(columns=["Date", "Strategy", "PnL", "Notes"])
         logger.info(f"Journal loaded successfully. {len(journal_df)} entries found.")
     except Exception as e:
-        st.error(f"❌ Error loading journal file: {str(e)}")
+        st.error(f"âŒ Error loading journal file: {str(e)}")
         logger.error(f"Error loading journal file: {str(e)}", exc_info=True)
         journal_df = pd.DataFrame(columns=["Date", "Strategy", "PnL", "Notes"])
 
@@ -1076,7 +1076,7 @@ with tab5:
         )
         st.session_state.journal_strategy_input = strategy_log
         pnl_log = st.number_input(
-            "PnL (₹)",
+            "PnL (â‚¹)",
             format="%.2f",
             value=st.session_state.journal_pnl_input,
             key="journal_pnl_input",
@@ -1103,13 +1103,13 @@ with tab5:
             logger.info("New journal entry added to DataFrame.")
             try:
                 journal_df.to_csv(journal_file, index=False, encoding="utf-8")
-                st.success("✅ Trade logged successfully!")
+                st.success("âœ… Trade logged successfully!")
                 logger.info("Journal updated successfully saved to CSV.")
                 st.session_state.journal_strategy_input = ""
                 st.session_state.journal_pnl_input = 0.0
                 st.session_state.journal_notes_input = ""
             except Exception as e:
-                st.error(f"❌ Error saving journal entry: {str(e)}")
+                st.error(f"âŒ Error saving journal entry: {str(e)}")
                 logger.error(f"Error saving journal entry to CSV: {str(e)}", exc_info=True)
 
     st.subheader("Trade History")
@@ -1125,7 +1125,7 @@ with tab5:
         logger.info("Journal DataFrame is empty.")
 
 with tab6:
-    st.header("📈 Backtest Results")
+    st.header("ðŸ“ˆ Backtest Results")
     if (
         st.session_state.backtest_run
         and st.session_state.analysis_df is not None
@@ -1138,7 +1138,7 @@ with tab6:
             end_date = st.session_state.backtest_end_date
             analysis_df = st.session_state.analysis_df
             if start_date >= end_date:
-                st.error("❌ Backtest Error: Start date must be before end date.")
+                st.error("âŒ Backtest Error: Start date must be before end date.")
                 logger.error("Backtest date range invalid: Start date >= End date.")
                 st.session_state.backtest_run = False
                 st.session_state.backtest_results = None
@@ -1148,7 +1148,7 @@ with tab6:
                 or pd.to_datetime(end_date) > analysis_df.index.max()
             ):
                 st.error(
-                    f"❌ Backtest Error: Selected date range is outside available data range ({analysis_df.index.min().date()} to {analysis_df.index.max().date()})."
+                    f"âŒ Backtest Error: Selected date range is outside available data range ({analysis_df.index.min().date()} to {analysis_df.index.max().date()})."
                 )
                 logger.error("Backtest date range outside available data.")
                 st.session_state.backtest_run = False
@@ -1165,7 +1165,7 @@ with tab6:
                 st.session_state.backtest_results = backtest_results
                 st.session_state.backtest_run = False
                 if backtest_results and isinstance(backtest_results, dict):
-                    st.success("✅ Backtest completed!")
+                    st.success("âœ… Backtest completed!")
                     logger.info("Backtest completed successfully.")
                     st.subheader("Key Performance Metrics")
                     col1, col2, col3 = st.columns(3)
@@ -1200,12 +1200,12 @@ with tab6:
                         st.info("Backtest trade log is empty.")
                         logger.warning("Backtest trade log data missing.")
                 else:
-                    st.error("❌ Backtest failed to return results.")
+                    st.error("âŒ Backtest failed to return results.")
                     logger.error("Backtest failed to return results.")
                     st.session_state.backtest_results = None
                     st.session_state.backtest_cumulative_pnl_chart_data = None
         except Exception as e:
-            st.error(f"❌ An error occurred while running the backtest: {str(e)}.")
+            st.error(f"âŒ An error occurred while running the backtest: {str(e)}.")
             logger.error(f"Backtest execution error: {str(e)}.", exc_info=True)
             st.session_state.backtest_run = False
             st.session_state.backtest_results = None
@@ -1247,82 +1247,57 @@ with tab6:
         st.info("Run a backtest from the sidebar to see results here.")
         logger.info("Backtest tab: No backtest results available.")
 
+
 with tab7:
-    st.header("⚠️ Risk Dashboard")
-    if st.session_state.analysis_df is not None and not st.session_state.analysis_df.empty:
-        logger.info("Displaying Risk Dashboard.")
-        try:
-            latest_data = (
-                st.session_state.analysis_df.iloc[-1]
-                if not st.session_state.analysis_df.empty
-                else None
-            )
-            pnl_day = (
-                pd.to_numeric(latest_data.get("PnL_Day"), errors="coerce").fillna(0.0)
-                if latest_data is not None
-                else 0.0
-            )
+    st.header("ðŸ“ˆ Option Analytics")
+    client = st.session_state.client if st.session_state.logged_in else None
 
-            temp_vix_real = (
-                pd.to_numeric(st.session_state.real_time_market_data.get("vix"), errors="coerce")
-                if st.session_state.real_time_market_data
-                else np.nan
-            )
-            temp_vix_analysis = (
-                pd.to_numeric(latest_data.get("VIX"), errors="coerce")
-                if latest_data is not None and latest_data.get("VIX") is not None
-                else np.nan
-            )
-            latest_vix = temp_vix_real if pd.notna(temp_vix_real) else (temp_vix_analysis if pd.notna(temp_vix_analysis) else 15.0)
-            regime = "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
-
-            risk_metrics = {
-                "VaR_95": abs(pnl_day) * 1.65,
-                "Max_Loss": abs(pnl_day) * 2.33,
-                "Volatility_Regime": regime,
-            }
-            logger.debug(f"Calculated risk metrics: {risk_metrics}")
-
-            portfolio_summary_for_risk = fetch_portfolio_data(
-                st.session_state.client, st.session_state.capital
-            )
-            logger.debug(
-                f"Fetched portfolio summary for risk display: Exposure={portfolio_summary_for_risk.get('exposure', 0.0):.2f}%"
-            )
-
-            st.subheader("Key Risk Metrics")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                var_95 = risk_metrics.get("VaR_95", 0.0)
-                st.metric("VaR (95%)", f"₹{var_95:.2f}")
-            with col2:
-                max_loss = risk_metrics.get("Max_Loss", 0.0)
-                st.metric("Max Loss (99%)", f"₹{max_loss:.2f}")
-            with col3:
-                regime = risk_metrics.get("Volatility_Regime", "N/A")
-                regime_class = {
-                    "Low": "regime-low",
-                    "Medium": "regime-medium",
-                    "High": "regime-high",
-                    "Event": "regime-event",
-                }.get(regime, "regime-medium")
-                st.markdown(
-                    f"<span class='regime-badge {regime_class}'>{regime} Regime</span>",
-                    unsafe_allow_html=True,
-                )
-
-            st.subheader("Risk Exposure (Margin Used / Capital)")
-            current_exposure = portfolio_summary_for_risk.get("exposure", 0.0)
-            st.metric("Current Exposure", f"{current_exposure:.2f}%")
-        except Exception as e:
-            st.error(f"❌ Error generating risk dashboard: {str(e)}.")
-            logger.error(f"Risk dashboard error: {str(e)}.", exc_info=True)
+    if not client:
+        st.warning("Please login to Upstox to fetch option analytics.")
     else:
-        st.info("No analysis data available for risk dashboard.")
-        logger.warning("Analysis DataFrame not available for Risk Dashboard.")
+        st.info("Fetching latest option chain and market data...")
+        try:
+            from upstox_api import fetch_real_time_market_data
+            data = fetch_real_time_market_data(client)
+            if not data:
+                st.error("âŒ Failed to fetch option data.")
+            else:
+                st.success(f"Last updated: {data['timestamp']}")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("NIFTY Spot", f"{data['nifty_spot']:.2f}")
+                col2.metric("India VIX", f"{data['vix']:.2f}" if data['vix'] else "N/A")
+                col3.metric("PCR", f"{data['pcr']:.2f}")
+                col4.metric("ATM Straddle", f"{data['straddle_price']:.2f}")
+
+                col5, col6, col7 = st.columns(3)
+                col5.metric("ATM Strike", f"{data['atm_strike']}")
+                col6.metric("Max Pain", f"{data['max_pain_strike']}")
+                col7.metric("Expiry", data["expiry"])
+
+                st.subheader("Market Depth (ATM Strike)")
+                ce = data["ce_depth"]
+                pe = data["pe_depth"]
+                st.markdown(f"**Call Bid/Ask**: {ce['bid_volume']} / {ce['ask_volume']} | **Put Bid/Ask**: {pe['bid_volume']} / {pe['ask_volume']}")
+
+                df = data["option_chain"]
+                atm_idx = df[df["Strike"] == data["atm_strike"]].index[0]
+                subset = df.iloc[max(0, atm_idx - 6): atm_idx + 7]
+
+                st.subheader("ATM Â± 6 Strikes")
+                display_cols = [
+                    "Strike", "CE_LTP", "CE_IV", "CE_OI", "CE_Volume",
+                    "PE_LTP", "PE_IV", "PE_OI", "PE_Volume", "Strike_PCR"
+                ]
+                st.dataframe(subset[display_cols].reset_index(drop=True), use_container_width=True)
+
+                st.subheader("Full Option Chain (Preview)")
+                st.dataframe(df[display_cols].head(20), use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying analytics: {e}")
+
 
 with tab8:
-    st.header("💬 SmartBhai GPT")
+    st.header("ðŸ’¬ SmartBhai GPT")
     st.markdown("<div class='smartbhai-container'>", unsafe_allow_html=True)
     st.markdown(
         "<div class='smartbhai-title'>Ask about IV, strategies, or market buzz!</div>",
@@ -1375,7 +1350,7 @@ with tab8:
                         st.session_state.chat_history.append(
                             {
                                 "role": "assistant",
-                                "message": "Sorry, Bhai, kuch technical issue hai. Try again! 🙏",
+                                "message": "Sorry, Bhai, kuch technical issue hai. Try again! ðŸ™",
                             }
                         )
                     st.rerun()
@@ -1388,10 +1363,10 @@ with tab8:
 st.markdown(
     """
     <div class='footer'>
-        VolGuard Pro | Built with ❤️ by Shritish | Powered by Upstox API & Streamlit
+        VolGuard Pro | Built with â¤ï¸ by Shritish | Powered by Upstox API & Streamlit
         <br>
         <small>Disclaimer: Trading involves risks. Do your own research and consult a financial advisor.</small>
     </div>
     """,
     unsafe_allow_html=True,
-          )
+)
