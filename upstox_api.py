@@ -152,3 +152,43 @@ def fetch_real_time_market_data(upstox_client):
         "pe_depth": pe_depth,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
+   def fetch_all_api_portfolio_data(upstox_client):
+    """
+    Fetches all relevant portfolio data: funds, holdings, positions, orders, and trades.
+    """
+    portfolio_api = upstox_client["portfolio_api"]
+    order_api = upstox_client["order_api"]
+    user_api = upstox_client["user_api"]
+
+    data = {}
+    try:
+        data['margin'] = user_api.get_user_fund_margin(api_version="v2").to_dict()
+    except Exception as e:
+        logger.warning(f"Margin fetch failed: {e}")
+        data['margin'] = {}
+
+    try:
+        data['holdings'] = portfolio_api.get_holdings(api_version="v2").to_dict()
+    except Exception as e:
+        logger.warning(f"Holdings fetch failed: {e}")
+        data['holdings'] = {}
+
+    try:
+        data['positions'] = portfolio_api.get_positions(api_version="v2").to_dict()
+    except Exception as e:
+        logger.warning(f"Positions fetch failed: {e}")
+        data['positions'] = {}
+
+    try:
+        data['orders'] = order_api.get_order_book(api_version="v2").to_dict()
+    except Exception as e:
+        logger.warning(f"Orders fetch failed: {e}")
+        data['orders'] = {}
+
+    try:
+        data['trades'] = order_api.get_trade_history(api_version="v2").to_dict()
+    except Exception as e:
+        logger.warning(f"Trades fetch failed: {e}")
+        data['trades'] = {}
+
+    return data 
