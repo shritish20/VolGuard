@@ -28,6 +28,10 @@ logger = logging.getLogger("VolGuard")
 # === Global OI Storage ===
 prev_oi = {}  # Store previous OI for change tracking
 
+# === Session State to Store VolGuard Data ===
+if 'volguard_data' not in st.session_state:
+    st.session_state.volguard_data = None
+
 # === Helper Functions ===
 def get_nearest_expiry(options_api, instrument_key):
     try:
@@ -101,7 +105,7 @@ def process_chain(data):
             "PE_IV": pe_gk.get("iv"),
             "PE_Delta": pe_gk.get("delta"),
             "PE_Theta": pe_gk.get("theta"),
-            "PE_Vega": pe_gk.get("vega"),
+            "PE_Vega": ce_gk.get("vega"),
             "PE_OI": pe_oi_val,
             "PE_OI_Change": pe_oi_change,
             "PE_OI_Change_Pct": pe_oi_change_pct,
@@ -173,6 +177,11 @@ def calculate_rolling_and_fixed_hv(nifty_close):
     hv_1y = log_returns[-252:].std() * np.sqrt(252) * 100
     return rv_7d_df, round(hv_30d, 2), round(hv_1y, 2)
 
+def compute_realized_vol(nifty_df):
+    log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna()
+    last_7d_std = log_returns[-7:].std() * np.sqrt(252) * 100
+    return last_7d_std if not np.isnan(last_7d_std) else 0
+
 def run_volguard(access_token):
     try:
         configuration = upstox_client.Configuration()
@@ -212,7 +221,8 @@ def run_volguard(access_token):
             "iv_skew_data": df.to_dict(),
             "ce_depth": ce_depth,
             "pe_depth": pe_depth,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "atm_iv": df[df['Strike'] == atm_strike]['CE_IV'].values[0] if not df[df['Strike'] == atm_strike].empty else 0
         }
         return result, df, iv_skew_fig, atm_strike
     except Exception as e:
@@ -220,7 +230,7 @@ def run_volguard(access_token):
         return None, None, None, None
 
 # === Streamlit Tabs ===
-tab1, tab2, tab3 = st.tabs(["VolGuard: Options Analysis", "GARCH: Volatility Forecast", "XGBoost: Volatility Prediction"])
+tab1, tab2, tab3, tab4 = st.tabs(["VolGuard: Options Analysis", "GARCH: Volatility Forecast", "XGBoost: Volatility Prediction", "Dashboard: Volatility Comparison"])
 
 # === Tab 1: VolGuard ===
 with tab1:
@@ -235,6 +245,7 @@ with tab1:
             with st.spinner("Fetching options data..."):
                 result, df, iv_skew_fig, atm_strike = run_volguard(access_token)
                 if result:
+                    st.session_state.volguard_data = result  # Store for XGBoost and Dashboard
                     st.success("Data fetched successfully!")
                     col1, col2 = st.columns(2)
                     with col1:
@@ -288,13 +299,13 @@ with tab2:
         model_fit = model.fit(disp="off")
         forecast_horizon = 7
         garch_forecast = model_fit.forecast(horizon=forecast_horizon)
-        vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
-        vols = np.clip(vols, 5, 50)
-        forecast_dates = pd.bdate_range(start=nifty_df.index[-1] + timedelta(days=1), periods=7)
+        garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
+        garch_vols = np.clip(garch_vols, 5, 50)
+        forecast_dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)  # Start from May 15, 2025
         forecast_df = pd.DataFrame({
             "Date": forecast_dates,
             "Day": forecast_dates.day_name(),
-            "Forecasted Volatility (%)": np.round(vols, 2)
+            "Forecasted Volatility (%)": np.round(garch_vols, 2)
         })
         st.subheader("GARCH Volatility Forecast")
         st.dataframe(forecast_df, use_container_width=True)
@@ -313,11 +324,12 @@ with tab3:
     st.header("XGBoost: 5-Day Volatility Prediction")
     xgb_model_url = "https://drive.google.com/uc?export=download&id=1Gs86p1p8wsGe1lp498KC-OVn0e87Gv-R"
     xgb_csv_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/synthetic_volguard_dataset.csv"
-    
-    if st.button("Run XGBoost"):
+
+    # Model Evaluation Section
+    st.subheader("Evaluate Trained Model")
+    if st.button("Run Model Evaluation"):
         try:
             with st.spinner("Loading XGBoost data and model..."):
-                # Load CSV
                 xgb_df = pd.read_csv(xgb_csv_url)
                 xgb_df = xgb_df.dropna()
                 features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']
@@ -326,21 +338,18 @@ with tab3:
                     st.error("CSV missing required columns!")
                     st.stop()
                 X = xgb_df[features]
-                y = xgb_df[target]
+                y = xgb_df[target] * 100  # Convert to percentage for consistency
 
-                # Load model from Google Drive
                 response = requests.get(xgb_model_url)
                 if response.status_code != 200:
-                    st.error("Failed to load xgb_model.pkl from Google Drive. Check the URL.")
+                    st.error("Failed to load xgb_model.pkl from Google Drive.")
                     st.stop()
                 xgb_model = pickle.loads(response.content)
 
-                # Split and predict
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
                 y_pred_train = xgb_model.predict(X_train)
                 y_pred_test = xgb_model.predict(X_test)
 
-                # Metrics
                 rmse_train = np.sqrt(mean_squared_error(y_train, y_pred_train))
                 rmse_test = np.sqrt(mean_squared_error(y_test, y_pred_test))
                 mae_train = mean_absolute_error(y_train, y_pred_train)
@@ -352,16 +361,15 @@ with tab3:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("**Training Metrics**")
-                    st.write(f"RMSE: {rmse_train:.4f}")
-                    st.write(f"MAE: {mae_train:.4f}")
+                    st.write(f"RMSE: {rmse_train:.4f}%")
+                    st.write(f"MAE: {mae_train:.4f}%")
                     st.write(f"R²: {r2_train:.4f}")
                 with col2:
                     st.write("**Test Metrics**")
-                    st.write(f"RMSE: {rmse_test:.4f}")
-                    st.write(f"MAE: {mae_test:.4f}")
+                    st.write(f"RMSE: {rmse_test:.4f}%")
+                    st.write(f"MAE: {mae_test:.4f}%")
                     st.write(f"R²: {r2_test:.4f}")
 
-                # Feature importance plot
                 fig, ax = plt.subplots(figsize=(10, 6))
                 xgb_importances = xgb_model.feature_importances_
                 sorted_idx = np.argsort(xgb_importances)
@@ -373,5 +381,141 @@ with tab3:
                 st.subheader("Feature Importances")
                 st.pyplot(fig)
         except Exception as e:
-            st.error(f"Error running XGBoost: {e}")
-            st.write("Ensure the model URL and CSV are correct and the CSV contains the required columns.")
+            st.error(f"Error running model evaluation: {e}")
+
+    # Real-Time Prediction Section
+    st.subheader("Predict with New Data")
+    st.info("Use VolGuard data (if available) or enter values manually. IVP, Event_Impact_Score, and FII_DII_Net_Long require external data.")
+    
+    try:
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
+        realized_vol = compute_realized_vol(nifty_df)
+    except Exception as e:
+        realized_vol = 0
+        st.warning(f"Could not compute Realized Volatility: {e}")
+
+    # Auto-fill from VolGuard if available
+    atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 0  # Convert to %
+    pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 0
+    vix = st.session_state.volguard_data['vix'] if st.session_state.volguard_data else 0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        atm_iv_input = st.number_input("ATM IV (%)", value=float(atm_iv), min_value=0.0, step=0.1)
+        realized_vol_input = st.number_input("Realized Volatility (%)", value=float(realized_vol), min_value=0.0, step=0.1)
+        ivp_input = st.number_input("IV Percentile (0–100)", value=50.0, min_value=0.0, max_value=100.0, step=1.0)
+    with col2:
+        event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
+        fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
+        pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
+        vix_input = st.number_input("India VIX (%)", value=float(vix), min_value=0.0, step=0.1)
+
+    if st.button("Predict Volatility"):
+        try:
+            with st.spinner("Loading model and predicting..."):
+                response = requests.get(xgb_model_url)
+                if response.status_code != 200:
+                    st.error("Failed to load xgb_model.pkl from Google Drive.")
+                    st.stop()
+                xgb_model = pickle.loads(response.content)
+
+                # Create feature DataFrame
+                new_data = pd.DataFrame({
+                    'ATM_IV': [atm_iv_input],
+                    'Realized_Vol': [realized_vol_input],
+                    'IVP': [ivp_input],
+                    'Event_Impact_Score': [event_score_input],
+                    'FII_DII_Net_Long': [fii_dii_input],
+                    'PCR': [pcr_input],
+                    'VIX': [vix_input]
+                })
+
+                # Predict and convert to percentage
+                prediction = xgb_model.predict(new_data)[0]
+                st.session_state.xgb_prediction = prediction  # Store for Dashboard
+                st.success(f"Predicted Next 5-Day Realized Volatility: {prediction:.2f}%")
+        except Exception as e:
+            st.error(f"Error predicting volatility: {e}")
+
+# === Tab 4: Dashboard ===
+with tab4:
+    st.header("Dashboard: Volatility Comparison")
+    st.info("Compares XGBoost, GARCH, Realized Volatility, and ATM IV. Metrics include IV-RV, PCR, VIX, and more.")
+
+    try:
+        # Load Nifty data for Realized Volatility
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
+        realized_vol = compute_realized_vol(nifty_df)
+
+        # GARCH Forecast
+        log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
+        model = arch_model(log_returns, vol="Garch", p=1, q=1)
+        model_fit = model.fit(disp="off")
+        garch_forecast = model_fit.forecast(horizon=7)
+        garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
+        garch_vols = np.clip(garch_vols, 5, 50)
+
+        # XGBoost Prediction (from session state or default)
+        xgb_vol = st.session_state.get('xgb_prediction', 15.0)  # Default 15% if not predicted
+        xgb_vols = [xgb_vol] * 7  # Extend to 7 days for plotting
+
+        # ATM IV and Metrics from VolGuard
+        atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 20.0  # Default 20%
+        atm_iv_vols = [atm_iv] * 7  # Extend to 7 days
+        pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 1.0
+        vix = st.session_state.volguard_data['vix'] if st.session_state.volguard_data else 15.0
+        straddle_price = st.session_state.volguard_data['straddle_price'] if st.session_state.volguard_data else 0
+        max_pain = st.session_state.volguard_data['max_pain'] if st.session_state.volguard_data else 0
+        iv_rv = atm_iv - realized_vol
+
+        # Realized Volatility
+        rv_vols = [realized_vol] * 7
+
+        # Plot
+        dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(dates, garch_vols, label='GARCH Forecast', color='blue', marker='o')
+        ax.plot(dates, xgb_vols, label='XGBoost Prediction', color='green', marker='s')
+        ax.plot(dates, rv_vols, label='Realized Volatility', color='red', marker='^')
+        ax.plot(dates, atm_iv_vols, label='ATM IV', color='purple', marker='d')
+        ax.set_title("Volatility Comparison (May 15–21, 2025)")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Volatility (%)")
+        ax.legend()
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        st.subheader("Volatility Plot")
+        st.pyplot(fig)
+
+        # Metrics Table
+        metrics = {
+            "Metric": ["IV-RV", "PCR", "VIX", "Straddle Price", "Max Pain", "Realized Volatility", "ATM IV", "XGBoost Volatility", "GARCH Volatility (Day 1)"],
+            "Value": [
+                f"{iv_rv:.2f}%",
+                f"{pcr:.2f}",
+                f"{vix:.2f}%",
+                f"{straddle_price:.2f}",
+                f"{max_pain:.2f}",
+                f"{realized_vol:.2f}%",
+                f"{atm_iv:.2f}%",
+                f"{xgb_vol:.2f}%",
+                f"{garch_vols[0]:.2f}%"
+            ]
+        }
+        metrics_df = pd.DataFrame(metrics)
+        st.subheader("Key Metrics")
+        st.dataframe(metrics_df, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error loading dashboard: {e}")
+        st.write("Run VolGuard and XGBoost tabs first to populate data.")
