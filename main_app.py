@@ -120,30 +120,6 @@ default_session_state = {
     "journal_date_input": datetime.now().date(),
     "journal_strategy_input": "",
     "journal_pnl_input": 0.0,
-    "journal_notes_input": Foundations: The `main_app.py` file has been updated to include the following line:}
-    from upstox_api import (
-        initialize_upstox_client,
-        fetch_all_api_portfolio_data,
-        prepare_trade_orders,
-        execute_trade_orders,
-        square_off_positions,
-        fetch_real_time_market_data,
-    )
-
-# === Initialize Session State ===
-default_session_state = {
-    "logged_in": False,
-    "client": None,
-    "real_time_market_data": {},
-    "api_portfolio_data": {},
-    "prepared_orders": None,
-    "trades": [],
-    "order_placement_errors": [],
-    "capital": 1000000,
-    "risk_tolerance": "Moderate",
-    "journal_date_input": datetime.now().date(),
-    "journal_strategy_input": "",
-    "journal_pnl_input": 0.0,
     "journal_notes_input": "",
 }
 
@@ -370,7 +346,7 @@ with tab3:
             st.info("No open positions.")
 
         st.subheader("Fund Summary")
-        margin = st.session_state.api_portfolio_data.get("margin", {}).get("data", {})
+        margin = st SESSION_STATE.api_portfolio_data.get("margin", {}).get("data", {})
         if margin:
             st.dataframe(pd.DataFrame([margin]))
         else:
@@ -429,4 +405,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-    )
+)
