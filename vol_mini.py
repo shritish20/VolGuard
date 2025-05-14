@@ -2,6 +2,8 @@
 # Based on the original Colab script logic + Integrated Volatility
 # Features: Sidebar Token Input, Dashboard with Tabs, Option Chain, Metrics, Depth, IV Skew, Portfolio, Volatility Analysis (GARCH, RV, ATM IV)
 # Historical data fetched from user's GitHub repository.
+# FIX: Added robust error handling for converting OI values to integer.
+# FIX: Used fully qualified name for ApiException in except block.
 
 import streamlit as st
 import pandas as pd
@@ -10,8 +12,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime, date, timedelta
 import logging
 import time
-import numpy as np # Added for volatility calculations
-from arch import arch_model # Added for GARCH model
+import numpy as np
+from arch import arch_model
 import io # Added to read CSV from URL response
 
 # === CONFIG ===
@@ -40,7 +42,9 @@ if 'latest_data' not in st.session_state:
 
 
 # === INIT API CLIENT ===
-@st.cache_resource(ttl="1h") # Cache the client object itself, re-initialize if app restarts or cache expires (e.g., hourly)
+# Cache the client object itself, re-initialize if app restarts or cache expires (e.g., hourly)
+# Added show_spinner=False to avoid redundant spinner when called from UI block
+@st.cache_resource(ttl="1h", show_spinner=False) 
 def initialize_upstox_client(_access_token: str): # Use underscore to differentiate from potentially local var
     """Initialize Upstox API client with access token and validate."""
     if not _access_token:
@@ -48,6 +52,7 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
         return None
 
     try:
+        logger.info("Attempting to initialize Upstox client.")
         configuration = upstox_client.Configuration()
         configuration.access_token = _access_token
         client = upstox_client.ApiClient(configuration)
@@ -68,20 +73,20 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
             "portfolio_api": upstox_client.PortfolioApi(client),
             "order_api": upstox_client.OrderApi(client),
         }
-    except ApiException as e:
-        logger.error(f"API Error during client initialization. Error: {e}")
-        # Clear cached client if validation fails for the token
+    # --- FIX: Use fully qualified exception name ---
+    except upstox_client.rest.ApiException as e:
+        logger.error(f"API Error during client initialization. Error Type: {type(e).__name__}, Error: {e}")
         st.error(f"API Error during client initialization. Please check your Access Token and permissions: {e}")
         st.cache_resource.clear() # Clear cache on API error during init
         return None
     except Exception as e:
-        logger.error(f"An unexpected error occurred during client initialization: {e}")
+        logger.error(f"An unexpected error occurred during client initialization. Error Type: {type(e).__name__}, Error: {e}")
         st.error(f"An unexpected error occurred during client initialization: {e}")
         st.cache_resource.clear() # Clear cache on unexpected error during init
         return None
 
 # === HISTORICAL DATA LOADING ===
-@st.cache_data(ttl="1d") # Cache historical data, refresh daily
+@st.cache_data(ttl="1d", show_spinner=False) # Cache historical data, refresh daily
 def load_nifty_historical_data(csv_url: str):
     """Fetches Nifty historical data from URL and preprocesses it."""
     try:
@@ -113,35 +118,50 @@ def load_nifty_historical_data(csv_url: str):
 
 
 # === VOLATILITY CALCULATIONS ===
-@st.cache_data(ttl="1h") # Cache volatility calculations, re-calculate hourly
+@st.cache_data(ttl="1h", show_spinner=False) # Cache volatility calculations, re-calculate hourly
 def calculate_volatilities(nifty_historical_df: pd.DataFrame):
     """Calculates GARCH forecast and Realized Volatility."""
-    if nifty_historical_df.empty or nifty_historical_df.shape[0] < 252 + 5: # Need enough data for 1-year HV and 5-day RV
-        st.warning("Insufficient historical data to calculate volatilities.")
+    if nifty_historical_df.empty or nifty_historical_df.shape[0] < 252 + 5: # Need enough data for 1-year HV and 5-day RV if calculating
+        st.warning("Insufficient historical data (need at least ~1 year + 5 days) to calculate volatilities.")
         return None # Return None if not enough data
 
     # Calculate log returns (%) as in your script
-    log_returns = np.log(nifty_historical_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
+    # Ensure returns calculation is robust for potential non-numeric prices
+    try:
+        nifty_close_numeric = pd.to_numeric(nifty_historical_df["NIFTY_Close"], errors='coerce').dropna()
+        if nifty_close_numeric.empty:
+             st.warning("Nifty Close prices are not numeric after loading.")
+             return None
+             
+        log_returns = np.log(nifty_close_numeric.pct_change() + 1).dropna() * 100
 
-    if log_returns.empty:
-         st.warning("Could not calculate log returns from historical data.")
-         return None
+        if log_returns.empty:
+             st.warning("Could not calculate log returns from historical data.")
+             return None
+             
+    except Exception as e:
+        logger.error(f"Error calculating log returns: {e}")
+        st.warning(f"Error calculating log returns from historical data: {e}")
+        return None
+
 
     volatility_results = {}
 
     # 1. GARCH(1,1) Forecast (5 days)
     try:
         # Ensure enough data points for GARCH (typically needs a good history)
-        if len(log_returns) > 100: # Arbitrary threshold, adjust if needed
-            logger.info("Fitting GARCH(1,1) model...")
+        if len(log_returns) > 100: # Arbitrary threshold, adjust if needed based on fitting stability
+            logger.info("Attempting to fit GARCH(1,1) model...")
             # Use try-except as fitting can sometimes fail
             try:
-                model = arch_model(log_returns, vol="Garch", p=1, q=1)
+                # Pass log_returns as a numpy array to avoid potential pandas FutureWarnings in ARCH
+                model = arch_model(log_returns.values, vol="Garch", p=1, q=1)
                 model_fit = model.fit(disp="off") # disp="off" hides fitting output
 
                 # Forecast next 5 business days (horizon=5)
                 forecast_horizon = 5
-                garch_forecast = model_fit.forecast(horizon=forecast_horizon)
+                # Pass last_obs explicitly to forecast from the correct point
+                garch_forecast = model_fit.forecast(horizon=forecast_horizon, last_obs=log_returns.index[-1])
 
                 # Annualize the forecast volatility (std dev) and clip
                 # Take the forecast standard deviations from the last step of the forecast
@@ -154,17 +174,17 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
                     garch_vols_annualized = np.sqrt(forecast_std_devs) * np.sqrt(252) # Annualize
                     garch_vols_annualized = np.clip(garch_vols_annualized, 5, 50) # Clip as in your script
 
-                volatility_results['garch_forecast_5d'] = np.round(garch_vols_annualized, 2)
+                volatility_results['garch_forecast_5d'] = np.round(garch_vols_annualized, 2).tolist() # Store as list
                 logger.info(f"GARCH 5-day forecast (annualized): {volatility_results['garch_forecast_5d']}")
 
             except Exception as e:
                 logger.error(f"Error fitting or forecasting with GARCH model: {e}")
-                st.warning(f"Could not fit or forecast with GARCH model: {e}")
+                st.warning(f"Could not fit or forecast with GARCH model. This can happen with insufficient or unstable data. Error: {e}")
                 volatility_results['garch_forecast_5d'] = [np.nan] * 5 # Indicate failure
 
         else:
             logger.warning("Not enough log returns to fit GARCH model.")
-            st.warning("Insufficient historical data points to fit the GARCH model effectively.")
+            st.warning("Insufficient historical data points to fit the GARCH model effectively (>100 needed).")
             volatility_results['garch_forecast_5d'] = [np.nan] * 5 # Indicate insufficient data
 
     except Exception as e:
@@ -212,10 +232,12 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
 
 
     # Get dates for the GARCH forecast
+    # Ensure we have historical data before trying to get the last index
     last_hist_date = nifty_historical_df.index[-1] if not nifty_historical_df.empty else datetime.now().date()
-    forecast_dates = pd.bdate_range(start=last_hist_date + timedelta(days=1), periods=5) # 5 business days
+    # Use BusinessDay offset for more accurate business day calculation
+    forecast_dates_dt = pd.bdate_range(start=last_hist_date + timedelta(days=1), periods=5) # 5 business days
 
-    volatility_results['garch_forecast_dates'] = forecast_dates.strftime("%Y-%m-%d").tolist() # Store as list of strings
+    volatility_results['garch_forecast_dates'] = forecast_dates_dt.strftime("%Y-%m-%d").tolist() # Store as list of strings
 
     return volatility_results
 
@@ -294,317 +316,6 @@ def fetch_option_chain(options_api_client, expiry_date_str):
         logger.error(f"An unexpected error occurred fetching option chain: {e}")
         st.error(f"An error occurred fetching option chain data: {e}")
         return []
-
-
-def get_market_depth(access_token_str, token):
-    """Fetch market depth for a given instrument using REST API."""
-    if not token:
-        return {"bid_volume": 0, "ask_volume": 0}
-    try:
-        url = f"{BASE_URL}/market-quote/depth"
-        headers = {"Authorization": f"Bearer {access_token_str}", "Accept": "application/json"}
-        res = requests.get(url, headers=headers, params={"instrument_key": token})
-        res.raise_for_status() # Raise an exception for bad status codes
-        depth = res.json().get('data', {}).get(token, {}).get('depth', {})
-        bid_volume = sum(item.get('quantity', 0) for item in depth.get('buy', []))
-        ask_volume = sum(item.get('quantity', 0) for item in depth.get('sell', []))
-        logger.info(f"Fetched depth for {token}: Bid={bid_volume}, Ask={ask_volume}")
-        # time.sleep(0.1) # Simple Rate limiting
-        return {"bid_volume": bid_volume, "ask_volume": ask_volume}
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Depth fetch error for {token}: {e}")
-        # st.warning(f"Could not fetch depth for {token}: {e}") # Avoid too many warnings in UI
-        return {}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred fetching depth for {token}: {e}")
-        return {}
-
-def get_user_data(user_api_client, portfolio_api_client, order_api_client):
-    """Fetch user portfolio and order data using Upstox SDK."""
-    if not (user_api_client and portfolio_api_client and order_api_client):
-         logger.warning("API clients not available for portfolio data.")
-         return {}
-
-    data = {}
-    try:
-        data['margin'] = user_api_client.get_user_fund_margin(api_version="v2").to_dict()
-        logger.info("Fetched funds")
-    except ApiException as e:
-        logger.error(f"Funds fetch error: {e}")
-        logger.warning("Funds service may be unavailable or token invalid.")
-        data['margin'] = {}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred fetching funds: {e}")
-        data['margin'] = {}
-
-    try:
-        data['holdings'] = portfolio_api_client.get_holdings(api_version="v2").to_dict()
-        logger.info("Fetched holdings")
-    except Exception as e:
-        logger.error(f"Holdings fetch error: {e}")
-        st.warning("Could not fetch holdings.")
-        data['holdings'] = {}
-
-    try:
-        data['positions'] = portfolio_api_client.get_positions(api_version="v2").to_dict()
-        logger.info("Fetched positions")
-    except Exception as e:
-        logger.error(f"Positions fetch error: {e}")
-        st.warning("Could not fetch positions.")
-        data['positions'] = {}
-
-    try:
-        data['orders'] = order_api_client.get_order_book(api_version="v2").to_dict()
-        logger.info("Fetched orders")
-    except Exception as e:
-        logger.error(f"Orders fetch error: {e}")
-        st.warning("Could not fetch orders.")
-        data['orders'] = {}
-
-    try:
-        # Note: Upstox SDK v2 has get_trade_book, not get_trade_history as in some older docs
-        data['trades'] = order_api_client.get_trade_book(api_version="v2").to_dict()
-        logger.info("Fetched trades")
-    except Exception as e:
-        logger.error(f"Trades fetch error: {e}")
-        st.warning("Could not fetch trades.")
-        data['trades'] = {}
-
-    # time.sleep(0.1) # Simple Rate limiting
-    return data
-
-
-# === DATA PROCESSING AND METRICS (Adapted from your Colab script) ===
-
-def process_chain(chain_data):
-    """Process raw option chain data into a DataFrame and calculate total OI."""
-    # Uses st.session_state['prev_oi'] for persistence in Streamlit
-    if 'prev_oi' not in st.session_state:
-         st.session_state['prev_oi'] = {} # Ensure it exists in session state
-
-    rows, total_ce_oi, total_pe_oi = [], 0, 0
-    current_oi = {} # Dictionary to store current OI for change calculation
-
-    for item in chain_data:
-        ce = item.get('call_options', {})
-        pe = item.get('put_options', {})
-        ce_md, pe_md = ce.get('market_data', {}), pe.get('market_data', {})
-        ce_gk, pe_gk = ce.get('option_greeks', {}), pe.get('option_greeks', {})
-        strike = item.get('strike_price')
-
-        if strike is None:
-            continue # Skip if strike price is missing
-
-        # --- FIX: Robust Extraction and Conversion of OI ---
-        # Get the raw value first, could be None or something else
-        raw_ce_oi = ce_md.get("oi") 
-        raw_pe_oi = pe_md.get("oi")
-
-        # Convert to integer, default to 0 if None or conversion fails
-        try:
-            ce_oi_val = int(raw_ce_oi) if pd.notna(raw_ce_oi) and raw_ce_oi is not None else 0
-        except (ValueError, TypeError):
-            logger.warning(f"Could not convert CE OI value '{raw_ce_oi}' for strike {strike} to int. Defaulting to 0.")
-            ce_oi_val = 0
-
-        try:
-            pe_oi_val = int(raw_pe_oi) if pd.notna(raw_pe_oi) and raw_pe_oi is not None else 0
-        except (ValueError, TypeError):
-            logger.warning(f"Could not convert PE OI value '{raw_pe_oi}' for strike {strike} to int. Defaulting to 0.")
-            pe_oi_val = 0
-        # --- End FIX ---
-
-        # Calculate OI change and percentage using session state's prev_oi
-        # Use .get() with default 0 in case strike was not present in the previous fetch
-        prev_ce_oi = st.session_state['prev_oi'].get(f"{strike}_CE", 0)
-        prev_pe_oi = st.session_state['prev_oi'].get(f"{strike}_PE", 0)
-
-        ce_oi_change = ce_oi_val - prev_ce_oi
-        pe_oi_change = pe_oi_val - prev_pe_oi
-
-        # Handle division by zero for percentage change calculation
-        ce_oi_change_pct = (ce_oi_change / prev_ce_oi * 100) if prev_ce_oi > 0 else 0
-        pe_oi_change_pct = (pe_oi_change / prev_pe_oi * 100) if prev_pe_oi > 0 else 0
-
-        # Store current OI for next run's calculation
-        current_oi[f"{strike}_CE"] = ce_oi_val
-        current_oi[f"{strike}_PE"] = pe_oi_val
-
-
-        row = {
-            "Strike": strike,
-            "CE_LTP": ce_md.get("ltp"),
-            "CE_IV": ce_gk.get("iv"), # Key from your Colab script
-            "CE_Delta": ce_gk.get("delta"),
-            "CE_Theta": ce_gk.get("theta"),
-            "CE_Vega": ce_gk.get("vega"),
-            "CE_OI": ce_oi_val,
-            "CE_OI_Change": ce_oi_change,
-            "CE_OI_Change_Pct": ce_oi_change_pct,
-            "CE_Volume": ce_md.get("volume", 0),
-            "PE_LTP": pe_md.get("ltp"),
-            "PE_IV": pe_gk.get("iv"), # Key from your Colab script
-            "PE_Delta": pe_gk.get("delta"),
-            "PE_Theta": pe_gk.get("theta"),
-            "PE_Vega": pe_gk.get("vega"),
-            "PE_OI": pe_oi_val,
-            "PE_OI_Change": pe_oi_change,
-            "PE_OI_Change_Pct": pe_oi_change_pct,
-            "PE_Volume": pe_md.get("volume", 0),
-            "Strike_PCR": pe_oi_val / ce_oi_val if ce_oi_val > 0 else (1 if pe_oi_val > 0 else 0), # Handle division by zero
-            "CE_Token": ce.get("instrument_key"),
-            "PE_Token": pe.get("instrument_key")
-        }
-        total_ce_oi += ce_oi_val
-        total_pe_oi += pe_oi_val
-        rows.append(row)
-
-    df = pd.DataFrame(rows).sort_values("Strike").reset_index(drop=True)
-
-    # Update prev_oi in session state for the next run
-    st.session_state['prev_oi'] = current_oi
-
-    return df, total_ce_oi, total_pe_oi
-
-def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
-    """Calculate key option metrics using logic from your Colab script."""
-    if df.empty or spot is None:
-         return None, None, None, None, None # Added ATM IV return
-
-    # ATM Strike (Closest strike to spot)
-    atm_strike_row = df.iloc[(df['Strike'] - spot).abs().argsort()[:1]]
-    atm_strike = atm_strike_row['Strike'].values[0] if not atm_strike_row.empty else None
-
-    # Total PCR
-    pcr = round(pe_oi_total / ce_oi_total, 2) if ce_oi_total > 0 else (1 if pe_oi_total > 0 else 0) # Handle division by zero
-
-
-    # Max Pain (Standard Calculation from your Colab script)
-    max_pain_strike = None
-    if not df.empty:
-        max_pain_series = []
-        strikes = df['Strike'].unique() # Use unique strikes as potential expiry points
-        # Calculate loss for each strike price assuming it's the expiry price
-        for assumed_expiry_price in strikes:
-            # Total seller gain (which is total buyer loss)
-            total_seller_gain_at_strike = sum(
-                (row['CE_OI'] * max(0, assumed_expiry_price - row['Strike'])) +
-                (row['PE_OI'] * max(0, row['Strike'] - assumed_expiry_price))
-                for index, row in df.iterrows()
-            )
-            max_pain_series.append((assumed_expiry_price, total_seller_gain_at_strike))
-
-        if max_pain_series:
-             # Max Pain is the strike with the MINIMUM total seller gain (maximum buyer loss)
-            max_pain_strike = min(max_pain_series, key=lambda item: item[1])[0]
-    else:
-        max_pain_strike = None # No strikes to calculate max pain
-
-
-    # Straddle Price at ATM (Sum of ATM CE LTP + PE LTP from your Colab script)
-    straddle_price = None
-    if atm_strike is not None:
-        straddle_row = df[df["Strike"] == atm_strike]
-        if not straddle_row.empty:
-            ce_ltp = straddle_row['CE_LTP'].values[0]
-            pe_ltp = straddle_row['PE_LTP'].values[0]
-            # Ensure LTPs are not None before summing
-            if pd.notna(ce_ltp) and pd.notna(pe_ltp):
-                 straddle_price = float(ce_ltp + pe_ltp)
-
-    # ATM IV (Average of ATM CE IV and PE IV)
-    atm_iv = None
-    if atm_strike is not None:
-         atm_row = df[df["Strike"] == atm_strike]
-         if not atm_row.empty:
-              ce_iv = atm_row['CE_IV'].values[0]
-              pe_iv = atm_row['PE_IV'].values[0]
-              if pd.notna(ce_iv) and pd.notna(pe_iv) and ce_iv > 0 and pe_iv > 0: # Only average if both are valid and > 0
-                   atm_iv = (float(ce_iv) + float(pe_iv)) / 2.0
-              elif pd.notna(ce_iv) and ce_iv > 0: # Use CE IV if only CE is valid
-                   atm_iv = float(ce_iv)
-              elif pd.notna(pe_iv) and pe_iv > 0: # Use PE IV if only PE is valid
-                   atm_iv = float(pe_iv)
-
-
-    return pcr, max_pain_strike, straddle_price, atm_strike, atm_iv
-
-def plot_iv_skew(df, spot, atm_strike):
-    """Plot IV Skew using Matplotlib."""
-    if df.empty or spot is None or atm_strike is None:
-        logger.warning("Insufficient data for IV Skew plot.")
-        return None
-
-    # Filter for valid IV data points (> 0 and not NaN) as in your Colab script
-    valid = df[(df['CE_IV'].notna()) & (df['PE_IV'].notna()) & (df['CE_IV'] > 0) & (df['PE_IV'] > 0)].copy() # Use copy to avoid warnings if manipulating later
-
-    if valid.empty:
-        logger.warning("No valid IV data points available for plotting.")
-        return None
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(valid['Strike'], valid['CE_IV'], label='Call IV', color='blue', marker='o', linestyle='-')
-    ax.plot(valid['Strike'], valid['PE_IV'], label='Put IV', color='red', marker='o', linestyle='-')
-    ax.axvline(spot, color='gray', linestyle='--', label=f'Spot ({spot:.2f})')
-    ax.axvline(atm_strike, color='green', linestyle=':', label=f'ATM ({atm_strike})')
-
-    # Highlight the ATM strike data point if it's in the valid data
-    if atm_strike in valid['Strike'].values:
-         atm_valid_ivs = valid[valid['Strike'] == atm_strike][['CE_IV', 'PE_IV']].values.flatten()
-         ax.scatter([atm_strike] * len(atm_valid_ivs), atm_valid_ivs, color='green', zorder=5, s=100) # Larger markers
-
-    ax.set_title("IV Skew")
-    ax.set_xlabel("Strike Price")
-    ax.set_ylabel("Implied Volatility (%)")
-    ax.legend()
-    ax.grid(True)
-    
-    plt.tight_layout()
-    return fig
-
-def plot_volatility_comparison(historical_df, garch_forecast_5d, garch_forecast_dates, rv_5d, atm_iv):
-    """Plots historical RV, GARCH forecast, and ATM IV."""
-    if historical_df is None or historical_df.empty:
-         st.warning("Historical data not available for volatility comparison plot.")
-         return None
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Plot rolling 30-day RV for historical context
-    if historical_df.shape[0] >= 30:
-        log_returns = np.log(historical_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
-        # Calculate rolling 30-day std dev, annualize, and shift by -30 days to align with period end
-        rolling_rv_30d = log_returns.rolling(window=30).std().dropna() * np.sqrt(252)
-        ax.plot(rolling_rv_30d.index, rolling_rv_30d, label='Rolling 30-Day RV', color='orange', alpha=0.7)
-    else:
-        st.warning("Not enough historical data for Rolling 30-Day RV plot.")
-
-
-    # Plot GARCH 5-day forecast
-    if garch_forecast_5d is not None and garch_forecast_dates and len(garch_forecast_5d) == len(garch_forecast_dates):
-        # Ensure forecast dates are datetime objects for plotting
-        forecast_dates_dt = pd.to_datetime(garch_forecast_dates)
-        ax.plot(forecast_dates_dt, garch_forecast_5d, marker='o', linestyle='--', color='purple', label='GARCH (1,1) 5-Day Forecast')
-
-    # Add current 5-day Realized Volatility as a point or line from the last data point
-    if rv_5d is not None and not historical_df.empty:
-         last_date = historical_df.index[-1]
-         # Add a point at the last historical date, representing the RV up to that point
-         ax.scatter(last_date, rv_5d, color='blue', zorder=5, s=100, label=f'Latest 5-Day RV ({rv_5d:.2f}%)')
-
-
-    # Add current ATM IV as a horizontal line
-    if atm_iv is not None:
-         ax.axhline(atm_iv, color='red', linestyle='-', label=f'Current ATM IV ({atm_iv:.2f}%)')
-
-
-    ax.set_title("Volatility Comparison")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Annualized Volatility (%)")
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    return fig
 
 
 def get_market_depth(access_token_str, token):
@@ -773,20 +484,12 @@ def fetch_all_data(upstox_client_bundle):
         if data['nifty_spot'] is not None:
              with st.spinner("Processing option chain..."):
                 # Process the raw chain data into a DataFrame and get total OI
-                # calculate_metrics also returns ATM IV now
-                data['option_chain_df'], data['total_ce_oi'], data['total_pe_oi'], data['pcr'], data['max_pain_strike'], data['straddle_price'], data['atm_strike'], data['atm_iv'] = calculate_metrics(
-                    chain_raw, data['total_ce_oi'], data['total_pe_oi'], data['nifty_spot'] # Pass chain_raw here for process_chain
-                    # Note: process_chain returns df, total_ce_oi, total_pe_oi
-                    # calculate_metrics takes df, total_ce_oi, total_pe_oi, spot and returns pcr, max_pain_strike, straddle_price, atm_strike, atm_iv
-                    # Need to chain these calls correctly. Let's adjust the flow.
-                    )
+                processed_chain_result = process_chain(chain_raw)
+                data['option_chain_df'], data['total_ce_oi'], data['total_pe_oi'] = processed_chain_result
 
-             # Corrected flow: Process chain first, then calculate metrics from the resulting DF
-             processed_chain_result = process_chain(chain_raw)
-             data['option_chain_df'], data['total_ce_oi'], data['total_pe_oi'] = processed_chain_result
-
-             if data.get('option_chain_df') is not None and not data['option_chain_df'].empty and data.get('nifty_spot') is not None:
+             if data.get('option_chain_df') is not None and not data['option_chain_df'].empty:
                   with st.spinner("Calculating metrics..."):
+                       # calculate_metrics takes df, total_ce_oi, total_pe_oi, spot and returns pcr, max_pain_strike, straddle_price, atm_strike, atm_iv
                        data['pcr'], data['max_pain_strike'], data['straddle_price'], data['atm_strike'], data['atm_iv'] = calculate_metrics(
                            data['option_chain_df'], data['total_ce_oi'], data['total_pe_oi'], data['nifty_spot']
                        )
@@ -840,6 +543,7 @@ def fetch_all_data(upstox_client_bundle):
     # --- Fetch User/Portfolio Data ---
     st.subheader("Fetching User Data...")
     with st.spinner("Fetching portfolio and user data..."):
+        # Pass the client bundle parts needed
         data['user_data'] = get_user_data(user_api_client, portfolio_api_client, order_api_client)
 
 
@@ -861,15 +565,19 @@ if token_input and (st.session_state['upstox_client'] is None or st.session_stat
     # Clear previous state and re-initialize
     st.session_state['upstox_client'] = None
     st.session_state['initialized_token'] = None
-    st.session_state['latest_data'] = None
-    st.session_state['prev_oi'] = {} # Reset OI history on new token
-    st.cache_resource.clear() # Clear client cache on new token attempt
+    st.session_state['latest_data'] = None # Clear previous data on new token attempt
+    st.session_state['prev_oi'] = {} # Reset OI history on new token attempt
+    st.cache_resource.clear() # Clear resource cache (client) on new token attempt
 
     with st.spinner("Initializing Upstox client..."):
         st.session_state['upstox_client'] = initialize_upstox_client(token_input)
         if st.session_state['upstox_client']:
              st.session_state['initialized_token'] = token_input # Store the token that successfully initialized the client
              st.sidebar.success("Client initialized. You can now fetch data.")
+             # Automatically trigger data fetch after successful initialization? Optional.
+             # if st.sidebar.button("Fetch Initial Data"): # Could add a dedicated initial fetch button
+             #     st.session_state['latest_data'] = fetch_all_data(st.session_state['upstox_client'])
+
         else:
              st.sidebar.error("Client initialization failed. Please check your token.")
 
@@ -877,22 +585,31 @@ elif not token_input and st.session_state['upstox_client'] is not None:
     # If token is cleared in the input field, invalidate the current client and data
     st.session_state['upstox_client'] = None
     st.session_state['initialized_token'] = None
-    st.session_state['latest_data'] = None
+    st.session_state['latest_data'] = None # Clear displayed data when token is removed
     st.session_state['prev_oi'] = {} # Reset OI history
-    st.cache_resource.clear() # Clear client cache on clear token
+    st.cache_resource.clear() # Clear client cache when token is removed
     st.sidebar.warning("Access token cleared. Client de-initialized.")
-
+    st.experimental_rerun() # Rerun to clear the main display immediately
 
 # Fetch button - only enable if client is initialized
 fetch_button = st.sidebar.button("Fetch Latest Data", disabled=st.session_state['upstox_client'] is None)
 
 # --- Trigger Data Fetch ---
 if fetch_button and st.session_state['upstox_client'] is not None:
-    # Fetch data and store in session state
-    st.session_state['latest_data'] = fetch_all_data(st.session_state['upstox_client'])
+    # Clear previous fetched data before fetching new data
+    st.session_state['latest_data'] = None
+    st.experimental_rerun() # Rerun to show spinners and clear old data
+
+elif 'latest_data' not in st.session_state or st.session_state['latest_data'] is None:
+    # Display initial message if no data has been fetched yet
+    if st.session_state['upstox_client'] is None:
+        st.info("☝️ Please enter your Upstox Access Token in the sidebar to get started.")
+    else:
+        st.info("✅ Client initialized successfully. Click 'Fetch Latest Data' in the sidebar to load the Nifty option chain and market data.")
 
 # --- Display Data using Tabs ---
-if st.session_state['latest_data']:
+# This block runs if data is available in session state
+if 'latest_data' in st.session_state and st.session_state['latest_data']:
     data = st.session_state['latest_data']
 
     # Define the tabs
@@ -920,9 +637,21 @@ if st.session_state['latest_data']:
 
         st.markdown(f"*(Last Updated: {data.get('timestamp', 'N/A')})*")
 
-        st.subheader("🔑 Key Strikes (ATM ± 6)")
+        st.subheader("📉 IV Skew Plot")
+        # Pass the dataframe and relevant metrics to the plotting function
         option_chain_df = data.get('option_chain_df')
+        if option_chain_df is not None and not option_chain_df.empty and data.get('nifty_spot') is not None and data.get('atm_strike') is not None:
+            iv_fig = plot_iv_skew(option_chain_df, data['nifty_spot'], data['atm_strike'])
+            if iv_fig:
+                st.pyplot(iv_fig)
+                plt.close(iv_fig) # Close the figure to free up memory
+            else:
+                st.info("IV Skew plot not available due to insufficient valid IV data (check strikes with IV > 0).")
+        else:
+            st.info("IV Skew plot requires Nifty spot price, ATM strike, and valid option chain data.")
 
+
+        st.subheader("🔑 Key Strikes (ATM ± 6)")
         if option_chain_df is not None and not option_chain_df.empty and data.get('atm_strike') is not None:
             atm_strike = data['atm_strike']
             # Ensure atm_strike exists in the DataFrame before trying to find index
@@ -1019,7 +748,7 @@ if st.session_state['latest_data']:
         st.subheader("📖 Full Option Chain Data")
         if option_chain_df is not None and not option_chain_df.empty:
             # Re-apply the same formatting for the full table
-            def format_oi_change_highlight_full(change): # Needed a slightly different func name due to scope in a larger script
+            def format_oi_change_highlight_full(change):
                  if pd.isna(change): return "-"
                  return f"{change:,.0f}*" if abs(change) > 500000 else f"{change:,.0f}"
 
@@ -1034,6 +763,7 @@ if st.session_state['latest_data']:
             def format_pct_full(num):
                  if pd.isna(num): return "-"
                  return f"{num:.1f}%" if abs(num) < 10000 else f"{num:,.0f}%"
+
 
             full_display_df_formatted = option_chain_df[['Strike']].copy()
 
@@ -1084,6 +814,7 @@ if st.session_state['latest_data']:
                  'PE_OI_Change_%': 'PE_OI_Change (%)'
             }
 
+
             # Select and order columns for final display, keeping only those that exist
             final_display_cols_full = [col for col in display_cols_order_full if col in full_display_df_formatted.columns]
 
@@ -1114,7 +845,7 @@ if st.session_state['latest_data']:
             garch_forecast_5d_values = vol_metrics.get('garch_forecast_5d')
             garch_forecast_dates = vol_metrics.get('garch_forecast_dates')
 
-            if garch_forecast_5d_values is not None and garch_forecast_dates:
+            if garch_forecast_5d_values is not None and garch_forecast_dates and len(garch_forecast_5d_values) == len(garch_forecast_dates):
                 forecast_df = pd.DataFrame({
                     "Date": garch_forecast_dates,
                     "Forecasted Volatility (%)": garch_forecast_5d_values
@@ -1294,6 +1025,7 @@ if st.session_state['latest_data']:
                 else:
                     st.info("No trade book data available.")
 
+
         else:
             st.info("Portfolio and User data not available (Check token, permissions, and market hours).")
 
@@ -1306,7 +1038,11 @@ if st.session_state['latest_data']:
 
 
 # --- Initial State Message ---
-if st.session_state['latest_data'] is None and st.session_state['upstox_client'] is None:
-     st.info("☝️ Please enter your Upstox Access Token in the sidebar to get started.")
-elif st.session_state['latest_data'] is None and st.session_state['upstox_client'] is not None:
-     st.info("✅ Client initialized successfully. Click 'Fetch Latest Data' in the sidebar to load the Nifty option chain and market data.")
+# This message is shown when the app starts or is cleared, before any data is displayed
+# It's placed outside the `if st.session_state['latest_data']:` block
+if 'latest_data' not in st.session_state or st.session_state['latest_data'] is None:
+     if st.session_state['upstox_client'] is None:
+         st.info("☝️ Please enter your Upstox Access Token in the sidebar to get started.")
+     else:
+         st.info("✅ Client initialized successfully. Click 'Fetch Latest Data' in the sidebar to load the Nifty option chain and market data.")
+
