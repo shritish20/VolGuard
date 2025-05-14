@@ -16,10 +16,9 @@ def initialize_upstox_client(access_token: str):
     client = upstox_client.ApiClient(configuration)
 
     user_api = upstox_client.UserApi(client)
-    user_profile = user_api.get_profile(api_version="2")
+    user_api.get_profile(api_version="2")  # Call to validate token
     
-    user_name = getattr(user_profile, 'data', {}).get('user_name', 'Unknown')
-    logger.info(f"Token validated for user: {user_name}")
+    logger.info("Token validated for user.")
     return {
         "client": client,
         "access_token": access_token,
