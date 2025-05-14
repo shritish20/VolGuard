@@ -120,7 +120,7 @@ default_session_state = {
     "journal_date_input": datetime.now().date(),
     "journal_strategy_input": "",
     "journal_pnl_input": 0.0,
-    "journal_notes_input": Foundations: The `main_app.py` file has been updated to include the following line:
+    "journal_notes_input": Foundations: The `main_app.py` file has been updated to include the following line:}
     from upstox_api import (
         initialize_upstox_client,
         fetch_all_api_portfolio_data,
