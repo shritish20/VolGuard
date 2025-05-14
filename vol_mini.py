@@ -6,6 +6,7 @@
 # FIX: Implemented a more defensive error handling strategy in initialize_upstox_client.
 # FIX: Corrected Streamlit spinner syntax (use st.spinner instead of st.sidebar.spinner).
 # FIX: Addressing NameError by emphasizing correct library installation.
+# FIX: Added explicit key to st.sidebar.text_input to resolve KeyError.
 
 import streamlit as st
 import pandas as pd
@@ -199,7 +200,7 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
                         logger.warning("GARCH forecast contained non-finite values.")
                         garch_vols_annualized = [np.nan] * forecast_horizon
                     else:
-                        garch_vols_annualized = np.sqrt(forecast_std_devs) * np.sqrt(252) # Annualize
+                        garch_vols_annualized = np.sqrt(252) * np.sqrt(forecast_std_devs) # Annualize std dev (sqrt of variance)
                         garch_vols_annualized = np.clip(garch_vols_annualized, 5, 50) # Clip as in your script
 
                     volatility_results['garch_forecast_5d'] = np.round(garch_vols_annualized, 2).tolist() # Store as list
@@ -1006,7 +1007,8 @@ def fetch_all_data(upstox_client_bundle):
 # --- Sidebar for Token Input and Fetch Button ---
 st.sidebar.header("Settings")
 # Token input field
-token_input = st.sidebar.text_input("Enter Upstox Access Token:", type="password")
+# FIX: Added explicit key to text_input to resolve potential KeyError
+token_input = st.sidebar.text_input("Enter Upstox Access Token:", type="password", key="upstox_access_token_input")
 
 # Initialize client if token is entered and client is not already initialized with this token
 if token_input and (st.session_state['upstox_client'] is None or st.session_state['initialized_token'] != token_input):
@@ -1018,6 +1020,7 @@ if token_input and (st.session_state['upstox_client'] is None or st.session_stat
     st.cache_resource.clear() # Clear resource cache (client) on new token attempt
 
     # Use st.spinner in the main area, triggered by the sidebar action
+    # FIX: Replaced st.sidebar.spinner with st.spinner
     with st.spinner("Initializing Upstox client..."):
          # This call will now run inside the spinner
          st.session_state['upstox_client'] = initialize_upstox_client(token_input)
