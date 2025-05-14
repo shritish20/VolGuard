@@ -5,6 +5,7 @@
 # FIX: Added robust error handling for converting OI values to integer.
 # FIX: Implemented a more defensive error handling strategy in initialize_upstox_client.
 # FIX: Corrected Streamlit spinner syntax (use st.spinner instead of st.sidebar.spinner).
+# FIX: Addressing NameError by emphasizing correct library installation.
 
 import streamlit as st
 import pandas as pd
@@ -18,6 +19,9 @@ from arch import arch_model
 import io # Added to read CSV from URL response
 # Keep ApiException import as it's needed for isinstance check inside general except
 from upstox_client.rest import ApiException
+# Ensure upstox_client module is available. If you see NameError: name 'upstox_client' is not defined,
+# it means the 'upstox-python-sdk' library is not installed correctly in your environment.
+import upstox_client 
 import pandas.io.parsers # Required for pd.read_csv to work with io.StringIO in some environments
 
 # === CONFIG ===
@@ -57,12 +61,13 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
 
     logger.info("Attempting to initialize Upstox client.")
     try:
-        configuration = upstox_client.Configuration()
+        # --- NameError check point ---
+        # If you see NameError here, the 'upstox_client' library is not installed correctly.
+        configuration = upstox_client.Configuration() 
         configuration.access_token = _access_token
         client = upstox_client.ApiClient(configuration)
 
         # Validate token by fetching profile - confirms token works
-        # Note: Fetching profile here adds latency but confirms token validity upfront
         user_api = upstox_client.UserApi(client)
         user_api.get_profile(api_version="2") 
         
@@ -89,8 +94,11 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
              if isinstance(e, ApiException): # Use the imported name
                  logger.error(f"Recognized as Upstox ApiException: Status={e.status}, Body={e.body}")
                  st.error(f"Upstox API Error during client initialization: Status {e.status} - {e.body}")
+             # Check if it's a NameError related to upstox_client itself
+             elif isinstance(e, NameError) and "'upstox_client'" in str(e):
+                  st.error("Initialization Error: The 'upstox-python-sdk' library was not found. Please ensure it is installed correctly in your environment.")
              else:
-                 # If it's not an ApiException, or if upstox_client.rest was somehow not fully loaded
+                 # If it's not an ApiException or a specific NameError we recognize
                  st.error(f"An unexpected error occurred during client initialization: {type(e).__name__} - {e}")
         except Exception: # Fallback in case checking isinstance itself fails (highly unlikely)
              st.error(f"An error occurred during client initialization: {type(e).__name__} - {e}")
@@ -144,8 +152,8 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
     # Ensure returns calculation is robust for potential non-numeric prices
     try:
         nifty_close_numeric = pd.to_numeric(nifty_historical_df["NIFTY_Close"], errors='coerce').dropna()
-        if nifty_close_numeric.empty or len(nifty_close_numeric) < 2: # Need at least two points to calculate return
-             st.warning("Insufficient numeric Nifty Close prices after loading.")
+        if len(nifty_close_numeric) < 2: # Need at least two points to calculate return
+             st.warning("Insufficient numeric Nifty Close prices after loading to calculate returns.")
              return None
              
         log_returns = np.log(nifty_close_numeric.pct_change() + 1).dropna() * 100
@@ -177,21 +185,29 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
                 # Forecast next 5 business days (horizon=5)
                 forecast_horizon = 5
                 # Pass last_obs explicitly to forecast from the correct point - use the *index* of the last observation
-                garch_forecast = model_fit.forecast(horizon=forecast_horizon, last_obs=log_returns.index[-1])
+                # Find the last valid date in log_returns for last_obs
+                last_valid_return_date = log_returns.index[-1] if not log_returns.empty else None
 
-                # Annualize the forecast volatility (std dev) and clip
-                # Take the forecast standard deviations from the last step of the forecast
-                # Ensure we handle potential non-finite values
-                forecast_std_devs = garch_forecast.variance.values[-1]
-                if np.any(~np.isfinite(forecast_std_devs)):
-                    logger.warning("GARCH forecast contained non-finite values.")
-                    garch_vols_annualized = [np.nan] * forecast_horizon
+                if last_valid_return_date is not None:
+                    garch_forecast = model_fit.forecast(horizon=forecast_horizon, last_obs=last_valid_return_date)
+
+                    # Annualize the forecast volatility (std dev) and clip
+                    # Take the forecast standard deviations from the last step of the forecast
+                    # Ensure we handle potential non-finite values
+                    forecast_std_devs = garch_forecast.variance.values[-1]
+                    if np.any(~np.isfinite(forecast_std_devs)):
+                        logger.warning("GARCH forecast contained non-finite values.")
+                        garch_vols_annualized = [np.nan] * forecast_horizon
+                    else:
+                        garch_vols_annualized = np.sqrt(forecast_std_devs) * np.sqrt(252) # Annualize
+                        garch_vols_annualized = np.clip(garch_vols_annualized, 5, 50) # Clip as in your script
+
+                    volatility_results['garch_forecast_5d'] = np.round(garch_vols_annualized, 2).tolist() # Store as list
+                    logger.info(f"GARCH 5-day forecast (annualized): {volatility_results['garch_forecast_5d']}")
                 else:
-                    garch_vols_annualized = np.sqrt(forecast_std_devs) * np.sqrt(252) # Annualize
-                    garch_vols_annualized = np.clip(garch_vols_annualized, 5, 50) # Clip as in your script
+                    logger.warning("Could not find a valid last observation date for GARCH forecast.")
+                    volatility_results['garch_forecast_5d'] = [np.nan] * 5 # Indicate failure
 
-                volatility_results['garch_forecast_5d'] = np.round(garch_vols_annualized, 2).tolist() # Store as list
-                logger.info(f"GARCH 5-day forecast (annualized): {volatility_results['garch_forecast_5d']}")
 
             except Exception as e:
                 logger.error(f"Error fitting or forecasting with GARCH model: {e}")
@@ -359,12 +375,10 @@ def get_market_depth(access_token_str, token):
 
 def get_user_data(user_api_client, portfolio_api_client, order_api_client):
     """Fetch user portfolio and order data using Upstox SDK."""
-    if not (user_api_client and portfolio_api_client and order_api_client):
-         logger.warning("API clients not available for portfolio data.")
-         return {}
-
+    # No need to check api clients here, assumed to be checked by caller
     data = {}
     try:
+        # Use v2 explicitly if needed, though SDK default might be okay
         data['margin'] = user_api_client.get_user_fund_margin(api_version="v2").to_dict()
         logger.info("Fetched funds")
     except ApiException as e:
@@ -652,7 +666,13 @@ def plot_volatility_comparison(historical_df, garch_forecast_5d, garch_forecast_
                  # Calculate rolling 30-day std dev, annualize, and shift by -30 days to align with period end
                  # Use min_periods=30 to ensure a full 30-day window is used
                  rolling_rv_30d = log_returns.rolling(window=30, min_periods=30).std().dropna() * np.sqrt(252)
-                 ax.plot(rolling_rv_30d.index, rolling_rv_30d, label='Rolling 30-Day RV', color='orange', alpha=0.7)
+                 # Plot only if there are valid rolling RV points
+                 if not rolling_rv_30d.empty:
+                      ax.plot(rolling_rv_30d.index, rolling_rv_30d, label='Rolling 30-Day RV', color='orange', alpha=0.7)
+                 else:
+                     logger.warning("Rolling 30-Day RV calculation resulted in no valid points.")
+                     st.info("Rolling 30-Day RV calculation resulted in no valid points.")
+
             else:
                  logger.warning("Not enough log returns for Rolling 30-Day RV calculation after dropping NaNs.")
                  st.info("Not enough valid historical returns to plot Rolling 30-Day RV.")
@@ -672,7 +692,7 @@ def plot_volatility_comparison(historical_df, garch_forecast_5d, garch_forecast_
         # Ensure forecast dates are datetime objects for plotting
         try:
              forecast_dates_dt = pd.to_datetime(garch_forecast_dates)
-             # Plot only if both dates and values are valid
+             # Plot only if both dates and values are valid and finite
              valid_forecast_indices = [i for i, val in enumerate(garch_forecast_5d) if pd.notna(val) and np.isfinite(val)]
              if valid_forecast_indices:
                   valid_forecast_dates = forecast_dates_dt[valid_forecast_indices]
@@ -695,10 +715,13 @@ def plot_volatility_comparison(historical_df, garch_forecast_5d, garch_forecast_
          last_date = historical_df.index[-1]
          # Add a point at the last historical date, representing the RV up to that point
          ax.scatter(last_date, rv_5d, color='blue', zorder=5, s=100, label=f'Latest 5-Day RV ({rv_5d:.2f}%)')
-         # Optional: Draw a line from the last RV point to the start of the forecast
+         # Optional: Draw a line from the last RV point to the start of the forecast IF forecast dates are available
          if garch_forecast_dates and len(garch_forecast_dates) > 0:
-              forecast_start_date = pd.to_datetime(garch_forecast_dates[0])
-              ax.plot([last_date, forecast_start_date], [rv_5d, rv_5d], color='blue', linestyle=':', alpha=0.7) # Extend RV as a dashed line
+              try:
+                   forecast_start_date = pd.to_datetime(garch_forecast_dates[0])
+                   ax.plot([last_date, forecast_start_date], [rv_5d, rv_5d], color='blue', linestyle=':', alpha=0.7) # Extend RV as a dashed line
+              except Exception as e:
+                   logger.warning(f"Could not draw line from RV to forecast start: {e}")
 
     elif rv_5d is not None:
          logger.warning(f"Latest 5-Day RV ({rv_5d}) not plotted due to invalid value or missing historical data end date.")
@@ -996,11 +1019,18 @@ if token_input and (st.session_state['upstox_client'] is None or st.session_stat
 
     # Use st.spinner in the main area, triggered by the sidebar action
     with st.spinner("Initializing Upstox client..."):
+         # This call will now run inside the spinner
          st.session_state['upstox_client'] = initialize_upstox_client(token_input)
          if st.session_state['upstox_client']:
               st.session_state['initialized_token'] = token_input # Store the token that successfully initialized the client
               st.sidebar.success("Client initialized. You can now fetch data.")
          # Error messages are handled by initialize_upstox_client internally
+
+    # After initialization attempt, if client is successfully created, you might want to auto-fetch
+    # This could be done here, but explicitly clicking "Fetch Latest Data" is also fine.
+    # if st.session_state['upstox_client'] is not None:
+    #      st.session_state['latest_data'] = fetch_all_data(st.session_state['upstox_client'])
+    #      st.experimental_rerun() # Rerun to display the fetched data
 
 
 elif not token_input and st.session_state['upstox_client'] is not None:
@@ -1465,6 +1495,6 @@ if 'latest_data' not in st.session_state or st.session_state['latest_data'] is N
      if st.session_state['upstox_client'] is None:
          st.info("☝️ Please enter your Upstox Access Token in the sidebar to get started.")
      else:
-         # This message will be shown while fetch_all_data runs in the background
+         # This message will be shown while fetch_all_data runs in the background IF it hasn't fetched before
          st.info("✅ Client initialized successfully. Click 'Fetch Latest Data' in the sidebar to load the Nifty option chain and market data.")
 
