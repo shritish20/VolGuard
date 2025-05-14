@@ -1,4 +1,4 @@
-# main.py (Final Updated Version)
+# main.py (aka Appppp.py)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,8 +13,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import upstox_client
 from upstox_client.rest import ApiException
 import logging
-import time
-import plotly.graph_objects as go
+import time  # Added to fix the error
+import plotly.graph_objects as go  # Added for IV Skew Plot
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -27,122 +27,209 @@ xgb.set_config(verbosity=0)
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro", layout="wide")
 
-# === Custom CSS for Premium Look ===
+# Custom CSS for Professional, Sexy UI (Unchanged from previous)
 st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-
-        body {
-            font-family: 'Montserrat', sans-serif;
-            background: linear-gradient(135deg, #1E3A8A 0%, #111827 100%);
-            color: #F3F4F6;
-        }
-
-        .stApp {
-            background: transparent;
-        }
-
-        .top-bar {
-            display: flex;
-            justify-content: space-around;
-            background: linear-gradient(90deg, #1E3A8A, #3B82F6);
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            margin-bottom: 20px;
-            animation: slideIn 0.5s ease-in-out;
-        }
-
-        .top-bar div {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .top-bar p {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-            color: #FBBF24;
-        }
-
-        .metric-card {
-            background: #1F2937;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 10px 0;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .metric-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .metric-card h4 {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0 0 10px 0;
-            font-size: 18px;
-            color: #FBBF24;
-        }
-
-        .metric-card p {
-            margin: 5px 0;
-            font-size: 14px;
-            color: #D1D5DB;
-        }
-
-        .alert-red {
-            background: #EF4444;
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        }
-
-        .alert-yellow {
-            background: #F59E0B;
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        }
-
-        .stButton>button {
-            background: linear-gradient(90deg, #3B82F6, #1E3A8A);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            font-weight: 600;
-            transition: background 0.3s ease;
-        }
-
-        .stButton>button:hover {
-            background: linear-gradient(90deg, #1E3A8A, #3B82F6);
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-            color: #FBBF24;
-            font-weight: 700;
-        }
-
-        .sidebar .sidebar-content {
-            background: #111827;
-            color: #F3F4F6;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap');
+    body {
+        font-family: 'Inter', sans-serif;
+    }
+    .stApp {
+        background: #121212;
+        color: #ffffff;
+    }
+    /* Sidebar */
+    .css-1d391kg {
+        background: linear-gradient(135deg, #1c2526 0%, #121212 100%);
+        padding: 20px;
+        border-right: 1px solid #1e88e5;
+    }
+    .css-1d391kg h1 {
+        color: #1e88e5;
+        font-size: 1.5em;
+        margin-bottom: 20px;
+    }
+    .css-1d391kg .stButton>button {
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
+        color: #ffffff;
+        border-radius: 8px;
+        padding: 10px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    .css-1d391kg .stButton>button:hover {
+        background: linear-gradient(135deg, #ab47bc 0%, #1e88e5 100%);
+        box-shadow: 0 0 15px rgba(30, 136, 229, 0.5);
+    }
+    /* Top Bar */
+    .top-bar {
+        background: linear-gradient(135deg, #1c2526 0%, #121212 100%);
+        padding: 10px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border: 1px solid #1e88e5;
+    }
+    .top-bar div {
+        margin: 0 10px;
+        display: flex;
+        align-items: center;
+    }
+    .top-bar div p {
+        margin: 0 0 0 5px;
+        font-size: 1em;
+        color: #ffffff;
+    }
+    .top-bar i {
+        color: #1e88e5;
+    }
+    /* Tabs */
+    .stTabs [role="tab"] {
+        background: transparent;
+        color: #ffffff;
+        border-bottom: 2px solid transparent;
+        padding: 10px 20px;
+        margin-right: 5px;
+        transition: all 0.3s ease;
+    }
+    .stTabs [role="tab"][aria-selected="true"] {
+        border-bottom: 2px solid #1e88e5;
+        color: #1e88e5;
+    }
+    .stTabs [role="tab"]:hover {
+        color: #ab47bc;
+    }
+    /* Buttons */
+    .stButton>button {
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #ab47bc 0%, #1e88e5 100%);
+        box-shadow: 0 0 15px rgba(30, 136, 229, 0.5);
+    }
+    .stButton>button::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        transition: width 0.6s ease, height 0.6s ease;
+    }
+    .stButton>button:active::after {
+        width: 300px;
+        height: 300px;
+        opacity: 0;
+    }
+    /* Cards */
+    .metric-card {
+        background: rgba(28, 37, 38, 0.7);
+        backdrop-filter: blur(10px);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(30, 136, 229, 0.3);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        animation: scaleUp 0.5s ease-in;
+    }
+    .metric-card:hover {
+        transform: scale(1.02);
+        box-shadow: 0 8px 20px rgba(30, 136, 229, 0.5);
+    }
+    .metric-card h4 {
+        color: #1e88e5;
+        margin: 0;
+        display: flex;
+        align-items: center;
+    }
+    .metric-card h4 i {
+        margin-right: 8px;
+        color: #ab47bc;
+    }
+    .metric-card p {
+        color: #ffffff;
+        font-size: 1.1em;
+        margin: 5px 0 0 0;
+    }
+    .highlight-card {
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        box-shadow: 0 4px 10px rgba(30, 136, 229, 0.5);
+        border: 1px solid #1e88e5;
+        animation: scaleUp 0.5s ease-in;
+    }
+    .highlight-card h4 {
+        color: #ffffff;
+        margin: 0;
+        display: flex;
+        align-items: center;
+    }
+    .highlight-card h4 i {
+        margin-right: 8px;
+        color: #ffffff;
+    }
+    .highlight-card p {
+        color: #ffffff;
+        font-size: 1.3em;
+        margin: 5px 0 0 0;
+    }
+    /* Alerts */
+    .alert-green {
+        background-color: #43a047;
+        color: #ffffff;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
+    }
+    .alert-yellow {
+        background-color: #ffb300;
+        color: #000000;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
+    }
+    .alert-red {
+        background-color: #e53935;
+        color: #ffffff;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
+    }
+    /* Headings */
+    h1, h2, h3, h4 {
+        color: #1e88e5;
+    }
+    /* Animations */
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes scaleUp {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
     </style>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 """, unsafe_allow_html=True)
 
 # === Session State to Store Data ===
@@ -162,30 +249,9 @@ if 'deployed_capital' not in st.session_state:
     st.session_state.deployed_capital = 0
 if 'daily_pnl' not in st.session_state:
     st.session_state.daily_pnl = 0
-if 'access_token' not in st.session_state:
-    st.session_state.access_token = None
-if 'holdings' not in st.session_state:
-    st.session_state.holdings = []
-if 'positions' not in st.session_state:
-    st.session_state.positions = []
-if 'funds_margin' not in st.session_state:
-    st.session_state.funds_margin = {}
-if 'live_pnl' not in st.session_state:
-    st.session_state.live_pnl = 0
-if 'pnl_data' not in st.session_state:
-    st.session_state.pnl_data = []
 
 # Initialize prev_oi globally
 prev_oi = {}
-
-# === Logo and Tagline ===
-st.markdown("""
-    <div style='text-align: center; margin-bottom: 20px;'>
-        <img src='https://via.placeholder.com/150x50.png?text=VolGuard+Logo' alt='VolGuard Logo' style='height: 50px;'>
-        <h1>VolGuard Pro</h1>
-        <p style='color: #D1D5DB; font-style: italic; font-size: 16px;'>Shield Your Trades, Amplify Your Gains</p>
-    </div>
-""", unsafe_allow_html=True)
 
 # === Sidebar Controls ===
 st.sidebar.header("VolGuard Pro Controls")
@@ -194,9 +260,9 @@ risk_profile = st.sidebar.selectbox("Risk Profile", ["Conservative", "Moderate",
 run_engine = st.sidebar.button("Run Engine")
 
 # === Risk Management Rules ===
-MAX_EXPOSURE_PCT = 40
-MAX_LOSS_PER_TRADE_PCT = 4
-DAILY_LOSS_LIMIT_PCT = 4
+MAX_EXPOSURE_PCT = 40  # Max 40% of total capital can be deployed
+MAX_LOSS_PER_TRADE_PCT = 4  # Max 4% of total capital per trade
+DAILY_LOSS_LIMIT_PCT = 4  # Max 4% of total capital loss in a day
 max_loss_per_trade = total_capital * (MAX_LOSS_PER_TRADE_PCT / 100)
 daily_loss_limit = total_capital * (DAILY_LOSS_LIMIT_PCT / 100)
 max_deployed_capital = total_capital * (MAX_EXPOSURE_PCT / 100)
@@ -208,7 +274,7 @@ st.markdown(f"""
         <div><i class="material-icons">account_balance_wallet</i><p>Total Capital: ₹{total_capital:,}</p></div>
         <div><i class="material-icons">trending_up</i><p>Deployed Capital: ₹{st.session_state.deployed_capital:,}</p></div>
         <div><i class="material-icons">percent</i><p>Exposure: {exposure_pct:.1f}%</p></div>
-        <div><i class="material-icons">monetization_on</i><p>Live P&L: ₹{st.session_state.live_pnl:,}</p></div>
+        <div><i class="material-icons">monetization_on</i><p>Daily P&L: ₹{st.session_state.daily_pnl:,}</p></div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -216,7 +282,7 @@ st.markdown(f"""
 def check_risk(capital_to_deploy, max_loss, daily_pnl):
     new_deployed_capital = st.session_state.deployed_capital + capital_to_deploy
     new_exposure_pct = (new_deployed_capital / total_capital) * 100 if total_capital > 0 else 0
-    new_daily_pnl = daily_pnl + st.session_state.live_pnl
+    new_daily_pnl = daily_pnl + st.session_state.daily_pnl
 
     if new_exposure_pct > MAX_EXPOSURE_PCT:
         return "red", f"Exposure exceeds {MAX_EXPOSURE_PCT}%! Cannot deploy ₹{capital_to_deploy:,}."
@@ -228,416 +294,211 @@ def check_risk(capital_to_deploy, max_loss, daily_pnl):
         return "yellow", "Exposure > 30%. Proceed with caution."
     return "green", "Safe to trade."
 
+# IV-RV will be calculated after VolGuard runs for additional risk insight
+iv_rv = 0  # Default value, will be updated after VolGuard
+risk_status, risk_message = check_risk(0, 0, 0)  # Initial check
+if risk_status == "green":
+    st.markdown(f"<div class='alert-green'>{risk_message}</div>", unsafe_allow_html=True)
+elif risk_status == "yellow":
+    st.markdown(f"<div class='alert-yellow'>{risk_message}</div>", unsafe_allow_html=True)
+else:
+    st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
+
 # === Helper Functions ===
-def fetch_historical_data():
+def get_nearest_expiry(options_api, instrument_key):
     try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = st.session_state.access_token
-        client = upstox_client.ApiClient(configuration)
-        history_api = upstox_client.HistoryV3Api(client)
-        
-        to_date = datetime.now().strftime("%Y-%m-%d")
-        from_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-        
-        response = history_api.get_historical_candle_data1(
-            instrument_key="NSE_INDEX|Nifty 50",
-            unit="day",
-            interval="1d",
-            to_date=to_date,
-            from_date=from_date
-        )
-        data = response.to_dict().get('data', [])
-        
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df.set_index('timestamp', inplace=True)
-        df['returns'] = df['close'].pct_change().dropna()
-        return df
+        response = options_api.get_option_contracts(instrument_key=instrument_key)
+        contracts = response.to_dict().get("data", [])
+        expiry_dates = set()
+        for contract in contracts:
+            exp = contract.get("expiry")
+            if isinstance(exp, str):
+                exp = datetime.strptime(exp, "%Y-%m-%d")
+            expiry_dates.add(exp)
+        expiry_list = sorted(expiry_dates)
+        today = datetime.now()
+        valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
+        nearest = valid_expiries[0] if valid_expiries else None
+        time.sleep(0.5)  # This line caused the error; fixed by importing time
+        return nearest
     except Exception as e:
-        logger.error(f"Error fetching historical data: {e}")
-        return pd.DataFrame()
+        logger.error(f"Expiry fetch failed: {e}")
+        return None
 
-def calculate_realized_vol(df, window=30):
-    if df.empty:
-        return 0
-    returns = df['returns'].dropna()
-    rolling_vol = returns.rolling(window=window).std() * np.sqrt(252) * 100
-    return rolling_vol[-1] if not rolling_vol.empty else 0
-
-def get_nearest_expiry():
+def fetch_option_chain(options_api, instrument_key, expiry):
     try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = st.session_state.access_token
-        client = upstox_client.ApiClient(configuration)
-        options_api = upstox_client.OptionsApi(client)
-        
-        response = options_api.get_option_contracts(
-            instrument_key="NSE_INDEX|Nifty 50",
-            option_type="XX"
-        )
-        contracts = response.to_dict().get('data', [])
-        
-        today = datetime.now().date()
-        expiries = [datetime.strptime(contract.get('expiry_date'), "%Y-%m-%d").date() for contract in contracts]
-        future_expiries = [exp for exp in expiries if exp >= today]
-        if not future_expiries:
-            raise ValueError("No future expiries found.")
-        
-        nearest_expiry = min(future_expiries)
-        return nearest_expiry.strftime("%Y-%m-%d")
+        res = options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
+        time.sleep(0.5)
+        return res.to_dict().get('data', [])
     except Exception as e:
-        logger.error(f"Error fetching nearest expiry: {e}")
-        return (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+        logger.error(f"Option chain fetch error: {e}")
+        return []
 
-def fetch_option_chain(access_token, expiry_date):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        options_api = upstox_client.OptionsApi(client)
-        
-        response = options_api.get_put_call_option_chain(
-            instrument_key="NSE_INDEX|Nifty 50",
-            expiry_date=expiry_date
-        )
-        option_data = response.to_dict().get('data', [])
-        
-        market_quote_api = upstox_client.MarketQuoteV3Api(client)
-        spot_response = market_quote_api.get_ltp(instrument_key="NSE_INDEX|Nifty 50")
-        spot_price = spot_response.to_dict().get('data', {}).get('NSE_INDEX|Nifty 50', {}).get('last_price', 0)
-        
-        if not option_data or not spot_price:
-            raise ValueError("Failed to fetch option chain or spot price.")
-        
-        return option_data, spot_price
-    except Exception as e:
-        logger.error(f"Error fetching option chain: {e}")
-        return [], 0
+def process_chain(data):
+    global prev_oi
+    rows, ce_oi, pe_oi = [], 0, 0
+    for r in data:
+        ce = r.get('call_options', {})
+        pe = r.get('put_options', {})
+        ce_md, pe_md = ce.get('market_data', {}), pe.get('market_data', {})
+        ce_gk, pe_gk = ce.get('option_greeks', {}), pe.get('option_greeks', {})
+        strike = r['strike_price']
+        ce_oi_val = ce_md.get("oi", 0)
+        pe_oi_val = pe_md.get("oi", 0)
+        ce_oi_change = ce_oi_val - prev_oi.get(f"{strike}_CE", 0)
+        pe_oi_change = pe_oi_val - prev_oi.get(f"{strike}_PE", 0)
+        ce_oi_change_pct = (ce_oi_change / prev_oi.get(f"{strike}_CE", 0) * 100) if prev_oi.get(f"{strike}_CE", 0) else 0
+        pe_oi_change_pct = (pe_oi_change / prev_oi.get(f"{strike}_PE", 0) * 100) if prev_oi.get(f"{strike}_PE", 0) else 0
+        strike_pcr = pe_oi_val / ce_oi_val if ce_oi_val else 0
+        row = {
+            "Strike": strike,
+            "CE_LTP": ce_md.get("ltp"),
+            "CE_IV": ce_gk.get("iv"),
+            "CE_Delta": ce_gk.get("delta"),
+            "CE_Theta": ce_gk.get("theta"),
+            "CE_Vega": ce_gk.get("vega"),
+            "CE_OI": ce_oi_val,
+            "CE_OI_Change": ce_oi_change,
+            "CE_OI_Change_Pct": ce_oi_change_pct,
+            "CE_Volume": ce_md.get("volume", 0),
+            "PE_LTP": pe_md.get("ltp"),
+            "PE_IV": pe_gk.get("iv"),
+            "PE_Delta": ce_gk.get("delta"),
+            "PE_Theta": ce_gk.get("theta"),
+            "PE_Vega": ce_gk.get("vega"),
+            "PE_OI": pe_oi_val,
+            "PE_OI_Change": pe_oi_change,
+            "PE_OI_Change_Pct": pe_oi_change_pct,
+            "PE_Volume": pe_md.get("volume", 0),
+            "Strike_PCR": strike_pcr,
+            "CE_Token": ce.get("instrument_key"),
+            "PE_Token": pe.get("instrument_key")
+        }
+        ce_oi += ce_oi_val
+        pe_oi += pe_oi_val
+        rows.append(row)
+        prev_oi[f"{strike}_CE"] = ce_oi_val
+        prev_oi[f"{strike}_PE"] = pe_oi_val
+    df = pd.DataFrame(rows).sort_values("Strike")
+    return df, ce_oi, pe_oi
 
-def calculate_iv_skew(option_data, spot_price):
-    if not option_data:
-        return None, 0, 0
-    
-    strikes = []
-    ce_ltp = []
-    pe_ltp = []
-    ce_iv = []
-    pe_iv = []
-    ce_token = []
-    pe_token = []
-    
-    for item in option_data:
-        strike = item.get('strike_price', 0)
-        call_data = item.get('call_option', {})
-        put_data = item.get('put_option', {})
-        
-        strikes.append(strike)
-        ce_ltp.append(call_data.get('last_price', 0))
-        pe_ltp.append(put_data.get('last_price', 0))
-        ce_iv.append(call_data.get('iv', 0))
-        pe_iv.append(put_data.get('iv', 0))
-        ce_token.append(call_data.get('instrument_key', ''))
-        pe_token.append(put_data.get('instrument_key', ''))
-    
-    df = pd.DataFrame({
-        'Strike': strikes,
-        'CE_LTP': ce_ltp,
-        'PE_LTP': pe_ltp,
-        'CE_IV': ce_iv,
-        'PE_IV': pe_iv,
-        'CE_Token': ce_token,
-        'PE_Token': pe_token
-    })
-    
-    atm_strike = df.iloc[(df['Strike'] - spot_price).abs().argsort()[:1]]['Strike'].values[0]
+def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
+    atm = df.iloc[(df['Strike'] - spot).abs().argsort()[:1]]
+    atm_strike = atm['Strike'].values[0]
+    pcr = round(pe_oi_total / ce_oi_total, 2) if ce_oi_total else 0
+    max_pain_series = df.apply(lambda x: sum(df['CE_OI'] * abs(df['Strike'] - x['Strike'])) +
+                                         sum(df['PE_OI'] * abs(df['Strike'] - x['Strike'])), axis=1)
+    strike_with_pain = df.loc[max_pain_series.idxmin(), 'Strike']
+    straddle_price = float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
     atm_row = df[df['Strike'] == atm_strike]
-    atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if atm_row['CE_IV'].values[0] and atm_row['PE_IV'].values[0] else 0
-    
-    df['IV_Skew'] = df['CE_IV'] - df['PE_IV']
-    
+    atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if not atm_row.empty else 0
+    return pcr, strike_with_pain, straddle_price, atm_strike, atm_iv
+
+def plot_iv_skew(df, spot, atm_strike):
+    valid = df[(df['CE_IV'] > 0) & (df['PE_IV'] > 0)]
+    if valid.empty:
+        return None
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['Strike'], y=df['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#FBBF24')))
-    fig.add_trace(go.Scatter(x=df['Strike'], y=df['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#3B82F6')))
-    fig.add_trace(go.Scatter(x=df['Strike'], y=df['IV_Skew'], mode='lines', name='IV Skew', line=dict(color='#EF4444')))
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#1e88e5')))
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#ab47bc')))
+    fig.add_vline(x=spot, line=dict(color='#ffffff', dash='dash'), name='Spot')
+    fig.add_vline(x=atm_strike, line=dict(color='#43a047', dash='dot'), name='ATM')
     fig.update_layout(
-        title='IV Skew Across Strikes',
-        xaxis_title='Strike Price',
-        yaxis_title='Implied Volatility (%)',
-        template='plotly_dark',
-        title_font=dict(size=20, color='#FBBF24'),
-        xaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
-        yaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
+        title="IV Skew",
+        xaxis_title="Strike",
+        yaxis_title="IV",
+        template="plotly_dark",
+        showlegend=True,
+        margin=dict(l=40, r=40, t=40, b=40),
+        plot_bgcolor='#121212',
+        paper_bgcolor='#121212',
+        font=dict(color='#ffffff')
     )
-    
-    return df, atm_strike, atm_iv, fig
+    return fig
+
+def get_market_depth(access_token, base_url, token):
+    try:
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        url = f"{base_url}/market-quote/depth"
+        res = requests.get(url, headers=headers, params={"instrument_key": token})
+        depth = res.json().get('data', {}).get(token, {}).get('depth', {})
+        bid_volume = sum(item.get('quantity', 0) for item in depth.get('buy', []))
+        ask_volume = sum(item.get('quantity', 0) for item in depth.get('sell', []))
+        time.sleep(0.5)
+        return {"bid_volume": bid_volume, "ask_volume": ask_volume}
+    except Exception as e:
+        logger.error(f"Depth fetch error for {token}: {e}")
+        return {}
+
+def calculate_rolling_and_fixed_hv(nifty_close):
+    log_returns = np.log(nifty_close.pct_change() + 1).dropna()
+    last_7d_std = log_returns[-7:].std()
+    rolling_rv_annualized = last_7d_std * np.sqrt(252) * 100
+    last_date = nifty_close.index[-1]
+    future_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
+    rv_7d_df = pd.DataFrame({
+        "Date": future_dates,
+        "Day": future_dates.day_name(),
+        "7-Day Realized Volatility (%)": np.round([rolling_rv_annualized]*7, 2)
+    })
+    hv_30d = log_returns[-30:].std() * np.sqrt(252) * 100
+    hv_1y = log_returns[-252:].std() * np.sqrt(252) * 100
+    return rv_7d_df, round(hv_30d, 2), round(hv_1y, 2)
+
+def compute_realized_vol(nifty_df):
+    log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna()
+    last_7d_std = log_returns[-7:].std() * np.sqrt(252) * 100
+    return last_7d_std if not np.isnan(last_7d_std) else 0
 
 def run_volguard(access_token):
     try:
-        expiry_date = get_nearest_expiry()
-        if not expiry_date:
-            raise ValueError("Could not determine expiry date.")
-        
-        option_data, spot_price = fetch_option_chain(access_token, expiry_date)
-        if not option_data or not spot_price:
-            raise ValueError("Failed to fetch option chain or spot price.")
-        
-        df, atm_strike, atm_iv, iv_skew_fig = calculate_iv_skew(option_data, spot_price)
+        configuration = upstox_client.Configuration()
+        configuration.access_token = access_token
+        client = upstox_client.ApiClient(configuration)
+        options_api = upstox_client.OptionsApi(client)
+        instrument_key = "NSE_INDEX|Nifty 50"
+        base_url = "https://api.upstox.com/v2"
+
+        expiry = get_nearest_expiry(options_api, instrument_key)
+        if not expiry:
+            st.error("Unable to fetch the nearest expiry date. Please check your access token or try again later.")
+            return None, None, None, None, None
+        chain = fetch_option_chain(options_api, instrument_key, expiry)
+        if not chain:
+            st.error("Unable to fetch option chain data. Please check your access token or try again later.")
+            return None, None, None, None, None
+        spot = chain[0].get("underlying_spot_price")
+        if not spot:
+            st.error("Unable to fetch spot price. Please check your access token or try again later.")
+            return None, None, None, None, None
+
+        df, ce_oi, pe_oi = process_chain(chain)
         if df.empty:
-            raise ValueError("Failed to process option chain data.")
-        
+            st.error("Option chain data is empty. Please try again later.")
+            return None, None, None, None, None
+        pcr, max_pain, straddle_price, atm_strike, atm_iv = calculate_metrics(df, ce_oi, pe_oi, spot)
+        ce_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['CE_Token'].values[0])
+        pe_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['PE_Token'].values[0])
+        iv_skew_fig = plot_iv_skew(df, spot, atm_strike)
+
         result = {
-            'nifty_spot': spot_price,
-            'atm_strike': atm_strike,
-            'iv_skew_data': df.to_dict(),
-            'expiry_date': expiry_date
+            "nifty_spot": spot,
+            "atm_strike": atm_strike,
+            "straddle_price": straddle_price,
+            "pcr": pcr,
+            "max_pain": max_pain,
+            "expiry": expiry,
+            "iv_skew_data": df.to_dict(),
+            "ce_depth": ce_depth,
+            "pe_depth": pe_depth,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "atm_iv": atm_iv
         }
-        
         return result, df, iv_skew_fig, atm_strike, atm_iv
     except Exception as e:
-        logger.error(f"Error in run_volguard: {e}")
-        st.error(f"Failed to run VolGuard: {str(e)}")
-        return None, pd.DataFrame(), None, 0, 0
-
-def fetch_portfolio(access_token):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        portfolio_api = upstox_client.PortfolioApi(client)
-        
-        holdings = portfolio_api.get_holdings()
-        holdings_data = holdings.to_dict().get('data', [])
-        
-        positions = portfolio_api.get_positions()
-        positions_data = positions.to_dict().get('data', [])
-        
-        return holdings_data, positions_data
-    except ApiException as e:
-        logger.error(f"Portfolio fetch error: {e}")
-        return [], []
-
-def fetch_funds_and_margin(access_token):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        user_api = upstox_client.UserApi(client)
-        
-        response = user_api.get_user_fund_margin()
-        fund_margin = response.to_dict().get('data', {})
-        return fund_margin
-    except ApiException as e:
-        logger.error(f"Funds and margin fetch error: {e}")
-        return {}
-
-def fetch_live_pnl(access_token, from_date, to_date):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        pnl_api = upstox_client.TradeProfitAndLossApi(client)
-        
-        response = pnl_api.get_trade_wise_profit_and_loss_data(
-            segment="EQ",
-            financial_year="2425",
-            from_date=from_date,
-            to_date=to_date
-        )
-        pnl_data = response.to_dict().get('data', [])
-        total_pnl = sum(trade.get('pnl', 0) for trade in pnl_data)
-        return total_pnl, pnl_data
-    except ApiException as e:
-        logger.error(f"P&L fetch error: {e}")
-        return 0, []
-
-def calculate_iron_fly(df, spot, atm_strike, capital, risk_profile):
-    try:
-        atm_row = df[df['Strike'] == atm_strike]
-        if atm_row.empty:
-            raise ValueError("ATM strike not found in option chain.")
-        
-        short_call_strike = atm_strike
-        short_put_strike = atm_strike
-        short_call_price = atm_row['CE_LTP'].values[0]
-        short_put_price = atm_row['PE_LTP'].values[0]
-        
-        strike_diff = spot * 0.05
-        long_call_strike = atm_strike + strike_diff
-        long_put_strike = atm_strike - strike_diff
-        
-        long_call_row = df.iloc[(df['Strike'] - long_call_strike).abs().argsort()[:1]]
-        long_put_row = df.iloc[(df['Strike'] - long_put_strike).abs().argsort()[:1]]
-        if long_call_row.empty or long_put_row.empty:
-            raise ValueError("Could not find OTM strikes for wings.")
-        
-        long_call_strike = long_call_row['Strike'].values[0]
-        long_put_strike = long_put_row['Strike'].values[0]
-        long_call_price = long_call_row['CE_LTP'].values[0]
-        long_put_price = long_put_row['PE_LTP'].values[0]
-        
-        lot_size = 25
-        position_size = int((capital * 0.3) / (short_call_price + short_put_price)) // lot_size
-        quantity = position_size * lot_size
-        
-        net_credit = (short_call_price + short_put_price - long_call_price - long_put_price) * quantity
-        max_profit = net_credit
-        
-        wing_width = long_call_strike - short_call_strike
-        max_loss = (wing_width * quantity) - net_credit
-        
-        breakeven_upper = short_call_strike + (net_credit / quantity)
-        breakeven_lower = short_put_strike - (net_credit / quantity)
-        
-        iv_rv = st.session_state.atm_iv - realized_vol if st.session_state.atm_iv else 0
-        confidence = 0.8 if iv_rv > 10 else 0.6
-        if risk_profile == "Conservative":
-            confidence *= 0.5
-        elif risk_profile == "Moderate":
-            confidence *= 0.8
-        
-        reasoning = f"""
-        - **Market Regime**: IV-RV = {iv_rv:.2f}% (High IV, suitable for Iron Fly).
-        - **Short Strikes**: ATM Call and Put at {atm_strike} (Spot: {spot}).
-        - **Long Strikes**: OTM Call at {long_call_strike}, OTM Put at {long_put_strike} (5% away).
-        - **Position Size**: {quantity} units ({position_size} lots).
-        """
-        
-        return {
-            "name": "Iron Fly",
-            "logic": "Neutral strategy for high IV regime",
-            "short_call_strike": short_call_strike,
-            "short_put_strike": short_put_strike,
-            "long_call_strike": long_call_strike,
-            "long_put_strike": long_put_strike,
-            "short_call_price": short_call_price,
-            "short_put_price": short_put_price,
-            "long_call_price": long_call_price,
-            "long_put_price": long_put_price,
-            "quantity": quantity,
-            "capital_required": capital * 0.3,
-            "max_loss": max_loss,
-            "max_profit": max_profit,
-            "breakeven_upper": breakeven_upper,
-            "breakeven_lower": breakeven_lower,
-            "confidence": confidence,
-            "reasoning": reasoning
-        }
-    except Exception as e:
-        logger.error(f"Error in calculate_iron_fly: {e}")
-        return {
-            "name": "Iron Fly",
-            "logic": "Neutral strategy for high IV regime",
-            "capital_required": capital * 0.3,
-            "max_loss": capital * 0.05,
-            "confidence": 0.5,
-            "reasoning": f"Failed to calculate details: {str(e)}"
-        }
-
-def place_iron_fly_orders(access_token, strategy, df):
-    try:
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
-        client = upstox_client.ApiClient(configuration)
-        order_api = upstox_client.OrderApiV3(client)
-        
-        atm_row = df[df['Strike'] == strategy['short_call_strike']]
-        long_call_row = df[df['Strike'] == strategy['long_call_strike']]
-        long_put_row = df[df['Strike'] == strategy['long_put_strike']]
-        
-        short_call_token = atm_row['CE_Token'].values[0]
-        short_put_token = atm_row['PE_Token'].values[0]
-        long_call_token = long_call_row['CE_Token'].values[0]
-        long_put_token = long_put_row['PE_Token'].values[0]
-        
-        quantity = strategy['quantity']
-        
-        orders = [
-            upstox_client.PlaceOrderV3Request(
-                quantity=quantity,
-                product="D",
-                validity="DAY",
-                price=strategy['short_call_price'],
-                tag="VolGuard_IronFly",
-                instrument_token=short_call_token,
-                order_type="LIMIT",
-                transaction_type="SELL",
-                disclosed_quantity=0,
-                trigger_price=0.0,
-                is_amo=False,
-                slice=False
-            ),
-            upstox_client.PlaceOrderV3Request(
-                quantity=quantity,
-                product="D",
-                validity="DAY",
-                price=strategy['short_put_price'],
-                tag="VolGuard_IronFly",
-                instrument_token=short_put_token,
-                order_type="LIMIT",
-                transaction_type="SELL",
-                disclosed_quantity=0,
-                trigger_price=0.0,
-                is_amo=False,
-                slice=False
-            ),
-            upstox_client.PlaceOrderV3Request(
-                quantity=quantity,
-                product="D",
-                validity="DAY",
-                price=strategy['long_call_price'],
-                tag="VolGuard_IronFly",
-                instrument_token=long_call_token,
-                order_type="LIMIT",
-                transaction_type="BUY",
-                disclosed_quantity=0,
-                trigger_price=0.0,
-                is_amo=False,
-                slice=False
-            ),
-            upstox_client.PlaceOrderV3Request(
-                quantity=quantity,
-                product="D",
-                validity="DAY",
-                price=strategy['long_put_price'],
-                tag="VolGuard_IronFly",
-                instrument_token=long_put_token,
-                order_type="LIMIT",
-                transaction_type="BUY",
-                disclosed_quantity=0,
-                trigger_price=0.0,
-                is_amo=False,
-                slice=False
-            )
-        ]
-        
-        order_responses = []
-        for order in orders:
-            response = order_api.place_order(order)
-            order_responses.append(response.to_dict())
-            time.sleep(0.5)
-        
-        net_credit = strategy['max_profit']
-        
-        st.session_state.trade_log.append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy": strategy['name'],
-            "capital_deployed": strategy['capital_required'],
-            "max_loss": strategy['max_loss'],
-            "pnl": net_credit,
-            "order_details": order_responses
-        })
-        
-        st.session_state.deployed_capital += strategy['capital_required']
-        from_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        to_date = datetime.now().strftime("%Y-%m-%d")
-        live_pnl, pnl_data = fetch_live_pnl(access_token, from_date, to_date)
-        st.session_state.live_pnl = live_pnl
-        st.session_state.pnl_data = pnl_data
-        
-        return True, "Trade executed successfully!"
-    except ApiException as e:
-        logger.error(f"Order placement error: {e}")
-        return False, f"Failed to place orders: {e}"
+        logger.error(f"Volguard run error: {e}")
+        st.error("Failed to fetch options data. Please check your Upstox access token and try again later.")
+        return None, None, None, None, None
 
 # === Streamlit Tabs ===
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Snapshot", "Forecast", "Prediction", "Strategies", "Dashboard"])
@@ -652,109 +513,258 @@ with tab1:
             st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data... Please wait."):
-                st.session_state.access_token = access_token
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
                 if result:
                     st.session_state.volguard_data = result
                     st.session_state.atm_iv = atm_iv
-                    
-                    holdings, positions = fetch_portfolio(access_token)
-                    funds_margin = fetch_funds_and_margin(access_token)
-                    from_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-                    to_date = datetime.now().strftime("%Y-%m-%d")
-                    live_pnl, pnl_data = fetch_live_pnl(access_token, from_date, to_date)
-                    
-                    st.session_state.holdings = holdings
-                    st.session_state.positions = positions
-                    st.session_state.funds_margin = funds_margin
-                    st.session_state.live_pnl = live_pnl
-                    st.session_state.pnl_data = pnl_data
-                    st.session_state.deployed_capital = sum(pos.get('quantity', 0) * pos.get('last_price', 0) for pos in positions)
-                    st.session_state.daily_pnl = live_pnl
-                    
                     st.success("Data fetched successfully!")
-                    
-                    col1, col2 = st.columns([2, 1])
+                    col1, col2 = st.columns(2)
                     with col1:
-                        st.plotly_chart(iv_skew_fig, use_container_width=True)
+                        st.subheader("Market Snapshot")
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>schedule</i> Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='highlight-card'><h4><i class='material-icons'>percent</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>event</i> Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>attach_money</i> ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Straddle Price</h4><p>{result['straddle_price']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> PCR</h4><p>{result['pcr']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Pain</h4><p>{result['max_pain']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> CE Depth</h4><p>Bid Volume={result['ce_depth'].get('bid_volume', 0)}, Ask Volume={result['ce_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> PE Depth</h4><p>Bid Volume={result['pe_depth'].get('bid_volume', 0)}, Ask Volume={result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
                     with col2:
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> NIFTY Spot</h4><p>₹{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>strike</i> ATM Strike</h4><p>{atm_strike}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
+                        if iv_skew_fig:
+                            st.subheader("IV Skew Plot")
+                            st.plotly_chart(iv_skew_fig, use_container_width=True)
+                    
+                    st.subheader("Key Strikes (ATM ± 6)")
+                    atm_idx = df[df['Strike'] == atm_strike].index[0]
+                    key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
+                        'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI', 
+                        'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta', 
+                        'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume', 
+                        'Strike_PCR'
+                    ]]
+                    key_strikes['CE_OI_Change'] = key_strikes['CE_OI_Change'].apply(
+                        lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                    )
+                    key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
+                        lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                    )
+                    for idx, row in key_strikes.iterrows():
+                        st.markdown(f"""
+                            <div class='metric-card'>
+                                <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']}</h4>
+                                <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f} | CE OI: {row['CE_OI']:.2f}</p>
+                                <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f} | PE OI: {row['PE_OI']:.2f}</p>
+                                <p>Strike PCR: {row['Strike_PCR']:.2f}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
 
-# === Tab 2: Forecast ===
+# === Tab 2: GARCH ===
 with tab2:
-    st.header("Volatility Forecast")
-    historical_data = fetch_historical_data()
-    realized_vol = calculate_realized_vol(historical_data)
-    if not historical_data.empty:
-        returns = historical_data['returns'].dropna() * 100
-        model = arch_model(returns, vol='Garch', p=1, q=1)
-        garch_fit = model.fit(disp='off')
-        forecast = garch_fit.forecast(horizon=5)
-        forecast_vol = np.sqrt(forecast.variance.values[-1, :]) * np.sqrt(252)
-        
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> Realized Volatility (30D)</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
-        st.subheader("5-Day Volatility Forecast")
-        forecast_df = pd.DataFrame({
-            'Day': [f"Day {i+1}" for i in range(5)],
-            'Forecasted Volatility (%)': forecast_vol
-        })
-        st.dataframe(forecast_df, use_container_width=True)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=forecast_df['Day'], y=forecast_df['Forecasted Volatility (%)'], mode='lines+markers', line=dict(color='#FBBF24')))
-        fig.update_layout(
-            title='5-Day Volatility Forecast',
-            xaxis_title='Day',
-            yaxis_title='Volatility (%)',
-            template='plotly_dark',
-            title_font=dict(size=20, color='#FBBF24'),
-            xaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
-            yaxis=dict(title_font=dict(color='#D1D5DB'), tickfont=dict(color='#D1D5DB')),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.error("Failed to fetch historical data for forecasting.")
+    st.header("GARCH: 7-Day Volatility Forecast")
+    try:
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
 
-# === Tab 3: Prediction ===
+        log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
+        model = arch_model(log_returns, vol="Garch", p=1, q=1)
+        model_fit = model.fit(disp="off")
+        forecast_horizon = 7
+        garch_forecast = model_fit.forecast(horizon=forecast_horizon)
+        garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
+        garch_vols = np.clip(garch_vols, 5, 50)
+        last_date = nifty_df.index[-1]
+        forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=forecast_horizon)
+        forecast_df = pd.DataFrame({
+            "Date": forecast_dates,
+            "Day": forecast_dates.day_name(),
+            "Forecasted Volatility (%)": np.round(garch_vols, 2)
+        })
+
+        st.subheader("GARCH Volatility Forecast")
+        for idx, row in forecast_df.iterrows():
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4><i class='material-icons'>event</i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                    <p>Forecasted Volatility: {row['Forecasted Volatility (%)']}%</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+        avg_vol = forecast_df["Forecasted Volatility (%)"].mean()
+        st.subheader("Trading Insight")
+        if avg_vol > 20:
+            st.markdown("<div class='alert-yellow'>Volatility is high (>20%). Consider defensive strategies like Iron Condor.</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='alert-green'>Volatility is moderate. You can explore strategies like Jade Lizard.</div>", unsafe_allow_html=True)
+
+        rv_7d_df, hv_30d, hv_1y = calculate_rolling_and_fixed_hv(nifty_df["NIFTY_Close"])
+        st.subheader("Historical Volatility")
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> 30-Day HV (Annualized)</h4><p>{hv_30d}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> 1-Year HV (Annualized)</h4><p>{hv_1y}%</p></div>", unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"Error loading GARCH data: {e}")
+
+# === Tab 3: XGBoost ===
 with tab3:
-    st.header("NIFTY Prediction")
-    if not historical_data.empty:
-        data = historical_data[['close']].copy()
-        data['lag1'] = data['close'].shift(1)
-        data['lag2'] = data['close'].shift(2)
-        data['ma5'] = data['close'].rolling(window=5).mean()
-        data['volatility'] = data['close'].pct_change().rolling(window=5).std() * np.sqrt(252)
-        data = data.dropna()
-        
-        X = data[['lag1', 'lag2', 'ma5', 'volatility']]
-        y = data['close']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        xgb_model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
-        xgb_model.fit(X_train, y_train)
-        
-        y_pred = xgb_model.predict(X_test)
-        mse = mean_squared_error(y_test, y_pred)
-        mae = mean_absolute_error(y_test, y_pred)
-        r2 = r2_score(y_test, y_pred)
-        
-        latest_data = X.iloc[-1:].copy()
-        prediction = xgb_model.predict(latest_data)[0]
-        st.session_state.xgb_prediction = prediction
-        
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>prediction</i> Predicted NIFTY Close</h4><p>₹{prediction:.2f}</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>error</i> Model MSE</h4><p>{mse:.2f}</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>error</i> Model MAE</h4><p>{mae:.2f}</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>score</i> Model R²</h4><p>{r2:.2f}</p></div>", unsafe_allow_html=True)
-    else:
-        st.error("Failed to fetch historical data for prediction.")
+    st.header("XGBoost: 7-Day Volatility Prediction")
+    xgb_model_url = "https://drive.google.com/uc?export=download&id=1Gs86p1p8wsGe1lp498KC-OVn0e87Gv-R"
+    xgb_csv_url = "https://raw.githubusercontent.com/shritish20/VolGuard/main/synthetic_volguard_dataset.csv"
+
+    st.subheader("Evaluate Trained Model")
+    if st.button("Run Model Evaluation"):
+        try:
+            with st.spinner("Loading XGBoost data and model..."):
+                xgb_df = pd.read_csv(xgb_csv_url)
+                xgb_df = xgb_df.dropna()
+                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']
+                target = 'Next_5D_Realized_Vol'
+                if not all(col in xgb_df.columns for col in features + [target]):
+                    st.error("CSV missing required columns!")
+                    st.stop()
+                X = xgb_df[features]
+                y = xgb_df[target] * 100
+
+                response = requests.get(xgb_model_url)
+                if response.status_code != 200:
+                    st.error("Failed to load xgb_model.pkl from Google Drive.")
+                    st.stop()
+                xgb_model = pickle.loads(response.content)
+
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+                y_pred_train = xgb_model.predict(X_train)
+                y_pred_test = xgb_model.predict(X_test)
+
+                rmse_train = np.sqrt(mean_squared_error(y_train, y_pred_train))
+                rmse_test = np.sqrt(mean_squared_error(y_test, y_pred_test))
+                mae_train = mean_absolute_error(y_train, y_pred_train)
+                mae_test = mean_absolute_error(y_test, y_pred_test)
+                r2_train = r2_score(y_train, y_pred_train)
+                r2_test = r2_score(y_test, y_pred_test)
+
+                st.subheader("Model Performance")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("<h3>Training Metrics</h3>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
+                with col2:
+                    st.markdown("<h3>Test Metrics</h3>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
+
+                fig = go.Figure()
+                importances = xgb_model.feature_importances_
+                sorted_idx = np.argsort(importances)
+                fig.add_trace(go.Bar(
+                    y=np.array(features)[sorted_idx],
+                    x=importances[sorted_idx],
+                    orientation='h',
+                    marker=dict(color='#1e88e5')
+                ))
+                fig.update_layout(
+                    title="XGBoost Feature Importances",
+                    xaxis_title="Feature Importance",
+                    yaxis_title="Feature",
+                    template="plotly_dark",
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    plot_bgcolor='#121212',
+                    paper_bgcolor='#121212',
+                    font=dict(color='#ffffff')
+                )
+                st.subheader("Feature Importances")
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error running model evaluation: {e}")
+
+    st.subheader("Predict with New Data")
+    st.info("Use VolGuard data (if available) or enter values manually.")
+    
+    try:
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
+        realized_vol = compute_realized_vol(nifty_df)
+    except Exception as e:
+        realized_vol = 0
+        st.warning(f"Could not compute Realized Volatility: {e}")
+
+    atm_iv = st.session_state.volguard_data['atm_iv'] if st.session_state.volguard_data else 0
+    pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        atm_iv_input = st.number_input("ATM IV (%)", value=float(atm_iv), min_value=0.0, step=0.1)
+        realized_vol_input = st.number_input("Realized Volatility (%)", value=float(realized_vol), min_value=0.0, step=0.1)
+        ivp_input = st.number_input("IV Percentile (0–100)", value=50.0, min_value=0.0, max_value=100.0, step=1.0)
+    with col2:
+        event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
+        fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
+        pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
+        vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, step=0.1)
+
+    if st.button("Predict Volatility"):
+        try:
+            with st.spinner("Loading model and predicting..."):
+                response = requests.get(xgb_model_url)
+                if response.status_code != 200:
+                    st.error("Failed to load xgb_model.pkl from Google Drive.")
+                    st.stop()
+                xgb_model = pickle.loads(response.content)
+
+                new_data = pd.DataFrame({
+                    'ATM_IV': [atm_iv_input],
+                    'Realized_Vol': [realized_vol_input],
+                    'IVP': [ivp_input],
+                    'Event_Impact_Score': [event_score_input],
+                    'FII_DII_Net_Long': [fii_dii_input],
+                    'PCR': [pcr_input],
+                    'VIX': [vix_input]
+                })
+
+                prediction = xgb_model.predict(new_data)[0]
+                st.session_state.xgb_prediction = prediction
+                st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Predicted Next 7-Day Realized Volatility</h4><p>{prediction:.2f}%</p></div>", unsafe_allow_html=True)
+
+                last_date = nifty_df.index[-1]
+                xgb_forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
+                xgb_forecast_df = pd.DataFrame({
+                    "Date": xgb_forecast_dates,
+                    "Day": xgb_forecast_dates.day_name(),
+                    "Predicted Volatility (%)": np.round([prediction]*7, 2)
+                })
+                st.subheader("XGBoost Prediction Dates")
+                for idx, row in xgb_forecast_df.iterrows():
+                    st.markdown(f"""
+                        <div class='metric-card'>
+                            <h4><i class='material-icons'>event</i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                            <p>Predicted Volatility: {row['Predicted Volatility (%)']}%</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                st.subheader("Trading Insight")
+                if prediction > 20:
+                    st.markdown("<div class='alert-yellow'>Predicted volatility is high (>20%). Consider defensive strategies like Iron Condor.</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='alert-green'>Predicted volatility is moderate. You can explore strategies like Jade Lizard.</div>", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error predicting volatility: {e}")
 
 # === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
     if run_engine or st.session_state.get('strategies', None):
+        # Market Regime Classification (Simplified)
         iv_rv = st.session_state.atm_iv - realized_vol if st.session_state.atm_iv else 0
         if iv_rv > 10:
             regime = "High"
@@ -763,42 +773,32 @@ with tab4:
         else:
             regime = "Low"
 
+        # Strategy Recommendation Logic
         strategies = []
-        df = pd.DataFrame(st.session_state.volguard_data['iv_skew_data']) if st.session_state.volguard_data else pd.DataFrame()
-        spot = st.session_state.volguard_data['nifty_spot'] if st.session_state.volguard_data else 0
-        atm_strike = st.session_state.volguard_data['atm_strike'] if st.session_state.volguard_data else 0
-        
-        if not df.empty:
-            if regime == "High" and risk_profile in ["Moderate", "Aggressive"]:
-                iron_fly = calculate_iron_fly(df, spot, atm_strike, total_capital, risk_profile)
-                strategies.append(iron_fly)
-            elif risk_profile == "Conservative":
-                strategies.append({
-                    "name": "Iron Condor",
-                    "logic": "Neutral strategy for low volatility regime",
-                    "capital_required": total_capital * 0.3,
-                    "max_loss": total_capital * 0.03,
-                    "confidence": 0.8,
-                    "reasoning": "Conservative profile prefers low-risk strategies."
-                })
-            elif risk_profile == "Moderate":
-                strategies.append({
-                    "name": "Jade Lizard",
-                    "logic": "Skewed risk-reward for medium volatility",
-                    "capital_required": total_capital * 0.35,
-                    "max_loss": total_capital * 0.035,
-                    "confidence": 0.75,
-                    "reasoning": "Moderate profile suits Jade Lizard in medium volatility."
-                })
-            elif risk_profile == "Aggressive":
-                strategies.append({
-                    "name": "Ratio Backspread",
-                    "logic": "High risk, high reward for high volatility regime",
-                    "capital_required": total_capital * 0.4,
-                    "max_loss": total_capital * 0.04,
-                    "confidence": 0.65,
-                    "reasoning": "Aggressive profile suits high-risk strategies."
-                })
+        if risk_profile == "Conservative":
+            strategies.append({
+                "name": "Iron Condor",
+                "logic": "Neutral strategy for low volatility regime",
+                "capital_required": total_capital * 0.3,
+                "max_loss": total_capital * 0.03,
+                "confidence": 0.8
+            })
+        elif risk_profile == "Moderate":
+            strategies.append({
+                "name": "Jade Lizard",
+                "logic": "Skewed risk-reward for medium volatility",
+                "capital_required": total_capital * 0.35,
+                "max_loss": total_capital * 0.035,
+                "confidence": 0.75
+            })
+        elif risk_profile == "Aggressive":
+            strategies.append({
+                "name": "Ratio Backspread",
+                "logic": "High risk, high reward for high volatility regime",
+                "capital_required": total_capital * 0.4,
+                "max_loss": total_capital * 0.04,
+                "confidence": 0.65
+            })
 
         st.session_state.strategies = strategies
         for strategy in strategies:
@@ -808,76 +808,116 @@ with tab4:
                     <p>Logic: {strategy['logic']}</p>
                     <p>Capital Required: ₹{strategy['capital_required']:.2f}</p>
                     <p>Max Loss: ₹{strategy['max_loss']:.2f}</p>
-                    <p>Max Profit: ₹{strategy.get('max_profit', 'N/A'):.2f}</p>
-                    <p>Breakeven Points: {strategy.get('breakeven_lower', 'N/A'):.2f} - {strategy.get('breakeven_upper', 'N/A'):.2f}</p>
                     <p>Confidence: {strategy['confidence']*100:.1f}%</p>
                     <p>Market Regime: {regime}</p>
-                    <p>Reasoning: {strategy['reasoning']}</p>
                 </div>
             """, unsafe_allow_html=True)
+            # Risk Check Before Trade
             risk_status, risk_message = check_risk(strategy['capital_required'], strategy['max_loss'], 0)
             if risk_status == "red":
                 st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
             else:
                 if st.button(f"Trade Now - {strategy['name']}", key=strategy['name']):
-                    if not st.session_state.access_token:
-                        st.error("Please run VolGuard with a valid access token to place trades.")
-                    else:
-                        success, message = place_iron_fly_orders(st.session_state.access_token, strategy, df)
-                        if success:
-                            st.success(message)
-                        else:
-                            st.error(message)
+                    # Dummy Trade Execution
+                    dummy_pnl = np.random.uniform(-strategy['max_loss'], strategy['max_loss'] * 1.5)
+                    st.session_state.deployed_capital += strategy['capital_required']
+                    st.session_state.daily_pnl += dummy_pnl
+                    st.session_state.trade_log.append({
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "strategy": strategy['name'],
+                        "capital_deployed": strategy['capital_required'],
+                        "max_loss": strategy['max_loss'],
+                        "pnl": dummy_pnl
+                    })
+                    st.success(f"Trade executed: {strategy['name']} | Capital Deployed: ₹{strategy['capital_required']:,} | P&L: ₹{dummy_pnl:,.2f}")
 
 # === Tab 5: Dashboard ===
 with tab5:
     st.header("Dashboard: Risk & Performance")
     st.subheader("Volatility Insights")
-    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> Realized Volatility (30D)</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>volatility</i> ATM Implied Volatility</h4><p>{st.session_state.atm_iv if st.session_state.atm_iv else 0:.2f}%</p></div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>difference</i> IV-RV Spread</h4><p>{(st.session_state.atm_iv - realized_vol) if st.session_state.atm_iv else 0:.2f}%</p></div>", unsafe_allow_html=True)
+    try:
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
+        realized_vol = compute_realized_vol(nifty_df)
 
-    st.subheader("Portfolio Overview")
+        log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
+        model = arch_model(log_returns, vol="Garch", p=1, q=1)
+        model_fit = model.fit(disp="off")
+        garch_forecast = model_fit.forecast(horizon=7)
+        garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
+        garch_vols = np.clip(garch_vols, 5, 50)
+
+        xgb_vol = st.session_state.get('xgb_prediction', 15.0)
+        xgb_vols = [xgb_vol] * 7
+
+        atm_iv = st.session_state.atm_iv if st.session_state.atm_iv is not None else 20.0
+        atm_iv_vols = [atm_iv] * 7
+        pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 1.0
+        straddle_price = st.session_state.volguard_data['straddle_price'] if st.session_state.volguard_data else 0
+        max_pain = st.session_state.volguard_data['max_pain'] if st.session_state.volguard_data else 0
+        iv_rv = atm_iv - realized_vol
+
+        rv_vols = [realized_vol] * 7
+
+        last_date = nifty_df.index[-1]
+        forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
+        plot_df = pd.DataFrame({
+            "Date": forecast_dates,
+            "GARCH Forecast": garch_vols,
+            "XGBoost Prediction": xgb_vols,
+            "Realized Volatility": rv_vols,
+            "ATM IV": atm_iv_vols
+        })
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["GARCH Forecast"], mode='lines+markers', name='GARCH Forecast', line=dict(color='#1e88e5')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["XGBoost Prediction"], mode='lines+markers', name='XGBoost Prediction', line=dict(color='#ab47bc')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["Realized Volatility"], mode='lines+markers', name='Realized Volatility', line=dict(color='#00adb5')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["ATM IV"], mode='lines+markers', name='ATM IV', line=dict(color='#f4e7ba')))
+        fig.update_layout(
+            title=f"Volatility Comparison ({forecast_dates[0].strftime('%b %d')}–{forecast_dates[-1].strftime('%b %d, %Y')})",
+            xaxis_title="Date",
+            yaxis_title="Volatility (%)",
+            template="plotly_dark",
+            showlegend=True,
+            margin=dict(l=40, r=40, t=40, b=40),
+            plot_bgcolor='#121212',
+            paper_bgcolor='#121212',
+            font=dict(color='#ffffff')
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Key Metrics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"<div class='highlight-card'><h4><i class='material-icons'>percent</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> IV-RV</h4><p>{iv_rv:.2f}%</p></div>", unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> PCR</h4><p>{pcr:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Straddle Price</h4><p>{straddle_price:.2f}</p></div>", unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Pain</h4><p>{max_pain:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> Realized Volatility</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"Error loading volatility insights: {e}")
+        st.write("Run VolGuard and XGBoost tabs first to populate data.")
+
+    st.subheader("Risk Management Overview")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance_wallet</i> Total Funds</h4><p>₹{st.session_state.funds_margin.get('equity', {}).get('available_margin', 0):,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance_wallet</i> Total Capital</h4><p>₹{total_capital:,}</p></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Deployed Capital</h4><p>₹{st.session_state.deployed_capital:,}</p></div>", unsafe_allow_html=True)
-        exposure_pct = (st.session_state.deployed_capital / total_capital) * 100 if total_capital > 0 else 0
         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>percent</i> Exposure</h4><p>{exposure_pct:.1f}%</p></div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>security</i> Max Exposure Allowed</h4><p>{MAX_EXPOSURE_PCT}% (₹{max_deployed_capital:,})</p></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Loss Per Trade</h4><p>{MAX_LOSS_PER_TRADE_PCT}% (₹{max_loss_per_trade:,})</p></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Daily Loss Limit</h4><p>{DAILY_LOSS_LIMIT_PCT}% (₹{daily_loss_limit:,})</p></div>", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Live P&L</h4><p>₹{st.session_state.live_pnl:,}</p></div>", unsafe_allow_html=True)
-
-    st.subheader("Holdings")
-    if st.session_state.holdings:
-        for holding in st.session_state.holdings:
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <h4><i class='material-icons'>store</i> {holding.get('tradingsymbol', 'N/A')}</h4>
-                    <p>Quantity: {holding.get('quantity', 0)}</p>
-                    <p>Avg Price: ₹{holding.get('average_price', 0):.2f}</p>
-                    <p>Current Value: ₹{holding.get('last_price', 0) * holding.get('quantity', 0):,.2f}</p>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("No holdings data available.")
-
-    st.subheader("Positions")
-    if st.session_state.positions:
-        for position in st.session_state.positions:
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <h4><i class='material-icons'>trending_up</i> {position.get('tradingsymbol', 'N/A')}</h4>
-                    <p>Quantity: {position.get('quantity', 0)}</p>
-                    <p>Buy Avg: ₹{position.get('buy_avg', 0):.2f}</p>
-                    <p>Unrealized P&L: ₹{position.get('unrealised_pnl', 0):,.2f}</p>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("No positions data available.")
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Daily P&L</h4><p>₹{st.session_state.daily_pnl:,}</p></div>", unsafe_allow_html=True)
 
     st.subheader("Trade Log")
     if st.session_state.trade_log:
@@ -893,3 +933,29 @@ with tab5:
             """, unsafe_allow_html=True)
     else:
         st.info("No trades executed yet.")
+
+# === Journal Section ===
+st.header("Journal: Trading Notes")
+st.subheader("Add Your Thoughts")
+journal_entry = st.text_area("Write your trading thoughts, strategy rationale, or reflections:")
+if st.button("Save Journal Entry"):
+    if journal_entry:
+        st.session_state.journal_entries.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "entry": journal_entry
+        })
+        st.success("Journal entry saved!")
+    else:
+        st.warning("Please write something before saving.")
+
+st.subheader("Your Journal Entries")
+if st.session_state.journal_entries:
+    for entry in st.session_state.journal_entries:
+        st.markdown(f"""
+            <div class='metric-card'>
+                <h4><i class='material-icons'>book</i> {entry['timestamp']}</h4>
+                <p>{entry['entry']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+else:
+    st.info("No journal entries yet. Start writing your thoughts!")
