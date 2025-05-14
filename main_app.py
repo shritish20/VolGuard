@@ -173,7 +173,16 @@ with st.sidebar:
     st.header("🔑 Upstox Login")
     access_token = st.text_input("Access Token", type="password", key="access_token_input")
     if st.button("Login to Upstox"):
-signal = signals[signals["Date"] == date].iloc[0]
+if not signals.empty and date in signals["Date"].values:
+    signal = signals[signals["Date"] == date].iloc[0]
+else:
+    signal = {
+        "Strategy": "None",
+        "Confidence": 0.0,
+        "Deploy": 0.0,
+        "Orders": [],
+        "Reasoning": "No signal available for the date"
+    }
         return {
             "Strategy": signal["Strategy"],
             "Confidence": signal["Confidence"],
