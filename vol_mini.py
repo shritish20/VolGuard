@@ -1,6 +1,7 @@
 # === VOLGUARD PRO - STREAMLIT APP ===
 # Based on the original Colab script logic
 # Features: Sidebar Token Input, Dashboard Layout, Option Chain, Metrics, Depth, IV Skew, Portfolio
+# FIX: Added robust error handling for converting OI values to integer
 
 import streamlit as st
 import pandas as pd
@@ -65,7 +66,7 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
             "order_api": upstox_client.OrderApi(client),
         }
     except ApiException as e:
-        logger.error(f"Error initializing Upstox client or validating token: {e}")
+        logger.error(f"API Error during client initialization. Token used: {_access_token[:5]}...{_access_token[-5:]}. Error: {e}")
         # Clear cached client if validation fails for the token
         st.error(f"API Error during client initialization. Please check your Access Token and permissions: {e}")
         st.cache_resource.clear() # Clear cache on API error during init
@@ -235,6 +236,9 @@ def get_user_data(user_api_client, portfolio_api_client, order_api_client):
 def process_chain(chain_data):
     """Process raw option chain data into a DataFrame and calculate total OI."""
     # Uses st.session_state['prev_oi'] for persistence in Streamlit
+    if 'prev_oi' not in st.session_state:
+         st.session_state['prev_oi'] = {} # Ensure it exists in session state
+
     rows, total_ce_oi, total_pe_oi = [], 0, 0
     current_oi = {} # Dictionary to store current OI for change calculation
 
@@ -248,8 +252,24 @@ def process_chain(chain_data):
         if strike is None:
             continue # Skip if strike price is missing
 
-        ce_oi_val = ce_md.get("oi", 0) or 0 # Ensure OI is treated as number, default to 0
-        pe_oi_val = pe_md.get("oi", 0) or 0
+        # --- FIX: Robust Extraction and Conversion of OI ---
+        # Get the raw value first, could be None or something else
+        raw_ce_oi = ce_md.get("oi") 
+        raw_pe_oi = pe_md.get("oi")
+
+        # Convert to integer, default to 0 if None or conversion fails
+        try:
+            ce_oi_val = int(raw_ce_oi) if pd.notna(raw_ce_oi) and raw_ce_oi is not None else 0
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert CE OI value '{raw_ce_oi}' for strike {strike} to int. Defaulting to 0.")
+            ce_oi_val = 0
+
+        try:
+            pe_oi_val = int(raw_pe_oi) if pd.notna(raw_pe_oi) and raw_pe_oi is not None else 0
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert PE OI value '{raw_pe_oi}' for strike {strike} to int. Defaulting to 0.")
+            pe_oi_val = 0
+        # --- End FIX ---
 
         # Calculate OI change and percentage using session state's prev_oi
         # Use .get() with default 0 in case strike was not present in the previous fetch
@@ -259,6 +279,7 @@ def process_chain(chain_data):
         ce_oi_change = ce_oi_val - prev_ce_oi
         pe_oi_change = pe_oi_val - prev_pe_oi
 
+        # Handle division by zero for percentage change calculation
         ce_oi_change_pct = (ce_oi_change / prev_ce_oi * 100) if prev_ce_oi > 0 else 0
         pe_oi_change_pct = (pe_oi_change / prev_pe_oi * 100) if prev_pe_oi > 0 else 0
 
@@ -292,7 +313,7 @@ def process_chain(chain_data):
             "PE_Token": pe.get("instrument_key")
         }
         total_ce_oi += ce_oi_val
-        pe_oi_total += pe_oi_val
+        total_pe_oi += pe_oi_val
         rows.append(row)
 
     df = pd.DataFrame(rows).sort_values("Strike").reset_index(drop=True)
@@ -594,7 +615,7 @@ if st.session_state['latest_data']:
             st.pyplot(iv_fig)
             plt.close(iv_fig) # Close the figure to free up memory
         else:
-            st.info("IV Skew plot not available due to insufficient valid IV data.")
+            st.info("IV Skew plot not available due to insufficient valid IV data (check strikes with IV > 0).")
     else:
         st.info("IV Skew plot requires Nifty spot price, ATM strike, and valid option chain data.")
 
@@ -635,29 +656,70 @@ if st.session_state['latest_data']:
 
             # Format other columns
             for col in ['CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega']:
-                key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_float)
+                if col in key_strikes_df_raw.columns:
+                     key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_float)
             for col in ['PE_LTP', 'PE_IV', 'PE_Delta', 'PE_Theta', 'PE_Vega']:
-                key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_float)
+                if col in key_strikes_df_raw.columns:
+                     key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_float)
 
             for col in ['CE_OI', 'CE_Volume']:
-                key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_large_number)
+                if col in key_strikes_df_raw.columns:
+                     key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_large_number)
             for col in ['PE_OI', 'PE_Volume']:
-                key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_large_number)
+                if col in key_strikes_df_raw.columns:
+                     key_strikes_df_formatted[col] = key_strikes_df_raw[col].apply(format_large_number)
 
             # Apply special formatting for OI Change
-            key_strikes_df_formatted['CE_OI_Change'] = key_strikes_df_raw['CE_OI_Change'].apply(format_oi_change_highlight)
-            key_strikes_df_formatted['PE_OI_Change'] = key_strikes_df_raw['PE_OI_Change'].apply(format_oi_change_highlight)
+            if 'CE_OI_Change' in key_strikes_df_raw.columns:
+                key_strikes_df_formatted['CE_OI_Change'] = key_strikes_df_raw['CE_OI_Change'].apply(format_oi_change_highlight)
+            if 'PE_OI_Change' in key_strikes_df_raw.columns:
+                key_strikes_df_formatted['PE_OI_Change'] = key_strikes_df_raw['PE_OI_Change'].apply(format_oi_change_highlight)
+
 
             # Apply special formatting for OI Change Pct
-            key_strikes_df_formatted['CE_OI_Change_%'] = key_strikes_df_raw['CE_OI_Change_Pct'].apply(format_pct)
-            key_strikes_df_formatted['PE_OI_Change_%'] = key_strikes_df_raw['PE_OI_Change_Pct'].apply(format_pct)
+            if 'CE_OI_Change_Pct' in key_strikes_df_raw.columns:
+                 key_strikes_df_formatted['CE_OI_Change_%'] = key_strikes_df_raw['CE_OI_Change_Pct'].apply(format_pct)
+            if 'PE_OI_Change_Pct' in key_strikes_df_raw.columns:
+                 key_strikes_df_formatted['PE_OI_Change_%'] = key_strikes_df_raw['PE_OI_Change_Pct'].apply(format_pct)
+
 
             # Apply special formatting for Strike PCR
-            key_strikes_df_formatted['Strike_PCR'] = key_strikes_df_raw['Strike_PCR'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+            if 'Strike_PCR' in key_strikes_df_raw.columns:
+                 key_strikes_df_formatted['Strike_PCR'] = key_strikes_df_raw['Strike_PCR'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
 
 
-            # Display the formatted dataframe
-            st.dataframe(key_strikes_df_formatted, hide_index=True, use_container_width=True)
+            # Define desired column order and names for display
+            display_cols_order = [
+                'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega',
+                'CE_OI', 'CE_OI_Change', 'CE_OI_Change_%', 'CE_Volume',
+                'PE_LTP', 'PE_IV', 'PE_Delta', 'PE_Theta', 'PE_Vega',
+                'PE_OI', 'PE_OI_Change', 'PE_OI_Change_%', 'PE_Volume',
+                'Strike_PCR'
+            ]
+
+            # Rename formatted columns to original names for ordered selection
+            rename_map = {
+                col + '_Formatted': col for col in [
+                    'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega',
+                    'CE_OI', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
+                    'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_Volume'
+                    ] if col + '_Formatted' in key_strikes_df_formatted.columns
+                }
+            if 'CE_OI_Change' in key_strikes_df_formatted.columns: rename_map['CE_OI_Change'] = 'CE_OI_Change' # Keep name if formatted in place
+            if 'PE_OI_Change' in key_strikes_df_formatted.columns: rename_map['PE_OI_Change'] = 'PE_OI_Change'
+            if 'CE_OI_Change_%' in key_strikes_df_formatted.columns: rename_map['CE_OI_Change_%'] = 'CE_OI_Change_%'
+            if 'PE_OI_Change_%' in key_strikes_df_formatted.columns: rename_map['PE_OI_Change_%'] = 'PE_OI_Change_%'
+            if 'Strike_PCR' in key_strikes_df_formatted.columns: rename_map['Strike_PCR'] = 'Strike_PCR'
+
+
+            # Apply renaming where needed (only to formatted cols that got new names)
+            key_strikes_df_formatted = key_strikes_df_formatted.rename(columns=rename_map)
+
+            # Select and order columns for final display, keeping only those that exist
+            final_display_cols = [col for col in display_cols_order if col in key_strikes_df_formatted.columns]
+
+
+            st.dataframe(key_strikes_df_formatted[final_display_cols], hide_index=True, use_container_width=True)
             st.markdown("* Significant OI Change (e.g., > 500,000) is marked with an asterisk.")
 
         else:
@@ -685,24 +747,74 @@ if st.session_state['latest_data']:
              if pd.isna(num): return "-"
              return f"{num:.1f}%" if abs(num) < 10000 else f"{num:,.0f}%"
 
+
         full_display_df_formatted = option_chain_df[['Strike']].copy()
+
+        # Format other columns
         for col in ['CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega']:
-             full_display_df_formatted[col] = option_chain_df[col].apply(format_float_full)
+            if col in option_chain_df.columns:
+                 full_display_df_formatted[col] = option_chain_df[col].apply(format_float_full)
         for col in ['PE_LTP', 'PE_IV', 'PE_Delta', 'PE_Theta', 'PE_Vega']:
-             full_display_df_formatted[col] = option_chain_df[col].apply(format_float_full)
+            if col in option_chain_df.columns:
+                 full_display_df_formatted[col] = option_chain_df[col].apply(format_float_full)
 
         for col in ['CE_OI', 'CE_Volume']:
-             full_display_df_formatted[col] = option_chain_df[col].apply(format_large_number_full)
+            if col in option_chain_df.columns:
+                 full_display_df_formatted[col] = option_chain_df[col].apply(format_large_number_full)
         for col in ['PE_OI', 'PE_Volume']:
-             full_display_df_formatted[col] = option_chain_df[col].apply(format_large_number_full)
+            if col in option_chain_df.columns:
+                 full_display_df_formatted[col] = option_chain_df[col].apply(format_large_number_full)
 
-        full_display_df_formatted['CE_OI_Change'] = option_chain_df['CE_OI_Change'].apply(format_oi_change_highlight_full)
-        full_display_df_formatted['PE_OI_Change'] = option_chain_df['PE_OI_Change'].apply(format_oi_change_highlight_full)
-        full_display_df_formatted['CE_OI_Change_%'] = option_chain_df['CE_OI_Change_Pct'].apply(format_pct_full)
-        full_display_df_formatted['PE_OI_Change_%'] = option_chain_df['PE_OI_Change_Pct'].apply(format_pct_full)
-        full_display_df_formatted['Strike_PCR'] = option_chain_df['Strike_PCR'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+        # Apply special formatting for OI Change
+        if 'CE_OI_Change' in option_chain_df.columns:
+             full_display_df_formatted['CE_OI_Change'] = option_chain_df['CE_OI_Change'].apply(format_oi_change_highlight_full)
+        if 'PE_OI_Change' in option_chain_df.columns:
+             full_display_df_formatted['PE_OI_Change'] = option_chain_df['PE_OI_Change'].apply(format_oi_change_highlight_full)
 
-        st.dataframe(full_display_df_formatted, hide_index=True, use_container_width=True)
+        # Apply special formatting for OI Change Pct
+        if 'CE_OI_Change_Pct' in option_chain_df.columns:
+             full_display_df_formatted['CE_OI_Change_%'] = option_chain_df['CE_OI_Change_Pct'].apply(format_pct_full)
+        if 'PE_OI_Change_Pct' in option_chain_df.columns:
+             full_display_df_formatted['PE_OI_Change_%'] = option_chain_df['PE_OI_Change_Pct'].apply(format_pct_full)
+
+
+        # Apply special formatting for Strike PCR
+        if 'Strike_PCR' in option_chain_df.columns:
+             full_display_df_formatted['Strike_PCR'] = option_chain_df['Strike_PCR'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+
+        # Define desired column order and names for display (same as key strikes)
+        display_cols_order_full = [
+            'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega',
+            'CE_OI', 'CE_OI_Change', 'CE_OI_Change_%', 'CE_Volume',
+            'PE_LTP', 'PE_IV', 'PE_Delta', 'PE_Theta', 'PE_Vega',
+            'PE_OI', 'PE_OI_Change', 'PE_OI_Change_%', 'PE_Volume',
+            'Strike_PCR'
+        ]
+
+        # Rename formatted columns to original names for ordered selection
+        rename_map_full = {
+            col + '_Formatted': col for col in [
+                'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega',
+                'CE_OI', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
+                'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_Volume'
+                ] if col + '_Formatted' in full_display_df_formatted.columns
+            }
+        # Keep names for columns that got special handling in place
+        if 'CE_OI_Change' in full_display_df_formatted.columns: rename_map_full['CE_OI_Change'] = 'CE_OI_Change'
+        if 'PE_OI_Change' in full_display_df_formatted.columns: rename_map_full['PE_OI_Change'] = 'PE_OI_Change'
+        if 'CE_OI_Change_%' in full_display_df_formatted.columns: rename_map_full['CE_OI_Change_%'] = 'CE_OI_Change_%'
+        if 'PE_OI_Change_%' in full_display_df_formatted.columns: rename_map_full['PE_OI_Change_%'] = 'PE_OI_Change_%'
+        if 'Strike_PCR' in full_display_df_formatted.columns: rename_map_full['Strike_PCR'] = 'Strike_PCR'
+
+
+        # Apply renaming where needed
+        full_display_df_formatted = full_display_df_formatted.rename(columns=rename_map_full)
+
+        # Select and order columns for final display, keeping only those that exist
+        final_display_cols_full = [col for col in display_cols_order_full if col in full_display_df_formatted.columns]
+
+
+        st.dataframe(full_display_df_formatted[final_display_cols_full], hide_index=True, use_container_width=True)
     else:
         st.info("Full option chain data not available.")
 
