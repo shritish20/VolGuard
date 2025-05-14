@@ -14,23 +14,85 @@ import upstox_client
 from upstox_client.rest import ApiException
 import logging
 import time
-import io
+import plotly.express as px
+import plotly.graph_objects as go
+import xgboost as xgb
+
+# Suppress XGBoost warnings
+xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro", layout="wide")
-st.title("VolGuard Pro: Nifty 50 Options & Volatility Analysis")
-st.markdown("Analyze real-time Nifty 50 options, forecast volatility, and predict market movements.")
+
+# Custom CSS for Sexy Look
+st.markdown("""
+    <style>
+    body {
+        font-family: 'Poppins', sans-serif;
+    }
+    .stApp {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color: #e0e0e0;
+    }
+    .stTabs [role="tab"] {
+        background-color: #0f3460;
+        color: #e0e0e0;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 20px;
+        margin-right: 5px;
+    }
+    .stTabs [role="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+        color: white;
+    }
+    .stButton>button {
+        background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-weight: bold;
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #ff6b6b 0%, #e94560 100%);
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    .metric-card h4 {
+        color: #ff6b6b;
+        margin: 0;
+    }
+    .metric-card p {
+        color: #e0e0e0;
+        font-size: 1.2em;
+        margin: 5px 0 0 0;
+    }
+    h1, h2, h3, h4 {
+        color: #ff6b6b;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("VolGuard Pro")
+st.markdown("Real-Time Nifty 50 Options Analysis & Volatility Forecasting", unsafe_allow_html=True)
 
 # === Logging Setup ===
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("VolGuard")
 
 # === Global OI Storage ===
-prev_oi = {}  # Store previous OI for change tracking
+prev_oi = {}
 
 # === Session State to Store VolGuard Data ===
 if 'volguard_data' not in st.session_state:
     st.session_state.volguard_data = None
+if 'xgb_prediction' not in st.session_state:
+    st.session_state.xgb_prediction = None
 
 # === Helper Functions ===
 def get_nearest_expiry(options_api, instrument_key):
@@ -47,22 +109,10 @@ def get_nearest_expiry(options_api, instrument_key):
         today = datetime.now()
         valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
         nearest = valid_expiries[0] if valid_expiries else None
-        time.sleep(0.5)  # Rate limiting
+        time.sleep(0.5)
         return nearest
     except Exception as e:
         logger.error(f"Expiry fetch failed: {e}")
-        return None
-
-def fetch_vix(access_token, base_url):
-    try:
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        url = f"{base_url}/market-quote/quotes"
-        res = requests.get(url, headers=headers, params={"instrument_key": "NSE_INDEX|India VIX"})
-        vix = res.json().get('data', {}).get('NSE_INDEX|India VIX', {}).get('last_price')
-        time.sleep(0.5)
-        return vix
-    except Exception as e:
-        logger.error(f"VIX fetch error: {e}")
         return None
 
 def fetch_option_chain(options_api, instrument_key, expiry):
@@ -136,16 +186,19 @@ def plot_iv_skew(df, spot, atm_strike):
     valid = df[(df['CE_IV'] > 0) & (df['PE_IV'] > 0)]
     if valid.empty:
         return None
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(valid['Strike'], valid['CE_IV'], label='Call IV', color='blue')
-    ax.plot(valid['Strike'], valid['PE_IV'], label='Put IV', color='red')
-    ax.axvline(spot, color='gray', linestyle='--', label='Spot')
-    ax.axvline(atm_strike, color='green', linestyle=':', label='ATM')
-    ax.set_title("IV Skew")
-    ax.set_xlabel("Strike")
-    ax.set_ylabel("IV")
-    ax.legend()
-    ax.grid(True)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#e94560')))
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#ff6b6b')))
+    fig.add_vline(x=spot, line=dict(color='gray', dash='dash'), name='Spot')
+    fig.add_vline(x=atm_strike, line=dict(color='green', dash='dot'), name='ATM')
+    fig.update_layout(
+        title="IV Skew",
+        xaxis_title="Strike",
+        yaxis_title="IV",
+        template="plotly_dark",
+        showlegend=True,
+        margin=dict(l=40, r=40, t=40, b=40)
+    )
     return fig
 
 def get_market_depth(access_token, base_url, token):
@@ -191,7 +244,6 @@ def run_volguard(access_token):
         instrument_key = "NSE_INDEX|Nifty 50"
         base_url = "https://api.upstox.com/v2"
 
-        vix = fetch_vix(access_token, base_url)
         expiry = get_nearest_expiry(options_api, instrument_key)
         if not expiry:
             return None, None, None, None
@@ -212,7 +264,6 @@ def run_volguard(access_token):
 
         result = {
             "nifty_spot": spot,
-            "vix": vix,
             "atm_strike": atm_strike,
             "straddle_price": straddle_price,
             "pcr": pcr,
@@ -230,7 +281,7 @@ def run_volguard(access_token):
         return None, None, None, None
 
 # === Streamlit Tabs ===
-tab1, tab2, tab3, tab4 = st.tabs(["VolGuard: Options Analysis", "GARCH: Volatility Forecast", "XGBoost: Volatility Prediction", "Dashboard: Volatility Comparison"])
+tab1, tab2, tab3, tab4 = st.tabs(["VolGuard: Options Analysis", "GARCH: Volatility Forecast", "XGBoost: Volatility Prediction", "Dashboard: Volatility Insights"])
 
 # === Tab 1: VolGuard ===
 with tab1:
@@ -245,25 +296,24 @@ with tab1:
             with st.spinner("Fetching options data..."):
                 result, df, iv_skew_fig, atm_strike = run_volguard(access_token)
                 if result:
-                    st.session_state.volguard_data = result  # Store for XGBoost and Dashboard
+                    st.session_state.volguard_data = result
                     st.success("Data fetched successfully!")
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("Market Snapshot")
-                        st.write(f"**Timestamp**: {result['timestamp']}")
-                        st.write(f"**Nifty Spot**: {result['nifty_spot']}")
-                        st.write(f"**India VIX**: {result['vix']}")
-                        st.write(f"**Expiry**: {result['expiry']}")
-                        st.write(f"**ATM Strike**: {result['atm_strike']}")
-                        st.write(f"**Straddle Price**: {result['straddle_price']}")
-                        st.write(f"**PCR**: {result['pcr']}")
-                        st.write(f"**Max Pain**: {result['max_pain']}")
-                        st.write(f"**CE Depth**: Bid Volume={result['ce_depth'].get('bid_volume', 0)}, Ask Volume={result['ce_depth'].get('ask_volume', 0)}")
-                        st.write(f"**PE Depth**: Bid Volume={result['pe_depth'].get('bid_volume', 0)}, Ask Volume={result['pe_depth'].get('ask_volume', 0)}")
+                        st.markdown(f"<div class='metric-card'><h4>Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>Straddle Price</h4><p>{result['straddle_price']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>PCR</h4><p>{result['pcr']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>Max Pain</h4><p>{result['max_pain']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>CE Depth</h4><p>Bid Volume={result['ce_depth'].get('bid_volume', 0)}, Ask Volume={result['ce_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4>PE Depth</h4><p>Bid Volume={result['pe_depth'].get('bid_volume', 0)}, Ask Volume={result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
                     with col2:
                         if iv_skew_fig:
                             st.subheader("IV Skew Plot")
-                            st.pyplot(iv_skew_fig)
+                            st.plotly_chart(iv_skew_fig, use_container_width=True)
                     
                     st.subheader("Key Strikes (ATM ± 6)")
                     atm_idx = df[df['Strike'] == atm_strike].index[0]
@@ -279,7 +329,16 @@ with tab1:
                     key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
                         lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
                     )
-                    st.dataframe(key_strikes, use_container_width=True)
+                    # Display key strikes in cards
+                    for idx, row in key_strikes.iterrows():
+                        st.markdown(f"""
+                            <div class='metric-card'>
+                                <h4>Strike: {row['Strike']}</h4>
+                                <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f} | CE OI: {row['CE_OI']:.2f}</p>
+                                <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f} | PE OI: {row['PE_OI']:.2f}</p>
+                                <p>Strike PCR: {row['Strike_PCR']:.2f}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
                 else:
                     st.error("Failed to fetch options data. Check your access token or API availability.")
 
@@ -301,21 +360,35 @@ with tab2:
         garch_forecast = model_fit.forecast(horizon=forecast_horizon)
         garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
-        forecast_dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)  # Start from May 15, 2025
+        forecast_dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)
         forecast_df = pd.DataFrame({
             "Date": forecast_dates,
             "Day": forecast_dates.day_name(),
             "Forecasted Volatility (%)": np.round(garch_vols, 2)
         })
+
         st.subheader("GARCH Volatility Forecast")
-        st.dataframe(forecast_df, use_container_width=True)
+        for idx, row in forecast_df.iterrows():
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4>{row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                    <p>Forecasted Volatility: {row['Forecasted Volatility (%)']}%</p>
+                </div>
+            """, unsafe_allow_html=True)
 
         rv_7d_df, hv_30d, hv_1y = calculate_rolling_and_fixed_hv(nifty_df["NIFTY_Close"])
         st.subheader("Historical Volatility")
-        st.write(f"**30-Day HV (Annualized)**: {hv_30d}%")
-        st.write(f"**1-Year HV (Annualized)**: {hv_1y}%")
+        st.markdown(f"<div class='metric-card'><h4>30-Day HV (Annualized)</h4><p>{hv_30d}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4>1-Year HV (Annualized)</h4><p>{hv_1y}%</p></div>", unsafe_allow_html=True)
+
         st.subheader("7-Day Realized Volatility Forecast")
-        st.dataframe(rv_7d_df, use_container_width=True)
+        for idx, row in rv_7d_df.iterrows():
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4>{row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                    <p>Realized Volatility: {row['7-Day Realized Volatility (%)']}%</p>
+                </div>
+            """, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Error loading GARCH data: {e}")
 
@@ -332,13 +405,13 @@ with tab3:
             with st.spinner("Loading XGBoost data and model..."):
                 xgb_df = pd.read_csv(xgb_csv_url)
                 xgb_df = xgb_df.dropna()
-                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']
+                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR']  # Removed VIX
                 target = 'Next_5D_Realized_Vol'
                 if not all(col in xgb_df.columns for col in features + [target]):
                     st.error("CSV missing required columns!")
                     st.stop()
                 X = xgb_df[features]
-                y = xgb_df[target] * 100  # Convert to percentage for consistency
+                y = xgb_df[target] * 100  # Convert to percentage
 
                 response = requests.get(xgb_model_url)
                 if response.status_code != 200:
@@ -360,32 +433,40 @@ with tab3:
                 st.subheader("Model Performance")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write("**Training Metrics**")
-                    st.write(f"RMSE: {rmse_train:.4f}%")
-                    st.write(f"MAE: {mae_train:.4f}%")
-                    st.write(f"R²: {r2_train:.4f}")
+                    st.markdown("<h3>Training Metrics</h3>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>RMSE</h4><p>{rmse_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>MAE</h4><p>{mae_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>R²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
                 with col2:
-                    st.write("**Test Metrics**")
-                    st.write(f"RMSE: {rmse_test:.4f}%")
-                    st.write(f"MAE: {mae_test:.4f}%")
-                    st.write(f"R²: {r2_test:.4f}")
+                    st.markdown("<h3>Test Metrics</h3>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>RMSE</h4><p>{rmse_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>MAE</h4><p>{mae_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4>R²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
 
-                fig, ax = plt.subplots(figsize=(10, 6))
-                xgb_importances = xgb_model.feature_importances_
-                sorted_idx = np.argsort(xgb_importances)
-                ax.barh(range(len(features)), xgb_importances[sorted_idx], align='center')
-                ax.set_yticks(range(len(features)))
-                ax.set_yticklabels(np.array(features)[sorted_idx])
-                ax.set_xlabel("Feature Importance")
-                ax.set_title("XGBoost Feature Importances")
+                fig = go.Figure()
+                importances = xgb_model.feature_importances_
+                sorted_idx = np.argsort(importances)
+                fig.add_trace(go.Bar(
+                    y=np.array(features)[sorted_idx],
+                    x=importances[sorted_idx],
+                    orientation='h',
+                    marker=dict(color='#e94560')
+                ))
+                fig.update_layout(
+                    title="XGBoost Feature Importances",
+                    xaxis_title="Feature Importance",
+                    yaxis_title="Feature",
+                    template="plotly_dark",
+                    margin=dict(l=40, r=40, t=40, b=40)
+                )
                 st.subheader("Feature Importances")
-                st.pyplot(fig)
+                st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error(f"Error running model evaluation: {e}")
 
     # Real-Time Prediction Section
     st.subheader("Predict with New Data")
-    st.info("Use VolGuard data (if available) or enter values manually. IVP, Event_Impact_Score, and FII_DII_Net_Long require external data.")
+    st.info("Use VolGuard data (if available) or enter values manually.")
     
     try:
         nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
@@ -400,9 +481,8 @@ with tab3:
         st.warning(f"Could not compute Realized Volatility: {e}")
 
     # Auto-fill from VolGuard if available
-    atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 0  # Convert to %
+    atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 0
     pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 0
-    vix = st.session_state.volguard_data['vix'] if st.session_state.volguard_data else 0
 
     col1, col2 = st.columns(2)
     with col1:
@@ -413,7 +493,6 @@ with tab3:
         event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
         fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
-        vix_input = st.number_input("India VIX (%)", value=float(vix), min_value=0.0, step=0.1)
 
     if st.button("Predict Volatility"):
         try:
@@ -431,21 +510,20 @@ with tab3:
                     'IVP': [ivp_input],
                     'Event_Impact_Score': [event_score_input],
                     'FII_DII_Net_Long': [fii_dii_input],
-                    'PCR': [pcr_input],
-                    'VIX': [vix_input]
+                    'PCR': [pcr_input]
                 })
 
                 # Predict and convert to percentage
                 prediction = xgb_model.predict(new_data)[0]
-                st.session_state.xgb_prediction = prediction  # Store for Dashboard
-                st.success(f"Predicted Next 5-Day Realized Volatility: {prediction:.2f}%")
+                st.session_state.xgb_prediction = prediction
+                st.markdown(f"<div class='metric-card'><h4>Predicted Next 5-Day Realized Volatility</h4><p>{prediction:.2f}%</p></div>", unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error predicting volatility: {e}")
 
 # === Tab 4: Dashboard ===
 with tab4:
-    st.header("Dashboard: Volatility Comparison")
-    st.info("Compares XGBoost, GARCH, Realized Volatility, and ATM IV. Metrics include IV-RV, PCR, VIX, and more.")
+    st.header("Dashboard: Volatility Insights")
+    st.info("Interactive volatility comparison with key metrics.")
 
     try:
         # Load Nifty data for Realized Volatility
@@ -465,15 +543,14 @@ with tab4:
         garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
 
-        # XGBoost Prediction (from session state or default)
-        xgb_vol = st.session_state.get('xgb_prediction', 15.0)  # Default 15% if not predicted
-        xgb_vols = [xgb_vol] * 7  # Extend to 7 days for plotting
+        # XGBoost Prediction
+        xgb_vol = st.session_state.get('xgb_prediction', 15.0)
+        xgb_vols = [xgb_vol] * 7
 
         # ATM IV and Metrics from VolGuard
-        atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 20.0  # Default 20%
-        atm_iv_vols = [atm_iv] * 7  # Extend to 7 days
+        atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 20.0
+        atm_iv_vols = [atm_iv] * 7
         pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 1.0
-        vix = st.session_state.volguard_data['vix'] if st.session_state.volguard_data else 15.0
         straddle_price = st.session_state.volguard_data['straddle_price'] if st.session_state.volguard_data else 0
         max_pain = st.session_state.volguard_data['max_pain'] if st.session_state.volguard_data else 0
         iv_rv = atm_iv - realized_vol
@@ -483,38 +560,41 @@ with tab4:
 
         # Plot
         dates = pd.bdate_range(start=datetime(2025, 5, 15), periods=7)
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(dates, garch_vols, label='GARCH Forecast', color='blue', marker='o')
-        ax.plot(dates, xgb_vols, label='XGBoost Prediction', color='green', marker='s')
-        ax.plot(dates, rv_vols, label='Realized Volatility', color='red', marker='^')
-        ax.plot(dates, atm_iv_vols, label='ATM IV', color='purple', marker='d')
-        ax.set_title("Volatility Comparison (May 15–21, 2025)")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Volatility (%)")
-        ax.legend()
-        ax.grid(True)
-        plt.xticks(rotation=45)
+        plot_df = pd.DataFrame({
+            "Date": dates,
+            "GARCH Forecast": garch_vols,
+            "XGBoost Prediction": xgb_vols,
+            "Realized Volatility": rv_vols,
+            "ATM IV": atm_iv_vols
+        })
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["GARCH Forecast"], mode='lines+markers', name='GARCH Forecast', line=dict(color='#e94560')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["XGBoost Prediction"], mode='lines+markers', name='XGBoost Prediction', line=dict(color='#ff6b6b')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["Realized Volatility"], mode='lines+markers', name='Realized Volatility', line=dict(color='#00adb5')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["ATM IV"], mode='lines+markers', name='ATM IV', line=dict(color='#f4e7ba')))
+        fig.update_layout(
+            title="Volatility Comparison (May 15–21, 2025)",
+            xaxis_title="Date",
+            yaxis_title="Volatility (%)",
+            template="plotly_dark",
+            showlegend=True,
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
         st.subheader("Volatility Plot")
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Metrics Table
-        metrics = {
-            "Metric": ["IV-RV", "PCR", "VIX", "Straddle Price", "Max Pain", "Realized Volatility", "ATM IV", "XGBoost Volatility", "GARCH Volatility (Day 1)"],
-            "Value": [
-                f"{iv_rv:.2f}%",
-                f"{pcr:.2f}",
-                f"{vix:.2f}%",
-                f"{straddle_price:.2f}",
-                f"{max_pain:.2f}",
-                f"{realized_vol:.2f}%",
-                f"{atm_iv:.2f}%",
-                f"{xgb_vol:.2f}%",
-                f"{garch_vols[0]:.2f}%"
-            ]
-        }
-        metrics_df = pd.DataFrame(metrics)
+        # Metrics
         st.subheader("Key Metrics")
-        st.dataframe(metrics_df, use_container_width=True)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"<div class='metric-card'><h4>IV-RV</h4><p>{iv_rv:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4>PCR</h4><p>{pcr:.2f}</p></div>", unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"<div class='metric-card'><h4>Straddle Price</h4><p>{straddle_price:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4>Max Pain</h4><p>{max_pain:.2f}</p></div>", unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"<div class='metric-card'><h4>Realized Volatility</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4>ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Error loading dashboard: {e}")
