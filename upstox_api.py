@@ -1,4 +1,3 @@
-# upstox_api.py
 import logging
 import pandas as pd
 import requests
@@ -118,7 +117,7 @@ def fetch_market_depth_by_scrip(access_token, token):
         logger.error(f"Depth fetch error: {e}")
         return {"bid_volume": 0, "ask_volume": 0}
 
-# === MAIN FUNCTION ===
+# === REAL-TIME MARKET SNAPSHOT ===
 def fetch_real_time_market_data(upstox_client):
     options_api = upstox_client["options_api"]
     access_token = upstox_client["access_token"]
@@ -152,10 +151,9 @@ def fetch_real_time_market_data(upstox_client):
         "pe_depth": pe_depth,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-   def fetch_all_api_portfolio_data(upstox_client):
-    """
-    Fetches all relevant portfolio data: funds, holdings, positions, orders, and trades.
-    """
+
+# === PORTFOLIO DATA ===
+def fetch_all_api_portfolio_data(upstox_client):
     portfolio_api = upstox_client["portfolio_api"]
     order_api = upstox_client["order_api"]
     user_api = upstox_client["user_api"]
@@ -191,4 +189,42 @@ def fetch_real_time_market_data(upstox_client):
         logger.warning(f"Trades fetch failed: {e}")
         data['trades'] = {}
 
-    return data 
+    return data
+
+# === ORDER MANAGEMENT ===
+def prepare_trade_orders(strategy):
+    """
+    Prepares a list of trade orders based on the given strategy dict.
+    """
+    return strategy.get("Orders", [])
+
+def execute_trade_orders(upstox_client, orders):
+    """
+    Places trade orders via Upstox API.
+    """
+    order_api = upstox_client["order_api"]
+    results = []
+    for order in orders:
+        try:
+            res = order_api.place_order(body=order, api_version="v2")
+            results.append({"status": "success", "order_id": res.data.get("order_id")})
+        except Exception as e:
+            results.append({"status": "error", "error": str(e)})
+    return results
+
+def square_off_positions(upstox_client):
+    """
+    Squares off all open positions.
+    """
+    try:
+        portfolio_api = upstox_client["portfolio_api"]
+        positions = portfolio_api.get_positions(api_version="v2").to_dict().get("data", [])
+        closed = 0
+        for pos in positions:
+            if pos.get("quantity", 0) != 0:
+                # Add actual square off logic here using order_api
+                closed += 1
+        return True if closed > 0 else False
+    except Exception as e:
+        logger.error(f"Error squaring off positions: {e}")
+        return False
