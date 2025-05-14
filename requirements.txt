@@ -3,7 +3,6 @@ streamlit
 pandas
 numpy
 scipy
-yfinance
 arch
 xgboost
 scikit-learn
@@ -12,11 +11,10 @@ requests
 py5paisa
 pyjwt
 plotly
-python-dateutil
-pyotp
+streamlit 
 upstox-python-sdk==2.14.0
-streamlit==1.38.0
-pandas==2.2.2
-numpy==1.26.4
-upstox-python-sdk==2.14.0
-python-dotenv==1.0.1
+pandas 
+matplotlib 
+requests 
+numpy 
+arch
