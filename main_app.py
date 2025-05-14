@@ -120,6 +120,30 @@ default_session_state = {
     "journal_date_input": datetime.now().date(),
     "journal_strategy_input": "",
     "journal_pnl_input": 0.0,
+    "journal_notes_input": Foundations: The `main_app.py` file has been updated to include the following line:
+    from upstox_api import (
+        initialize_upstox_client,
+        fetch_all_api_portfolio_data,
+        prepare_trade_orders,
+        execute_trade_orders,
+        square_off_positions,
+        fetch_real_time_market_data,
+    )
+
+# === Initialize Session State ===
+default_session_state = {
+    "logged_in": False,
+    "client": None,
+    "real_time_market_data": {},
+    "api_portfolio_data": {},
+    "prepared_orders": None,
+    "trades": [],
+    "order_placement_errors": [],
+    "capital": 1000000,
+    "risk_tolerance": "Moderate",
+    "journal_date_input": datetime.now().date(),
+    "journal_strategy_input": "",
+    "journal_pnl_input": 0.0,
     "journal_notes_input": "",
 }
 
@@ -336,7 +360,12 @@ with tab3:
         st.subheader("Open Positions")
         positions = st.session_state.api_portfolio_data.get("positions", {}).get("data", [])
         if positions:
-            st.dataframe(pd.DataFrame(positions)[["instrument_token", "quantity", "average_price"]])
+            df_positions = pd.DataFrame(positions)
+            display_cols = [col for col in ["instrument_token", "quantity", "average_price"] if col in df_positions.columns]
+            if display_cols:
+                st.dataframe(df_positions[display_cols])
+            else:
+                st.info("No position data available in expected format.")
         else:
             st.info("No open positions.")
 
@@ -354,8 +383,12 @@ with tab4:
     journal_file = Path("journal_log.csv")
     journal_df = pd.DataFrame(columns=["Date", "Strategy", "PnL", "Notes"])
     if journal_file.exists():
-        journal_df = pd.read_csv(journal_file)
-        journal_df["Date"] = pd.to_datetime(journal_df["Date"], errors="coerce")
+        try:
+            journal_df = pd.read_csv(journal_file)
+            journal_df["Date"] = pd.to_datetime(journal_df["Date"], errors="coerce")
+        except Exception as e:
+            logger.error(f"Error reading journal file: {e}")
+            st.error("❌ Failed to load journal.")
 
     with st.form("journal_form"):
         date_log = st.date_input("Trade Date", st.session_state.journal_date_input)
@@ -370,11 +403,15 @@ with tab4:
                 "Notes": [notes_log]
             })
             journal_df = pd.concat([journal_df, new_entry], ignore_index=True)
-            journal_df.to_csv(journal_file, index=False)
-            st.success("✅ Trade logged!")
-            st.session_state.journal_strategy_input = ""
-            st.session_state.journal_pnl_input = 0.0
-            st.session_state.journal_notes_input = ""
+            try:
+                journal_df.to_csv(journal_file, index=False)
+                st.success("✅ Trade logged!")
+                st.session_state.journal_strategy_input = ""
+                st.session_state.journal_pnl_input = 0.0
+                st.session_state.journal_notes_input = ""
+            except Exception as e:
+                logger.error(f"Error saving journal: {e}")
+                st.error("❌ Failed to save journal entry.")
 
     st.subheader("Trade History")
     if not journal_df.empty:
@@ -392,4 +429,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-)
+    )
