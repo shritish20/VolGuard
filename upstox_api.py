@@ -60,10 +60,55 @@ def fetch_option_chain(options_api, expiry, access_token):
     """Fetch option chain for given expiry using REST API."""
     url = f"{base_url}/market-quote/quotes"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    # Format the instrument_key to include the expiry
+    # Fetch all option contracts for Nifty 50 with the given expiry
     instrument_key = f"NSE_INDEX|Nifty 50&expiry={expiry}"
     res = requests.get(url, headers=headers, params={"instrument_key": instrument_key})
-    return res.json().get("data", [])
+    raw_data = res.json().get("data", {})
+    
+    # Group by strike price and format into the expected structure
+    chain_data = {}
+    spot_price = None
+    for token, quote in raw_data.items():
+        if "NSE_INDEX|Nifty 50" in token and "&expiry=" not in token:
+            spot_price = quote.get("last_price")
+            continue
+        strike = quote.get("strike_price")
+        if not strike:
+            continue
+        if strike not in chain_data:
+            chain_data[strike] = {"strike_price": strike}
+        option_type = quote.get("option_type")
+        quote["instrument_key"] = token
+        if option_type == "CE":
+            chain_data[strike]["call_options"] = {
+                "market_data": {
+                    "last_price": quote.get("last_price"),
+                    "oi": quote.get("oi", 0),
+                    "volume": quote.get("volume", 0)
+                },
+                "option_greeks": {
+                    "implied_volatility": quote.get("iv", 0)
+                },
+                "instrument_key": token
+            }
+        elif option_type == "PE":
+            chain_data[strike]["put_options"] = {
+                "market_data": {
+                    "last_price": quote.get("last_price"),
+                    "oi": quote.get("oi", 0),
+                    "volume": quote.get("volume", 0)
+                },
+                "option_greeks": {
+                    "implied_volatility": quote.get("iv", 0)
+                },
+                "instrument_key": token
+            }
+    
+    # Convert to list and add spot price
+    chain = list(chain_data.values())
+    if spot_price and chain:
+        chain[0]["underlying_spot_price"] = spot_price
+    return chain
 
 # === PROCESS CHAIN + METRICS ===
 def process_chain(chain):
