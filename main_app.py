@@ -1240,17 +1240,6 @@ with tab7:
         try:
             # Get the latest data row from the analysis DataFrame for risk calculation context
             # Ensure the DataFrame is not empty before accessing the last row
-            latest_data = st.session_state.analysis_df.iloc[-1]
-            logger.debug(f"Latest data for risk dashboard: {latest_data.index}")
-
-            # Calculate simplified risk metrics based on available data
-            # Ensure 'PnL_Day' exists and is numeric for VaR/Max Loss approximation
-            # Use .get() with a default value and pd.to_numeric for safety
-            pnl_day = pd.to_numeric(latest_data.get("PnL_Day"), errors='coerce').fillna(0.0)
-
-        try:
-            # Get the latest data row from the analysis DataFrame for risk calculation context
-            # Ensure the DataFrame is not empty before accessing the last row
             if st.session_state.analysis_df is None or st.session_state.analysis_df.empty:
                 logger.warning("Analysis DataFrame is empty. Cannot calculate risk metrics dependent on it.")
                 # Return minimal risk metrics or None if analysis_df is essential
@@ -1343,7 +1332,6 @@ with tab7:
                 "Volatility_Regime": "High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low")
                 # You could add an "Event" regime if there's an upcoming major event detected (e.g., using Event_Flag)
                 # "Volatility_Regime": "Event" if latest_data.get("Event_Flag", 0) == 1 else ("High" if latest_vix > 20 else ("Medium" if latest_vix > 15 else "Low"))
-            }
             logger.debug(f"Calculated risk metrics: {risk_metrics}")
 
 
