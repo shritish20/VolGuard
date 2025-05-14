@@ -23,7 +23,7 @@ def initialize_upstox_client(access_token: str):
         "client": client,
         "access_token": access_token,
         "user_api": user_api,
-        "options_api": upstox_client.OptionApi(client),
+        "options_api": upstox_client.OptionsApi(client),  # Changed from OptionApi to OptionsApi
         "portfolio_api": upstox_client.PortfolioApi(client),
         "order_api": upstox_client.OrderApi(client),
     }
@@ -52,7 +52,7 @@ def fetch_option_chain(options_api, expiry):
         instrument_key=f"NSE_INDEX|Nifty 50&expiry={expiry}",
         api_version="2"
     )
-    return chain.data if chain and chain.data else []
+    return chain.data
 
 # === PROCESS CHAIN + METRICS ===
 def process_chain(chain):
