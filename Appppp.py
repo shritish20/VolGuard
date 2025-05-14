@@ -35,15 +35,17 @@ st.markdown("""
         color: #e0e0e0;
     }
     .stTabs [role="tab"] {
-        background-color: #0f3460;
+        background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
         color: #e0e0e0;
         border-radius: 10px 10px 0 0;
         padding: 10px 20px;
         margin-right: 5px;
+        border: 1px solid #ff6b6b;
     }
     .stTabs [role="tab"][aria-selected="true"] {
         background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
         color: white;
+        border: 1px solid #ff6b6b;
     }
     .stButton>button {
         background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
@@ -52,9 +54,11 @@ st.markdown("""
         border-radius: 10px;
         padding: 10px 20px;
         font-weight: bold;
+        transition: all 0.3s ease;
     }
     .stButton>button:hover {
         background: linear-gradient(135deg, #ff6b6b 0%, #e94560 100%);
+        box-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
     }
     .metric-card {
         background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
@@ -62,6 +66,7 @@ st.markdown("""
         padding: 15px;
         margin: 10px 0;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        animation: fadeIn 0.5s ease-in;
     }
     .metric-card h4 {
         color: #ff6b6b;
@@ -78,6 +83,7 @@ st.markdown("""
         padding: 15px;
         margin: 10px 0;
         box-shadow: 0 4px 8px rgba(255, 107, 107, 0.5);
+        animation: fadeIn 0.5s ease-in;
     }
     .highlight-card h4 {
         color: white;
@@ -94,6 +100,7 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
     }
     .alert-yellow {
         background-color: #ffc107;
@@ -101,6 +108,7 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
     }
     .alert-red {
         background-color: #dc3545;
@@ -108,24 +116,36 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
+        animation: fadeIn 0.5s ease-in;
+    }
+    .top-bar {
+        background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
+        padding: 10px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .top-bar div {
+        margin: 0 10px;
+    }
+    .top-bar div p {
+        margin: 0;
+        font-size: 1.1em;
     }
     h1, h2, h3, h4 {
         color: #ff6b6b;
     }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("VolGuard Pro")
-st.markdown("Your AI Copilot for NIFTY 50 Options Trading", unsafe_allow_html=True)
-
-# === Logging Setup ===
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("VolGuard")
-
-# === Global OI Storage ===
-prev_oi = {}
-
-# === Session State to Store VolGuard Data ===
+# === Session State to Store Data ===
 if 'volguard_data' not in st.session_state:
     st.session_state.volguard_data = None
 if 'xgb_prediction' not in st.session_state:
@@ -136,6 +156,63 @@ if 'strategies' not in st.session_state:
     st.session_state.strategies = None
 if 'journal_entries' not in st.session_state:
     st.session_state.journal_entries = []
+if 'trade_log' not in st.session_state:
+    st.session_state.trade_log = []
+if 'deployed_capital' not in st.session_state:
+    st.session_state.deployed_capital = 0
+if 'daily_pnl' not in st.session_state:
+    st.session_state.daily_pnl = 0
+
+# === Sidebar Controls ===
+st.sidebar.header("VolGuard Pro Controls")
+total_capital = st.sidebar.slider("Total Capital (₹)", 100000, 5000000, 1000000, 10000)
+risk_profile = st.sidebar.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"])
+run_engine = st.sidebar.button("Run Engine")
+
+# === Risk Management Rules ===
+MAX_EXPOSURE_PCT = 40  # Max 40% of total capital can be deployed
+MAX_LOSS_PER_TRADE_PCT = 4  # Max 4% of total capital per trade
+DAILY_LOSS_LIMIT_PCT = 4  # Max 4% of total capital loss in a day
+max_loss_per_trade = total_capital * (MAX_LOSS_PER_TRADE_PCT / 100)
+daily_loss_limit = total_capital * (DAILY_LOSS_LIMIT_PCT / 100)
+max_deployed_capital = total_capital * (MAX_EXPOSURE_PCT / 100)
+
+# === Top Bar (Quick Stats) ===
+exposure_pct = (st.session_state.deployed_capital / total_capital) * 100 if total_capital > 0 else 0
+st.markdown(f"""
+    <div class='top-bar'>
+        <div><p>Total Capital: ₹{total_capital:,}</p></div>
+        <div><p>Deployed Capital: ₹{st.session_state.deployed_capital:,}</p></div>
+        <div><p>Exposure: {exposure_pct:.1f}%</p></div>
+        <div><p>Daily P&L: ₹{st.session_state.daily_pnl:,}</p></div>
+    </div>
+""", unsafe_allow_html=True)
+
+# === Risk Manager ===
+def check_risk(capital_to_deploy, max_loss, daily_pnl):
+    new_deployed_capital = st.session_state.deployed_capital + capital_to_deploy
+    new_exposure_pct = (new_deployed_capital / total_capital) * 100 if total_capital > 0 else 0
+    new_daily_pnl = daily_pnl + st.session_state.daily_pnl
+
+    if new_exposure_pct > MAX_EXPOSURE_PCT:
+        return "red", f"Exposure exceeds {MAX_EXPOSURE_PCT}%! Cannot deploy ₹{capital_to_deploy:,}."
+    if max_loss > max_loss_per_trade:
+        return "red", f"Max loss per trade exceeds ₹{max_loss_per_trade:,} (4% of capital)!"
+    if new_daily_pnl < -daily_loss_limit:
+        return "red", f"Daily loss limit exceeded! Max loss allowed today: ₹{daily_loss_limit:,}."
+    if new_exposure_pct > 30:
+        return "yellow", "Exposure > 30%. Proceed with caution."
+    return "green", "Safe to trade."
+
+# IV-RV will be calculated after VolGuard runs for additional risk insight
+iv_rv = 0  # Default value, will be updated after VolGuard
+risk_status, risk_message = check_risk(0, 0, 0)  # Initial check
+if risk_status == "green":
+    st.markdown(f"<div class='alert-green'>{risk_message}</div>", unsafe_allow_html=True)
+elif risk_status == "yellow":
+    st.markdown(f"<div class='alert-yellow'>{risk_message}</div>", unsafe_allow_html=True)
+else:
+    st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
 
 # === Helper Functions ===
 def load_india_vix():
@@ -337,41 +414,16 @@ def run_volguard(access_token):
         logger.error(f"Volguard run error: {e}")
         return None, None, None, None, None
 
-# === Sidebar Controls ===
-st.sidebar.header("VolGuard Pro Controls")
-capital = st.sidebar.slider("Capital (₹)", 100000, 1000000, 500000, 10000)
-risk_profile = st.sidebar.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"])
-run_engine = st.sidebar.button("Run Engine")
-
 # === Load India VIX Data (Only for Snapshot) ===
 vix_df = load_india_vix()
 latest_vix = vix_df["VIX_Close"][-1] if not vix_df.empty else 15.0
 
-# === Risk Manager (Simplified) ===
-def check_risk(iv_rv):
-    if iv_rv > 10:
-        return "red", "IV-RV > 10%. High risk!"
-    elif iv_rv > 5:
-        return "yellow", "IV-RV > 5%. Proceed with caution."
-    else:
-        return "green", "Safe to trade."
-
-# IV-RV will be calculated after VolGuard runs
-iv_rv = 0  # Default value, will be updated after VolGuard
-risk_status, risk_message = check_risk(iv_rv)
-if risk_status == "green":
-    st.markdown(f"<div class='alert-green'>{risk_message}</div>", unsafe_allow_html=True)
-elif risk_status == "yellow":
-    st.markdown(f"<div class='alert-yellow'>{risk_message}</div>", unsafe_allow_html=True)
-else:
-    st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
-
 # === Streamlit Tabs ===
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["VolGuard: Snapshot", "GARCH: Forecast", "XGBoost: Prediction", "Strategy: Recommendations", "Dashboard: Insights"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Snapshot", "Forecast", "Prediction", "Strategies", "Dashboard"])
 
 # === Tab 1: VolGuard ===
 with tab1:
-    st.header("VolGuard: Market Snapshot")
+    st.header("Market Snapshot")
     st.warning("Upstox API is available from 5:30 AM to 12:00 AM IST. Data may not load outside these hours.")
     access_token = st.text_input("Enter Upstox Access Token", type="password")
     
@@ -391,6 +443,7 @@ with tab1:
                         st.markdown(f"<div class='metric-card'><h4>Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>India VIX</h4><p>{latest_vix:.2f}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='highlight-card'><h4>ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4>Straddle Price</h4><p>{result['straddle_price']}</p></div>", unsafe_allow_html=True)
@@ -443,7 +496,7 @@ with tab2:
         log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
         model = arch_model(log_returns, vol="Garch", p=1, q=1)
         model_fit = model.fit(disp="off")
-        forecast_horizon = 7  # Fixed to 7 days
+        forecast_horizon = 7
         garch_forecast = model_fit.forecast(horizon=forecast_horizon)
         garch_vols = np.sqrt(garch_forecast.variance.values[-1]) * np.sqrt(252)
         garch_vols = np.clip(garch_vols, 5, 50)
@@ -463,6 +516,13 @@ with tab2:
                     <p>Forecasted Volatility: {row['Forecasted Volatility (%)']}%</p>
                 </div>
             """, unsafe_allow_html=True)
+
+        avg_vol = forecast_df["Forecasted Volatility (%)"].mean()
+        st.subheader("Trading Insight")
+        if avg_vol > 20:
+            st.markdown("<div class='alert-yellow'>Volatility is high (>20%). Consider defensive strategies like Iron Condor.</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='alert-green'>Volatility is moderate. You can explore strategies like Jade Lizard.</div>", unsafe_allow_html=True)
 
         rv_7d_df, hv_30d, hv_1y = calculate_rolling_and_fixed_hv(nifty_df["NIFTY_Close"])
         st.subheader("Historical Volatility")
@@ -610,10 +670,16 @@ with tab3:
                             <p>Predicted Volatility: {row['Predicted Volatility (%)']}%</p>
                         </div>
                     """, unsafe_allow_html=True)
+
+                st.subheader("Trading Insight")
+                if prediction > 20:
+                    st.markdown("<div class='alert-yellow'>Predicted volatility is high (>20%). Consider defensive strategies like Iron Condor.</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='alert-green'>Predicted volatility is moderate. You can explore strategies like Jade Lizard.</div>", unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error predicting volatility: {e}")
 
-# === Tab 4: Strategy ===
+# === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
     if run_engine or st.session_state.get('strategies', None):
@@ -632,24 +698,24 @@ with tab4:
             strategies.append({
                 "name": "Iron Condor",
                 "logic": "Neutral strategy for low volatility regime",
-                "capital_required": capital * 0.5,
-                "max_loss": capital * 0.1,
+                "capital_required": total_capital * 0.3,
+                "max_loss": total_capital * 0.03,
                 "confidence": 0.8
             })
         elif risk_profile == "Moderate":
             strategies.append({
                 "name": "Jade Lizard",
                 "logic": "Skewed risk-reward for medium volatility",
-                "capital_required": capital * 0.7,
-                "max_loss": capital * 0.15,
+                "capital_required": total_capital * 0.35,
+                "max_loss": total_capital * 0.035,
                 "confidence": 0.75
             })
         elif risk_profile == "Aggressive":
             strategies.append({
                 "name": "Ratio Backspread",
                 "logic": "High risk, high reward for high volatility regime",
-                "capital_required": capital * 0.9,
-                "max_loss": capital * 0.25,
+                "capital_required": total_capital * 0.4,
+                "max_loss": total_capital * 0.04,
                 "confidence": 0.65
             })
 
@@ -665,12 +731,29 @@ with tab4:
                     <p>Market Regime: {regime}</p>
                 </div>
             """, unsafe_allow_html=True)
+            # Risk Check Before Trade
+            risk_status, risk_message = check_risk(strategy['capital_required'], strategy['max_loss'], 0)
+            if risk_status == "red":
+                st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
+            else:
+                if st.button(f"Trade Now - {strategy['name']}", key=strategy['name']):
+                    # Dummy Trade Execution
+                    dummy_pnl = np.random.uniform(-strategy['max_loss'], strategy['max_loss'] * 1.5)
+                    st.session_state.deployed_capital += strategy['capital_required']
+                    st.session_state.daily_pnl += dummy_pnl
+                    st.session_state.trade_log.append({
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "strategy": strategy['name'],
+                        "capital_deployed": strategy['capital_required'],
+                        "max_loss": strategy['max_loss'],
+                        "pnl": dummy_pnl
+                    })
+                    st.success(f"Trade executed: {strategy['name']} | Capital Deployed: ₹{strategy['capital_required']:,} | P&L: ₹{dummy_pnl:,.2f}")
 
 # === Tab 5: Dashboard ===
 with tab5:
-    st.header("Dashboard: Volatility Insights")
-    st.info("Interactive volatility comparison with key metrics.")
-
+    st.header("Dashboard: Risk & Performance")
+    st.subheader("Volatility Insights")
     try:
         nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
         nifty_df.columns = nifty_df.columns.str.strip()
@@ -697,9 +780,6 @@ with tab5:
         max_pain = st.session_state.volguard_data['max_pain'] if st.session_state.volguard_data else 0
         iv_rv = atm_iv - realized_vol
 
-        # Update Risk Alert
-        risk_status, risk_message = check_risk(iv_rv)
-
         rv_vols = [realized_vol] * 7
 
         last_date = nifty_df.index[-1]
@@ -724,7 +804,6 @@ with tab5:
             showlegend=True,
             margin=dict(l=40, r=40, t=40, b=40)
         )
-        st.subheader("Volatility Plot")
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Key Metrics")
@@ -740,10 +819,38 @@ with tab5:
             st.markdown(f"<div class='metric-card'><h4>Realized Volatility</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"Error loading dashboard: {e}")
+        st.error(f"Error loading volatility insights: {e}")
         st.write("Run VolGuard and XGBoost tabs first to populate data.")
 
-# === Tab 6: Journal ===
+    st.subheader("Risk Management Overview")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"<div class='metric-card'><h4>Total Capital</h4><p>₹{total_capital:,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4>Deployed Capital</h4><p>₹{st.session_state.deployed_capital:,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4>Exposure</h4><p>{exposure_pct:.1f}%</p></div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"<div class='metric-card'><h4>Max Exposure Allowed</h4><p>{MAX_EXPOSURE_PCT}% (₹{max_deployed_capital:,})</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4>Max Loss Per Trade</h4><p>{MAX_LOSS_PER_TRADE_PCT}% (₹{max_loss_per_trade:,})</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4>Daily Loss Limit</h4><p>{DAILY_LOSS_LIMIT_PCT}% (₹{daily_loss_limit:,})</p></div>", unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"<div class='metric-card'><h4>Daily P&L</h4><p>₹{st.session_state.daily_pnl:,}</p></div>", unsafe_allow_html=True)
+
+    st.subheader("Trade Log")
+    if st.session_state.trade_log:
+        for trade in st.session_state.trade_log:
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4>{trade['date']}</h4>
+                    <p>Strategy: {trade['strategy']}</p>
+                    <p>Capital Deployed: ₹{trade['capital_deployed']:,.2f}</p>
+                    <p>Max Loss: ₹{trade['max_loss']:,.2f}</p>
+                    <p>P&L: ₹{trade['pnl']:,.2f}</p>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No trades executed yet.")
+
+# === Journal Section ===
 st.header("Journal: Trading Notes")
 st.subheader("Add Your Thoughts")
 journal_entry = st.text_area("Write your trading thoughts, strategy rationale, or reflections:")
