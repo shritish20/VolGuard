@@ -1,4 +1,4 @@
-# main.py
+# main.py (aka Appppp.py)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,6 +13,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import upstox_client
 from upstox_client.rest import ApiException
 import logging
+import time  # Added to fix the error
+import plotly.graph_objects as go  # Added for IV Skew Plot
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +27,7 @@ xgb.set_config(verbosity=0)
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro", layout="wide")
 
-# Custom CSS for Professional, Sexy UI
+# Custom CSS for Professional, Sexy UI (Unchanged from previous)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap');
@@ -317,7 +319,7 @@ def get_nearest_expiry(options_api, instrument_key):
         today = datetime.now()
         valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
         nearest = valid_expiries[0] if valid_expiries else None
-        time.sleep(0.5)
+        time.sleep(0.5)  # This line caused the error; fixed by importing time
         return nearest
     except Exception as e:
         logger.error(f"Expiry fetch failed: {e}")
@@ -459,16 +461,20 @@ def run_volguard(access_token):
 
         expiry = get_nearest_expiry(options_api, instrument_key)
         if not expiry:
+            st.error("Unable to fetch the nearest expiry date. Please check your access token or try again later.")
             return None, None, None, None, None
         chain = fetch_option_chain(options_api, instrument_key, expiry)
         if not chain:
+            st.error("Unable to fetch option chain data. Please check your access token or try again later.")
             return None, None, None, None, None
         spot = chain[0].get("underlying_spot_price")
         if not spot:
+            st.error("Unable to fetch spot price. Please check your access token or try again later.")
             return None, None, None, None, None
 
         df, ce_oi, pe_oi = process_chain(chain)
         if df.empty:
+            st.error("Option chain data is empty. Please try again later.")
             return None, None, None, None, None
         pcr, max_pain, straddle_price, atm_strike, atm_iv = calculate_metrics(df, ce_oi, pe_oi, spot)
         ce_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['CE_Token'].values[0])
@@ -491,7 +497,7 @@ def run_volguard(access_token):
         return result, df, iv_skew_fig, atm_strike, atm_iv
     except Exception as e:
         logger.error(f"Volguard run error: {e}")
-        st.error("Failed to fetch options data. Please check your Upstox access token and try again.")
+        st.error("Failed to fetch options data. Please check your Upstox access token and try again later.")
         return None, None, None, None, None
 
 # === Streamlit Tabs ===
@@ -500,13 +506,13 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Snapshot", "Forecast", "Prediction", "S
 # === Tab 1: VolGuard ===
 with tab1:
     st.header("Market Snapshot")
-    access_token = st.text_input("Enter Upstox Access Token", type="password")
+    access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
     
     if st.button("Run VolGuard"):
         if not access_token:
             st.error("Please enter a valid Upstox access token.")
         else:
-            with st.spinner("Fetching options data..."):
+            with st.spinner("Fetching options data... Please wait."):
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
                 if result:
                     st.session_state.volguard_data = result
