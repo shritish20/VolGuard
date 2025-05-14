@@ -3,7 +3,7 @@
 # Features: Sidebar Token Input, Dashboard with Tabs, Option Chain, Metrics, Depth, IV Skew, Portfolio, Volatility Analysis (GARCH, RV, ATM IV)
 # Historical data fetched from user's GitHub repository.
 # FIX: Added robust error handling for converting OI values to integer.
-# FIX: Used fully qualified name for ApiException in except block.
+# FIX: Implemented a more defensive error handling strategy in initialize_upstox_client.
 
 import streamlit as st
 import pandas as pd
@@ -15,6 +15,8 @@ import time
 import numpy as np
 from arch import arch_model
 import io # Added to read CSV from URL response
+# Keep ApiException import as it's needed for isinstance check inside general except
+from upstox_client.rest import ApiException
 
 # === CONFIG ===
 INSTRUMENT_KEY = "NSE_INDEX|Nifty 50"
@@ -51,8 +53,8 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
         # This case is handled by the UI prompting the user for token
         return None
 
+    logger.info("Attempting to initialize Upstox client.")
     try:
-        logger.info("Attempting to initialize Upstox client.")
         configuration = upstox_client.Configuration()
         configuration.access_token = _access_token
         client = upstox_client.ApiClient(configuration)
@@ -73,16 +75,26 @@ def initialize_upstox_client(_access_token: str): # Use underscore to differenti
             "portfolio_api": upstox_client.PortfolioApi(client),
             "order_api": upstox_client.OrderApi(client),
         }
-    # --- FIX: Use fully qualified exception name ---
-    except upstox_client.rest.ApiException as e:
-        logger.error(f"API Error during client initialization. Error Type: {type(e).__name__}, Error: {e}")
-        st.error(f"API Error during client initialization. Please check your Access Token and permissions: {e}")
-        st.cache_resource.clear() # Clear cache on API error during init
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during client initialization. Error Type: {type(e).__name__}, Error: {e}")
-        st.error(f"An unexpected error occurred during client initialization: {e}")
-        st.cache_resource.clear() # Clear cache on unexpected error during init
+    # --- REVISED FIX: Catch generic Exception first to bypass specific type matching issue ---
+    except Exception as e: # Catch ALL exceptions that might occur
+        logger.error(f"An error occurred during API client initialization or validation.")
+        logger.error(f"Error Type: {type(e).__name__}, Error Details: {e}") # Log detailed error info
+
+        # Try to provide more specific info if it *is* an ApiException
+        # We need the ApiException class definition available here to check
+        try:
+             # Check if the caught exception is an instance of ApiException
+             if isinstance(e, upstox_client.rest.ApiException):
+                 logger.error(f"Recognized as Upstox ApiException: Status={e.status}, Body={e.body}")
+                 st.error(f"Upstox API Error during client initialization: Status {e.status} - {e.body}")
+             else:
+                 # If it's not an ApiException, or if upstox_client.rest was somehow not fully loaded
+                 st.error(f"An unexpected error occurred during client initialization: {type(e).__name__} - {e}")
+        except Exception: # Fallback in case checking isinstance itself fails (highly unlikely)
+             st.error(f"An error occurred during client initialization: {type(e).__name__} - {e}")
+
+
+        st.cache_resource.clear() # Clear cache on any error during init
         return None
 
 # === HISTORICAL DATA LOADING ===
@@ -150,7 +162,8 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
     # 1. GARCH(1,1) Forecast (5 days)
     try:
         # Ensure enough data points for GARCH (typically needs a good history)
-        if len(log_returns) > 100: # Arbitrary threshold, adjust if needed based on fitting stability
+        # Using len(log_returns) > 100 is a heuristic, fitting might still fail on ~250 points too
+        if len(log_returns) > 250: # Use a slightly higher threshold for potentially better fit stability
             logger.info("Attempting to fit GARCH(1,1) model...")
             # Use try-except as fitting can sometimes fail
             try:
@@ -160,7 +173,7 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
 
                 # Forecast next 5 business days (horizon=5)
                 forecast_horizon = 5
-                # Pass last_obs explicitly to forecast from the correct point
+                # Pass last_obs explicitly to forecast from the correct point - use the *index* of the last observation
                 garch_forecast = model_fit.forecast(horizon=forecast_horizon, last_obs=log_returns.index[-1])
 
                 # Annualize the forecast volatility (std dev) and clip
@@ -184,7 +197,7 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
 
         else:
             logger.warning("Not enough log returns to fit GARCH model.")
-            st.warning("Insufficient historical data points to fit the GARCH model effectively (>100 needed).")
+            st.warning("Insufficient historical data points to fit the GARCH model effectively (>250 recommended).")
             volatility_results['garch_forecast_5d'] = [np.nan] * 5 # Indicate insufficient data
 
     except Exception as e:
@@ -235,7 +248,7 @@ def calculate_volatilities(nifty_historical_df: pd.DataFrame):
     # Ensure we have historical data before trying to get the last index
     last_hist_date = nifty_historical_df.index[-1] if not nifty_historical_df.empty else datetime.now().date()
     # Use BusinessDay offset for more accurate business day calculation
-    forecast_dates_dt = pd.bdate_range(start=last_hist_date + timedelta(days=1), periods=5) # 5 business days
+    forecast_dates_dt = pd.bdate_range(start=last_hist_date + pd.offsets.BDay(1), periods=5) # 5 business days
 
     volatility_results['garch_forecast_dates'] = forecast_dates_dt.strftime("%Y-%m-%d").tolist() # Store as list of strings
 
@@ -447,7 +460,18 @@ def fetch_all_data(upstox_client_bundle):
     
     if not data['expiry']:
         st.error("Failed to get nearest expiry. Cannot fetch option chain.")
-        # Return partial data; dependent steps will be skipped
+        # Ensure dependent data structures are empty or None
+        data['option_chain_df'] = pd.DataFrame()
+        data['nifty_spot'] = None
+        data['total_ce_oi'] = 0
+        data['total_pe_oi'] = 0
+        data['pcr'] = None
+        data['max_pain_strike'] = None
+        data['straddle_price'] = None
+        data['atm_strike'] = None
+        data['atm_iv'] = None
+        data['ce_depth'] = {}
+        data['pe_depth'] = {}
         return data
 
     with st.spinner(f"Fetching option chain for {data['expiry']}..."):
@@ -460,7 +484,14 @@ def fetch_all_data(upstox_client_bundle):
         data['nifty_spot'] = None
         data['total_ce_oi'] = 0
         data['total_pe_oi'] = 0
+        data['pcr'] = None
+        data['max_pain_strike'] = None
+        data['straddle_price'] = None
+        data['atm_strike'] = None
         data['atm_iv'] = None # Ensure ATM IV is None if chain is empty
+        data['ce_depth'] = {}
+        data['pe_depth'] = {}
+
     else:
         # Extract spot price from the first element (assuming it's present)
         data['nifty_spot'] = chain_raw[0].get("underlying_spot_price")
@@ -568,18 +599,15 @@ if token_input and (st.session_state['upstox_client'] is None or st.session_stat
     st.session_state['latest_data'] = None # Clear previous data on new token attempt
     st.session_state['prev_oi'] = {} # Reset OI history on new token attempt
     st.cache_resource.clear() # Clear resource cache (client) on new token attempt
+    # Use a spinner directly in the sidebar for initialization
+    with st.sidebar.spinner("Initializing Upstox client..."):
+         st.session_state['upstox_client'] = initialize_upstox_client(token_input)
+         if st.session_state['upstox_client']:
+              st.session_state['initialized_token'] = token_input # Store the token that successfully initialized the client
+              st.sidebar.success("Client initialized. You can now fetch data.")
+         else:
+              st.sidebar.error("Client initialization failed. Please check your token and ensure libraries are installed correctly in your environment.")
 
-    with st.spinner("Initializing Upstox client..."):
-        st.session_state['upstox_client'] = initialize_upstox_client(token_input)
-        if st.session_state['upstox_client']:
-             st.session_state['initialized_token'] = token_input # Store the token that successfully initialized the client
-             st.sidebar.success("Client initialized. You can now fetch data.")
-             # Automatically trigger data fetch after successful initialization? Optional.
-             # if st.sidebar.button("Fetch Initial Data"): # Could add a dedicated initial fetch button
-             #     st.session_state['latest_data'] = fetch_all_data(st.session_state['upstox_client'])
-
-        else:
-             st.sidebar.error("Client initialization failed. Please check your token.")
 
 elif not token_input and st.session_state['upstox_client'] is not None:
     # If token is cleared in the input field, invalidate the current client and data
@@ -588,8 +616,8 @@ elif not token_input and st.session_state['upstox_client'] is not None:
     st.session_state['latest_data'] = None # Clear displayed data when token is removed
     st.session_state['prev_oi'] = {} # Reset OI history
     st.cache_resource.clear() # Clear client cache when token is removed
-    st.sidebar.warning("Access token cleared. Client de-initialized.")
     st.experimental_rerun() # Rerun to clear the main display immediately
+
 
 # Fetch button - only enable if client is initialized
 fetch_button = st.sidebar.button("Fetch Latest Data", disabled=st.session_state['upstox_client'] is None)
@@ -598,14 +626,10 @@ fetch_button = st.sidebar.button("Fetch Latest Data", disabled=st.session_state[
 if fetch_button and st.session_state['upstox_client'] is not None:
     # Clear previous fetched data before fetching new data
     st.session_state['latest_data'] = None
-    st.experimental_rerun() # Rerun to show spinners and clear old data
+    # The main data fetch function will show spinners internally
+    st.session_state['latest_data'] = fetch_all_data(st.session_state['upstox_client'])
+    st.experimental_rerun() # Rerun to display the fetched data
 
-elif 'latest_data' not in st.session_state or st.session_state['latest_data'] is None:
-    # Display initial message if no data has been fetched yet
-    if st.session_state['upstox_client'] is None:
-        st.info("☝️ Please enter your Upstox Access Token in the sidebar to get started.")
-    else:
-        st.info("✅ Client initialized successfully. Click 'Fetch Latest Data' in the sidebar to load the Nifty option chain and market data.")
 
 # --- Display Data using Tabs ---
 # This block runs if data is available in session state
@@ -835,8 +859,9 @@ if 'latest_data' in st.session_state and st.session_state['latest_data']:
             vol_col1, vol_col2, vol_col3, vol_col4 = st.columns(4)
             vol_col1.metric("Latest 5-Day Realized Volatility", f"{vol_metrics.get('rv_5d', 'N/A'):.2f}%" if pd.notna(vol_metrics.get('rv_5d')) else "N/A")
             # Display the first day of GARCH forecast as a representative value
-            garch_1d_forecast = vol_metrics.get('garch_forecast_5d')
-            vol_col2.metric("GARCH(1,1) 1-Day Forecast", f"{garch_1d_forecast[0]:.2f}%" if garch_1d_forecast is not None and len(garch_1d_forecast) > 0 and pd.notna(garch_1d_forecast[0]) else "N/A")
+            garch_forecast_values = vol_metrics.get('garch_forecast_5d')
+            garch_1d_forecast = garch_forecast_values[0] if garch_forecast_values and len(garch_forecast_values) > 0 and pd.notna(garch_forecast_values[0]) else np.nan
+            vol_col2.metric("GARCH(1,1) 1-Day Forecast", f"{garch_1d_forecast:.2f}%" if pd.notna(garch_1d_forecast) else "N/A")
             vol_col3.metric("Current ATM IV", f"{atm_iv:.2f}%" if atm_iv is not None else "N/A")
             vol_col4.metric("Implied Volatility (India VIX)", f"{data.get('vix', 'N/A'):.2f}" if data.get('vix') is not None else "N/A")
 
@@ -878,7 +903,7 @@ if 'latest_data' in st.session_state and st.session_state['latest_data']:
                     st.pyplot(vol_plot_fig)
                     plt.close(vol_plot_fig) # Close the figure
                 else:
-                     st.info("Volatility comparison plot could not be generated.")
+                     st.info("Volatility comparison plot could not be generated. Ensure sufficient historical data and valid volatility metrics.")
 
             else:
                  st.info("Historical data is required to plot volatility comparison.")
@@ -962,7 +987,7 @@ if 'latest_data' in st.session_state and st.session_state['latest_data']:
 
                      if display_position_cols:
                           positions_display_df = positions_df[display_position_cols].copy()
-                          for col in ['quantity', 'buy_quantity', 'sell_quantity']:
+                          for col in ['quantity']:
                               if col in positions_display_df.columns:
                                    positions_display_df[col] = positions_display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "-")
                           for col in ['average_price', 'last_price', 'realized_pnl', 'unrealized_pnl']:
