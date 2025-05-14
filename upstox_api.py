@@ -58,18 +58,33 @@ def get_nearest_expiry(options_api):
 
 def fetch_option_chain(options_api, expiry, access_token):
     """Fetch option chain for given expiry using REST API."""
+    # Step 1: Get all option contracts for Nifty 50 with the given expiry
+    response = options_api.get_option_contracts(instrument_key="NSE_INDEX|Nifty 50")
+    contracts = response.to_dict().get("data", [])
+    
+    # Filter contracts by expiry and collect instrument keys
+    instrument_keys = []
+    for contract in contracts:
+        contract_expiry = contract.get("expiry")
+        if isinstance(contract_expiry, str):
+            contract_expiry = datetime.strptime(contract_expiry, "%Y-%m-%d").strftime("%Y-%m-%d")
+        if contract_expiry == expiry:
+            instrument_keys.append(contract["instrument_key"])
+    
+    # Add Nifty 50 spot price instrument key
+    instrument_keys.append("NSE_INDEX|Nifty 50")
+    
+    # Step 2: Fetch quotes using REST API
     url = f"{base_url}/market-quote/quotes"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    # Fetch all option contracts for Nifty 50 with the given expiry
-    instrument_key = f"NSE_INDEX|Nifty 50&expiry={expiry}"
-    res = requests.get(url, headers=headers, params={"instrument_key": instrument_key})
+    res = requests.get(url, headers=headers, params={"instrument_key": ",".join(instrument_keys)})
     raw_data = res.json().get("data", {})
     
-    # Group by strike price and format into the expected structure
+    # Step 3: Group by strike price and format into the expected structure
     chain_data = {}
     spot_price = None
     for token, quote in raw_data.items():
-        if "NSE_INDEX|Nifty 50" in token and "&expiry=" not in token:
+        if token == "NSE_INDEX|Nifty 50":
             spot_price = quote.get("last_price")
             continue
         strike = quote.get("strike_price")
