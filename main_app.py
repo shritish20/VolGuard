@@ -1248,7 +1248,7 @@ with tab7:
             # Use .get() with a default value and pd.to_numeric for safety
             pnl_day = pd.to_numeric(latest_data.get("PnL_Day"), errors='coerce').fillna(0.0)
 
-                    try:
+        try:
             # Get the latest data row from the analysis DataFrame for risk calculation context
             # Ensure the DataFrame is not empty before accessing the last row
             if st.session_state.analysis_df is None or st.session_state.analysis_df.empty:
