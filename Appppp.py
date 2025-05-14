@@ -13,66 +13,63 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import upstox_client
 from upstox_client.rest import ApiException
 import logging
-import time
-import plotly.express as px
-import plotly.graph_objects as go
-import xgboost as xgb
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Suppress XGBoost warnings
+import xgboost as xgb
 xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro", layout="wide")
 
-# Custom CSS for Sexy, Premium UI
+# Custom CSS for Professional, Sexy UI
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap');
     body {
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', sans-serif;
     }
     .stApp {
-        background: #0a0a0a;
-        color: #e0e0e0;
+        background: #121212;
+        color: #ffffff;
     }
     /* Sidebar */
     .css-1d391kg {
-        background: linear-gradient(135deg, #1c2526 0%, #0a0a0a 100%);
+        background: linear-gradient(135deg, #1c2526 0%, #121212 100%);
         padding: 20px;
-        border-right: 1px solid #ffd700;
+        border-right: 1px solid #1e88e5;
     }
     .css-1d391kg h1 {
-        color: #ffd700;
+        color: #1e88e5;
         font-size: 1.5em;
         margin-bottom: 20px;
     }
     .css-1d391kg .stButton>button {
-        background: linear-gradient(135deg, #ffd700 0%, #c0c0c0 100%);
-        color: #0a0a0a;
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
+        color: #ffffff;
         border-radius: 8px;
         padding: 10px;
         font-weight: 500;
         transition: all 0.3s ease;
     }
     .css-1d391kg .stButton>button:hover {
-        background: linear-gradient(135deg, #c0c0c0 0%, #ffd700 100%);
-        box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        background: linear-gradient(135deg, #ab47bc 0%, #1e88e5 100%);
+        box-shadow: 0 0 15px rgba(30, 136, 229, 0.5);
     }
     /* Top Bar */
     .top-bar {
-        background: linear-gradient(135deg, #1c2526 0%, #0a0a0a 100%);
+        background: linear-gradient(135deg, #1c2526 0%, #121212 100%);
         padding: 10px 20px;
         border-radius: 8px;
         margin-bottom: 20px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid #ffd700;
+        border: 1px solid #1e88e5;
     }
     .top-bar div {
         margin: 0 10px;
@@ -82,31 +79,31 @@ st.markdown("""
     .top-bar div p {
         margin: 0 0 0 5px;
         font-size: 1em;
-        color: #e0e0e0;
+        color: #ffffff;
     }
     .top-bar i {
-        color: #ffd700;
+        color: #1e88e5;
     }
     /* Tabs */
     .stTabs [role="tab"] {
-        background: linear-gradient(135deg, #1c2526 0%, #0a0a0a 100%);
-        color: #e0e0e0;
-        border-radius: 8px 8px 0 0;
+        background: transparent;
+        color: #ffffff;
+        border-bottom: 2px solid transparent;
         padding: 10px 20px;
         margin-right: 5px;
-        border: 1px solid #c0c0c0;
         transition: all 0.3s ease;
     }
     .stTabs [role="tab"][aria-selected="true"] {
-        background: linear-gradient(135deg, #ffd700 0%, #c0c0c0 100%);
-        color: #0a0a0a;
-        border: 1px solid #ffd700;
-        box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        border-bottom: 2px solid #1e88e5;
+        color: #1e88e5;
+    }
+    .stTabs [role="tab"]:hover {
+        color: #ab47bc;
     }
     /* Buttons */
     .stButton>button {
-        background: linear-gradient(135deg, #ffd700 0%, #c0c0c0 100%);
-        color: #0a0a0a;
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
+        color: #ffffff;
         border: none;
         border-radius: 8px;
         padding: 10px 20px;
@@ -116,8 +113,8 @@ st.markdown("""
         overflow: hidden;
     }
     .stButton>button:hover {
-        background: linear-gradient(135deg, #c0c0c0 0%, #ffd700 100%);
-        box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        background: linear-gradient(135deg, #ab47bc 0%, #1e88e5 100%);
+        box-shadow: 0 0 15px rgba(30, 136, 229, 0.5);
     }
     .stButton>button::after {
         content: '';
@@ -138,78 +135,79 @@ st.markdown("""
     }
     /* Cards */
     .metric-card {
-        background: linear-gradient(135deg, #1c2526 0%, #0a0a0a 100%);
+        background: rgba(28, 37, 38, 0.7);
+        backdrop-filter: blur(10px);
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        border: 1px solid #c0c0c0;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(30, 136, 229, 0.3);
         transition: transform 0.3s ease, box-shadow 0.3s ease;
-        animation: slideIn 0.5s ease-in;
+        animation: scaleUp 0.5s ease-in;
     }
     .metric-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 20px rgba(192, 192, 192, 0.5);
+        transform: scale(1.02);
+        box-shadow: 0 8px 20px rgba(30, 136, 229, 0.5);
     }
     .metric-card h4 {
-        color: #ffd700;
+        color: #1e88e5;
         margin: 0;
         display: flex;
         align-items: center;
     }
     .metric-card h4 i {
         margin-right: 8px;
-        color: #c0c0c0;
+        color: #ab47bc;
     }
     .metric-card p {
-        color: #e0e0e0;
+        color: #ffffff;
         font-size: 1.1em;
         margin: 5px 0 0 0;
     }
     .highlight-card {
-        background: linear-gradient(135deg, #ffd700 0%, #c0c0c0 100%);
+        background: linear-gradient(135deg, #1e88e5 0%, #ab47bc 100%);
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
-        box-shadow: 0 4px 10px rgba(255, 215, 0, 0.5);
-        border: 1px solid #ffd700;
-        animation: slideIn 0.5s ease-in;
+        box-shadow: 0 4px 10px rgba(30, 136, 229, 0.5);
+        border: 1px solid #1e88e5;
+        animation: scaleUp 0.5s ease-in;
     }
     .highlight-card h4 {
-        color: #0a0a0a;
+        color: #ffffff;
         margin: 0;
         display: flex;
         align-items: center;
     }
     .highlight-card h4 i {
         margin-right: 8px;
-        color: #0a0a0a;
+        color: #ffffff;
     }
     .highlight-card p {
-        color: #0a0a0a;
+        color: #ffffff;
         font-size: 1.3em;
         margin: 5px 0 0 0;
     }
     /* Alerts */
     .alert-green {
-        background-color: #28a745;
-        color: white;
+        background-color: #43a047;
+        color: #ffffff;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
         animation: fadeIn 0.5s ease-in;
     }
     .alert-yellow {
-        background-color: #ffc107;
-        color: black;
+        background-color: #ffb300;
+        color: #000000;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
         animation: fadeIn 0.5s ease-in;
     }
     .alert-red {
-        background-color: #dc3545;
-        color: white;
+        background-color: #e53935;
+        color: #ffffff;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
@@ -217,19 +215,19 @@ st.markdown("""
     }
     /* Headings */
     h1, h2, h3, h4 {
-        color: #ffd700;
+        color: #1e88e5;
     }
     /* Animations */
     @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
     }
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateX(-20px); }
-        to { opacity: 1; transform: translateX(0); }
+    @keyframes scaleUp {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
     }
     </style>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 """, unsafe_allow_html=True)
 
 # === Session State to Store Data ===
@@ -250,6 +248,9 @@ if 'deployed_capital' not in st.session_state:
 if 'daily_pnl' not in st.session_state:
     st.session_state.daily_pnl = 0
 
+# Initialize prev_oi globally
+prev_oi = {}
+
 # === Sidebar Controls ===
 st.sidebar.header("VolGuard Pro Controls")
 total_capital = st.sidebar.slider("Total Capital (₹)", 100000, 5000000, 1000000, 10000)
@@ -268,10 +269,10 @@ max_deployed_capital = total_capital * (MAX_EXPOSURE_PCT / 100)
 exposure_pct = (st.session_state.deployed_capital / total_capital) * 100 if total_capital > 0 else 0
 st.markdown(f"""
     <div class='top-bar'>
-        <div><i class="fas fa-wallet"></i><p>Total Capital: ₹{total_capital:,}</p></div>
-        <div><i class="fas fa-chart-line"></i><p>Deployed Capital: ₹{st.session_state.deployed_capital:,}</p></div>
-        <div><i class="fas fa-percentage"></i><p>Exposure: {exposure_pct:.1f}%</p></div>
-        <div><i class="fas fa-money-bill-wave"></i><p>Daily P&L: ₹{st.session_state.daily_pnl:,}</p></div>
+        <div><i class="material-icons">account_balance_wallet</i><p>Total Capital: ₹{total_capital:,}</p></div>
+        <div><i class="material-icons">trending_up</i><p>Deployed Capital: ₹{st.session_state.deployed_capital:,}</p></div>
+        <div><i class="material-icons">percent</i><p>Exposure: {exposure_pct:.1f}%</p></div>
+        <div><i class="material-icons">monetization_on</i><p>Daily P&L: ₹{st.session_state.daily_pnl:,}</p></div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -344,8 +345,8 @@ def process_chain(data):
         pe_oi_val = pe_md.get("oi", 0)
         ce_oi_change = ce_oi_val - prev_oi.get(f"{strike}_CE", 0)
         pe_oi_change = pe_oi_val - prev_oi.get(f"{strike}_PE", 0)
-        ce_oi_change_pct = (ce_oi_change / prev_oi[f"{strike}_CE"] * 100) if prev_oi.get(f"{strike}_CE", 0) else 0
-        pe_oi_change_pct = (pe_oi_change / prev_oi[f"{strike}_PE"] * 100) if prev_oi.get(f"{strike}_PE", 0) else 0
+        ce_oi_change_pct = (ce_oi_change / prev_oi.get(f"{strike}_CE", 0) * 100) if prev_oi.get(f"{strike}_CE", 0) else 0
+        pe_oi_change_pct = (pe_oi_change / prev_oi.get(f"{strike}_PE", 0) * 100) if prev_oi.get(f"{strike}_PE", 0) else 0
         strike_pcr = pe_oi_val / ce_oi_val if ce_oi_val else 0
         row = {
             "Strike": strike,
@@ -396,10 +397,10 @@ def plot_iv_skew(df, spot, atm_strike):
     if valid.empty:
         return None
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#ffd700')))
-    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#c0c0c0')))
-    fig.add_vline(x=spot, line=dict(color='#e0e0e0', dash='dash'), name='Spot')
-    fig.add_vline(x=atm_strike, line=dict(color='#28a745', dash='dot'), name='ATM')
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#1e88e5')))
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#ab47bc')))
+    fig.add_vline(x=spot, line=dict(color='#ffffff', dash='dash'), name='Spot')
+    fig.add_vline(x=atm_strike, line=dict(color='#43a047', dash='dot'), name='ATM')
     fig.update_layout(
         title="IV Skew",
         xaxis_title="Strike",
@@ -407,9 +408,9 @@ def plot_iv_skew(df, spot, atm_strike):
         template="plotly_dark",
         showlegend=True,
         margin=dict(l=40, r=40, t=40, b=40),
-        plot_bgcolor='#0a0a0a',
-        paper_bgcolor='#0a0a0a',
-        font=dict(color='#e0e0e0')
+        plot_bgcolor='#121212',
+        paper_bgcolor='#121212',
+        font=dict(color='#ffffff')
     )
     return fig
 
@@ -490,7 +491,7 @@ def run_volguard(access_token):
         return result, df, iv_skew_fig, atm_strike, atm_iv
     except Exception as e:
         logger.error(f"Volguard run error: {e}")
-        st.error("Failed to fetch options data. Please check your Upstox access token or try again after 5:30 AM IST.")
+        st.error("Failed to fetch options data. Please check your Upstox access token and try again.")
         return None, None, None, None, None
 
 # === Streamlit Tabs ===
@@ -499,7 +500,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Snapshot", "Forecast", "Prediction", "S
 # === Tab 1: VolGuard ===
 with tab1:
     st.header("Market Snapshot")
-    st.warning("Upstox API is available from 5:30 AM to 12:00 AM IST. Data may not load outside these hours.")
     access_token = st.text_input("Enter Upstox Access Token", type="password")
     
     if st.button("Run VolGuard"):
@@ -515,16 +515,16 @@ with tab1:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("Market Snapshot")
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-clock'></i> Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-line'></i> Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='highlight-card'><h4><i class='fas fa-percentage'></i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-calendar-alt'></i> Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-money-bill'></i> ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-money-bill-wave'></i> Straddle Price</h4><p>{result['straddle_price']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-balance-scale'></i> PCR</h4><p>{result['pcr']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-exclamation-triangle'></i> Max Pain</h4><p>{result['max_pain']}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-shopping-cart'></i> CE Depth</h4><p>Bid Volume={result['ce_depth'].get('bid_volume', 0)}, Ask Volume={result['ce_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-shopping-cart'></i> PE Depth</h4><p>Bid Volume={result['pe_depth'].get('bid_volume', 0)}, Ask Volume={result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>schedule</i> Timestamp</h4><p>{result['timestamp']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Nifty Spot</h4><p>{result['nifty_spot']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='highlight-card'><h4><i class='material-icons'>percent</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>event</i> Expiry</h4><p>{result['expiry']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>attach_money</i> ATM Strike</h4><p>{result['atm_strike']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Straddle Price</h4><p>{result['straddle_price']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> PCR</h4><p>{result['pcr']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Pain</h4><p>{result['max_pain']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> CE Depth</h4><p>Bid Volume={result['ce_depth'].get('bid_volume', 0)}, Ask Volume={result['ce_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> PE Depth</h4><p>Bid Volume={result['pe_depth'].get('bid_volume', 0)}, Ask Volume={result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
                     with col2:
                         if iv_skew_fig:
                             st.subheader("IV Skew Plot")
@@ -547,7 +547,7 @@ with tab1:
                     for idx, row in key_strikes.iterrows():
                         st.markdown(f"""
                             <div class='metric-card'>
-                                <h4><i class='fas fa-money-bill'></i> Strike: {row['Strike']}</h4>
+                                <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']}</h4>
                                 <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f} | CE OI: {row['CE_OI']:.2f}</p>
                                 <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f} | PE OI: {row['PE_OI']:.2f}</p>
                                 <p>Strike PCR: {row['Strike_PCR']:.2f}</p>
@@ -584,7 +584,7 @@ with tab2:
         for idx, row in forecast_df.iterrows():
             st.markdown(f"""
                 <div class='metric-card'>
-                    <h4><i class='fas fa-calendar-day'></i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                    <h4><i class='material-icons'>event</i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
                     <p>Forecasted Volatility: {row['Forecasted Volatility (%)']}%</p>
                 </div>
             """, unsafe_allow_html=True)
@@ -598,8 +598,8 @@ with tab2:
 
         rv_7d_df, hv_30d, hv_1y = calculate_rolling_and_fixed_hv(nifty_df["NIFTY_Close"])
         st.subheader("Historical Volatility")
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-history'></i> 30-Day HV (Annualized)</h4><p>{hv_30d}%</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-history'></i> 1-Year HV (Annualized)</h4><p>{hv_1y}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> 30-Day HV (Annualized)</h4><p>{hv_30d}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> 1-Year HV (Annualized)</h4><p>{hv_1y}%</p></div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Error loading GARCH data: {e}")
@@ -645,14 +645,14 @@ with tab3:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("<h3>Training Metrics</h3>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> RMSE</h4><p>{rmse_train:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> MAE</h4><p>{mae_train:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> R²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_train:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
                 with col2:
                     st.markdown("<h3>Test Metrics</h3>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> RMSE</h4><p>{rmse_test:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> MAE</h4><p>{mae_test:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-bar'></i> R²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_test:.4f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
 
                 fig = go.Figure()
                 importances = xgb_model.feature_importances_
@@ -661,7 +661,7 @@ with tab3:
                     y=np.array(features)[sorted_idx],
                     x=importances[sorted_idx],
                     orientation='h',
-                    marker=dict(color='#ffd700')
+                    marker=dict(color='#1e88e5')
                 ))
                 fig.update_layout(
                     title="XGBoost Feature Importances",
@@ -669,9 +669,9 @@ with tab3:
                     yaxis_title="Feature",
                     template="plotly_dark",
                     margin=dict(l=40, r=40, t=40, b=40),
-                    plot_bgcolor='#0a0a0a',
-                    paper_bgcolor='#0a0a0a',
-                    font=dict(color='#e0e0e0')
+                    plot_bgcolor='#121212',
+                    paper_bgcolor='#121212',
+                    font=dict(color='#ffffff')
                 )
                 st.subheader("Feature Importances")
                 st.plotly_chart(fig, use_container_width=True)
@@ -728,7 +728,7 @@ with tab3:
 
                 prediction = xgb_model.predict(new_data)[0]
                 st.session_state.xgb_prediction = prediction
-                st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-line'></i> Predicted Next 7-Day Realized Volatility</h4><p>{prediction:.2f}%</p></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Predicted Next 7-Day Realized Volatility</h4><p>{prediction:.2f}%</p></div>", unsafe_allow_html=True)
 
                 last_date = nifty_df.index[-1]
                 xgb_forecast_dates = pd.bdate_range(start=last_date + timedelta(days=1), periods=7)
@@ -741,7 +741,7 @@ with tab3:
                 for idx, row in xgb_forecast_df.iterrows():
                     st.markdown(f"""
                         <div class='metric-card'>
-                            <h4><i class='fas fa-calendar-day'></i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
+                            <h4><i class='material-icons'>event</i> {row['Date'].strftime('%Y-%m-%d')} ({row['Day']})</h4>
                             <p>Predicted Volatility: {row['Predicted Volatility (%)']}%</p>
                         </div>
                     """, unsafe_allow_html=True)
@@ -798,7 +798,7 @@ with tab4:
         for strategy in strategies:
             st.markdown(f"""
                 <div class='metric-card'>
-                    <h4><i class='fas fa-chess'></i> {strategy['name']}</h4>
+                    <h4><i class='material-icons'>strategy</i> {strategy['name']}</h4>
                     <p>Logic: {strategy['logic']}</p>
                     <p>Capital Required: ₹{strategy['capital_required']:.2f}</p>
                     <p>Max Loss: ₹{strategy['max_loss']:.2f}</p>
@@ -867,8 +867,8 @@ with tab5:
             "ATM IV": atm_iv_vols
         })
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["GARCH Forecast"], mode='lines+markers', name='GARCH Forecast', line=dict(color='#ffd700')))
-        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["XGBoost Prediction"], mode='lines+markers', name='XGBoost Prediction', line=dict(color='#c0c0c0')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["GARCH Forecast"], mode='lines+markers', name='GARCH Forecast', line=dict(color='#1e88e5')))
+        fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["XGBoost Prediction"], mode='lines+markers', name='XGBoost Prediction', line=dict(color='#ab47bc')))
         fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["Realized Volatility"], mode='lines+markers', name='Realized Volatility', line=dict(color='#00adb5')))
         fig.add_trace(go.Scatter(x=plot_df["Date"], y=plot_df["ATM IV"], mode='lines+markers', name='ATM IV', line=dict(color='#f4e7ba')))
         fig.update_layout(
@@ -878,23 +878,23 @@ with tab5:
             template="plotly_dark",
             showlegend=True,
             margin=dict(l=40, r=40, t=40, b=40),
-            plot_bgcolor='#0a0a0a',
-            paper_bgcolor='#0a0a0a',
-            font=dict(color='#e0e0e0')
+            plot_bgcolor='#121212',
+            paper_bgcolor='#121212',
+            font=dict(color='#ffffff')
         )
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Key Metrics")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown(f"<div class='highlight-card'><h4><i class='fas fa-percentage'></i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-card'><h4><i class='fas fa-balance-scale'></i> IV-RV</h4><p>{iv_rv:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='highlight-card'><h4><i class='material-icons'>percent</i> ATM IV</h4><p>{atm_iv:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> IV-RV</h4><p>{iv_rv:.2f}%</p></div>", unsafe_allow_html=True)
         with col2:
-            st.markdown(f"<div class='metric-card'><h4><i class='fas fa-balance-scale'></i> PCR</h4><p>{pcr:.2f}</p></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-card'><h4><i class='fas fa-money-bill-wave'></i> Straddle Price</h4><p>{straddle_price:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> PCR</h4><p>{pcr:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Straddle Price</h4><p>{straddle_price:.2f}</p></div>", unsafe_allow_html=True)
         with col3:
-            st.markdown(f"<div class='metric-card'><h4><i class='fas fa-exclamation-triangle'></i> Max Pain</h4><p>{max_pain:.2f}</p></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-card'><h4><i class='fas fa-history'></i> Realized Volatility</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Pain</h4><p>{max_pain:.2f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>history</i> Realized Volatility</h4><p>{realized_vol:.2f}%</p></div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Error loading volatility insights: {e}")
@@ -903,22 +903,22 @@ with tab5:
     st.subheader("Risk Management Overview")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-wallet'></i> Total Capital</h4><p>₹{total_capital:,}</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-chart-line'></i> Deployed Capital</h4><p>₹{st.session_state.deployed_capital:,}</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-percentage'></i> Exposure</h4><p>{exposure_pct:.1f}%</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance_wallet</i> Total Capital</h4><p>₹{total_capital:,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Deployed Capital</h4><p>₹{st.session_state.deployed_capital:,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>percent</i> Exposure</h4><p>{exposure_pct:.1f}%</p></div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-shield-alt'></i> Max Exposure Allowed</h4><p>{MAX_EXPOSURE_PCT}% (₹{max_deployed_capital:,})</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-exclamation-circle'></i> Max Loss Per Trade</h4><p>{MAX_LOSS_PER_TRADE_PCT}% (₹{max_loss_per_trade:,})</p></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-exclamation-circle'></i> Daily Loss Limit</h4><p>{DAILY_LOSS_LIMIT_PCT}% (₹{daily_loss_limit:,})</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>security</i> Max Exposure Allowed</h4><p>{MAX_EXPOSURE_PCT}% (₹{max_deployed_capital:,})</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Loss Per Trade</h4><p>{MAX_LOSS_PER_TRADE_PCT}% (₹{max_loss_per_trade:,})</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Daily Loss Limit</h4><p>{DAILY_LOSS_LIMIT_PCT}% (₹{daily_loss_limit:,})</p></div>", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"<div class='metric-card'><h4><i class='fas fa-money-bill-wave'></i> Daily P&L</h4><p>₹{st.session_state.daily_pnl:,}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Daily P&L</h4><p>₹{st.session_state.daily_pnl:,}</p></div>", unsafe_allow_html=True)
 
     st.subheader("Trade Log")
     if st.session_state.trade_log:
         for trade in st.session_state.trade_log:
             st.markdown(f"""
                 <div class='metric-card'>
-                    <h4><i class='fas fa-history'></i> {trade['date']}</h4>
+                    <h4><i class='material-icons'>history</i> {trade['date']}</h4>
                     <p>Strategy: {trade['strategy']}</p>
                     <p>Capital Deployed: ₹{trade['capital_deployed']:,.2f}</p>
                     <p>Max Loss: ₹{trade['max_loss']:,.2f}</p>
@@ -947,7 +947,7 @@ if st.session_state.journal_entries:
     for entry in st.session_state.journal_entries:
         st.markdown(f"""
             <div class='metric-card'>
-                <h4><i class='fas fa-book'></i> {entry['timestamp']}</h4>
+                <h4><i class='material-icons'>book</i> {entry['timestamp']}</h4>
                 <p>{entry['entry']}</p>
             </div>
         """, unsafe_allow_html=True)
