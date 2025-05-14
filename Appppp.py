@@ -93,6 +93,8 @@ if 'volguard_data' not in st.session_state:
     st.session_state.volguard_data = None
 if 'xgb_prediction' not in st.session_state:
     st.session_state.xgb_prediction = None
+if 'atm_iv' not in st.session_state:
+    st.session_state.atm_iv = None
 
 # === Helper Functions ===
 def get_nearest_expiry(options_api, instrument_key):
@@ -180,7 +182,10 @@ def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
                                          sum(df['PE_OI'] * abs(df['Strike'] - x['Strike'])), axis=1)
     strike_with_pain = df.loc[max_pain_series.idxmin(), 'Strike']
     straddle_price = float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
-    return pcr, strike_with_pain, straddle_price, atm_strike
+    # Calculate ATM IV as average of CE IV and PE IV for the ATM strike
+    atm_row = df[df['Strike'] == atm_strike]
+    atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if not atm_row.empty else 0
+    return pcr, strike_with_pain, straddle_price, atm_strike, atm_iv
 
 def plot_iv_skew(df, spot, atm_strike):
     valid = df[(df['CE_IV'] > 0) & (df['PE_IV'] > 0)]
@@ -246,18 +251,18 @@ def run_volguard(access_token):
 
         expiry = get_nearest_expiry(options_api, instrument_key)
         if not expiry:
-            return None, None, None, None
+            return None, None, None, None, None
         chain = fetch_option_chain(options_api, instrument_key, expiry)
         if not chain:
-            return None, None, None, None
+            return None, None, None, None, None
         spot = chain[0].get("underlying_spot_price")
         if not spot:
-            return None, None, None, None
+            return None, None, None, None, None
 
         df, ce_oi, pe_oi = process_chain(chain)
         if df.empty:
-            return None, None, None, None
-        pcr, max_pain, straddle_price, atm_strike = calculate_metrics(df, ce_oi, pe_oi, spot)
+            return None, None, None, None, None
+        pcr, max_pain, straddle_price, atm_strike, atm_iv = calculate_metrics(df, ce_oi, pe_oi, spot)
         ce_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['CE_Token'].values[0])
         pe_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['PE_Token'].values[0])
         iv_skew_fig = plot_iv_skew(df, spot, atm_strike)
@@ -273,12 +278,12 @@ def run_volguard(access_token):
             "ce_depth": ce_depth,
             "pe_depth": pe_depth,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "atm_iv": df[df['Strike'] == atm_strike]['CE_IV'].values[0] if not df[df['Strike'] == atm_strike].empty else 0
+            "atm_iv": atm_iv  # Already in percentage form (e.g., 15.98%)
         }
-        return result, df, iv_skew_fig, atm_strike
+        return result, df, iv_skew_fig, atm_strike, atm_iv
     except Exception as e:
         logger.error(f"Volguard run error: {e}")
-        return None, None, None, None
+        return None, None, None, None, None
 
 # === Streamlit Tabs ===
 tab1, tab2, tab3, tab4 = st.tabs(["VolGuard: Options Analysis", "GARCH: Volatility Forecast", "XGBoost: Volatility Prediction", "Dashboard: Volatility Insights"])
@@ -294,9 +299,10 @@ with tab1:
             st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data..."):
-                result, df, iv_skew_fig, atm_strike = run_volguard(access_token)
+                result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
                 if result:
                     st.session_state.volguard_data = result
+                    st.session_state.atm_iv = atm_iv  # Store ATM IV in session state
                     st.success("Data fetched successfully!")
                     col1, col2 = st.columns(2)
                     with col1:
@@ -405,7 +411,7 @@ with tab3:
             with st.spinner("Loading XGBoost data and model..."):
                 xgb_df = pd.read_csv(xgb_csv_url)
                 xgb_df = xgb_df.dropna()
-                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR']  # Removed VIX
+                features = ['ATM_IV', 'Realized_Vol', 'IVP', 'Event_Impact_Score', 'FII_DII_Net_Long', 'PCR', 'VIX']  # Added VIX back
                 target = 'Next_5D_Realized_Vol'
                 if not all(col in xgb_df.columns for col in features + [target]):
                     st.error("CSV missing required columns!")
@@ -481,7 +487,7 @@ with tab3:
         st.warning(f"Could not compute Realized Volatility: {e}")
 
     # Auto-fill from VolGuard if available
-    atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 0
+    atm_iv = st.session_state.volguard_data['atm_iv'] if st.session_state.volguard_data else 0
     pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 0
 
     col1, col2 = st.columns(2)
@@ -493,6 +499,7 @@ with tab3:
         event_score_input = st.number_input("Event Impact Score (0–2)", value=1.0, min_value=0.0, max_value=2.0, step=1.0)
         fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, step=0.01)
+        vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, step=0.1)  # Added VIX input back
 
     if st.button("Predict Volatility"):
         try:
@@ -510,7 +517,8 @@ with tab3:
                     'IVP': [ivp_input],
                     'Event_Impact_Score': [event_score_input],
                     'FII_DII_Net_Long': [fii_dii_input],
-                    'PCR': [pcr_input]
+                    'PCR': [pcr_input],
+                    'VIX': [vix_input]  # Added VIX back
                 })
 
                 # Predict and convert to percentage
@@ -548,7 +556,7 @@ with tab4:
         xgb_vols = [xgb_vol] * 7
 
         # ATM IV and Metrics from VolGuard
-        atm_iv = st.session_state.volguard_data['atm_iv'] * 100 if st.session_state.volguard_data and st.session_state.volguard_data['atm_iv'] else 20.0
+        atm_iv = st.session_state.atm_iv if st.session_state.atm_iv is not None else 20.0  # Use stored ATM IV
         atm_iv_vols = [atm_iv] * 7
         pcr = st.session_state.volguard_data['pcr'] if st.session_state.volguard_data else 1.0
         straddle_price = st.session_state.volguard_data['straddle_price'] if st.session_state.volguard_data else 0
