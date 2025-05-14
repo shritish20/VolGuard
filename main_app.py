@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, time
+from datetime import datetime
 import logging
 from pathlib import Path
-import html
 from dotenv import load_dotenv
 from upstox_api import (
     initialize_upstox_client,
@@ -128,14 +127,6 @@ for key, value in default_session_state.items():
         st.session_state[key] = value
 
 # === Helper Functions ===
-def is_market_hours():
-    """Check if current time is within market hours (9:15 AM to 3:30 PM IST, Mon-Fri)."""
-    now = datetime.now()
-    market_open = time(9, 15)
-    market_close = time(15, 30)
-    is_weekday = now.weekday() < 5
-    return is_weekday and (market_open <= now.time() <= market_close)
-
 @st.cache_data(show_spinner=False)
 def fetch_portfolio_data(upstox_client, capital):
     """Fetch and summarize portfolio data."""
@@ -145,28 +136,20 @@ def fetch_portfolio_data(upstox_client, capital):
         "exposure": 0.0,
         "total_capital": capital,
     }
-    if not upstox_client:
-        logger.warning("Upstox client not available.")
-        return portfolio_summary
+    portfolio_data = fetch_all_api_portfolio_data(upstox_client)
+    st.session_state.api_portfolio_data = portfolio_data
+    margin_data = portfolio_data.get("margin", {}).get("data", {})
+    positions_data = portfolio_data.get("positions", {}).get("data", [])
 
-    try:
-        portfolio_data = fetch_all_api_portfolio_data(upstox_client)
-        st.session_state.api_portfolio_data = portfolio_data
-        margin_data = portfolio_data.get("margin", {}).get("data", {})
-        positions_data = portfolio_data.get("positions", {}).get("data", [])
-
-        portfolio_summary["margin_used"] = float(margin_data.get("used_margin", 0)) if margin_data else 0.0
-        portfolio_summary["weekly_pnl"] = sum(
-            float(pos.get("unrealised", 0)) + float(pos.get("realised", 0))
-            for pos in positions_data
-        ) if positions_data else 0.0
-        portfolio_summary["exposure"] = (
-            portfolio_summary["margin_used"] / capital * 100 if capital > 0 else 0.0
-        )
-        return portfolio_summary
-    except Exception as e:
-        logger.error(f"Error fetching portfolio data: {e}")
-        return portfolio_summary
+    portfolio_summary["margin_used"] = float(margin_data.get("used_margin", 0)) if margin_data else 0.0
+    portfolio_summary["weekly_pnl"] = sum(
+        float(pos.get("unrealised", 0)) + float(pos.get("realised", 0))
+        for pos in positions_data
+    ) if positions_data else 0.0
+    portfolio_summary["exposure"] = (
+        portfolio_summary["margin_used"] / capital * 100 if capital > 0 else 0.0
+    )
+    return portfolio_summary
 
 def generate_trading_strategy(analysis_df, real_time_market_data, forecast_metrics, capital, risk_tolerance):
     """Generate a mock trading strategy based on market data and risk tolerance."""
@@ -184,16 +167,13 @@ def generate_trading_strategy(analysis_df, real_time_market_data, forecast_metri
             "Reasoning": f"Generated strategy for {risk_tolerance} risk profile based on current market conditions."
         }
     ])
-    if not signals.empty and date in signals["Date"].values:
-        signal = signals[signals["Date"] == date].iloc[0]
-    else:
-        signal = {
-            "Strategy": "None",
-            "Confidence": 0.0,
-            "Deploy": 0.0,
-            "Orders": [],
-            "Reasoning": "No signal available for the date"
-        }
+    signal = signals[signals["Date"] == date].iloc[0] if not signals.empty and date in signals["Date"].values else {
+        "Strategy": "None",
+        "Confidence": 0.0,
+        "Deploy": 0.0,
+        "Orders": [],
+        "Reasoning": "No signal available for the date"
+    }
     return {
         "Strategy": signal["Strategy"],
         "Confidence": signal["Confidence"],
@@ -208,18 +188,15 @@ with st.sidebar:
     access_token = st.text_input("Access Token", type="password", key="access_token_input")
     if st.button("Login to Upstox"):
         if not access_token:
-            st.error("❌ Access token cannot be empty.")
             logger.error("Login attempted with empty access token.")
         else:
             client_objects = initialize_upstox_client(access_token)
             if client_objects:
                 st.session_state.client = client_objects
                 st.session_state.logged_in = True
-                st.success("✅ Logged in to Upstox!")
                 logger.info("Upstox login successful.")
                 st.rerun()
             else:
-                st.error("❌ Login failed. Invalid or expired access token.")
                 logger.error("Upstox login failed: Invalid or expired token.")
 
     if st.session_state.logged_in:
@@ -231,24 +208,15 @@ with st.sidebar:
             "Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1
         )
         if st.button("Square Off All Positions"):
-            if is_market_hours():
-                success = square_off_positions(st.session_state.client)
-                if success:
-                    st.success("✅ Square off initiated!")
-                    logger.info("Square off initiated.")
-                else:
-                    st.error("❌ Failed to square off.")
-                    logger.error("Square off failed.")
+            success = square_off_positions(st.session_state.client)
+            if success:
+                logger.info("Square off initiated.")
             else:
-                st.warning("⏰ Market is closed.")
-                logger.warning("Square off attempted outside market hours.")
+                logger.error("Square off failed.")
 
 # === Main App ===
 st.title("🛡️ VolGuard Pro")
 st.markdown("**Your AI-powered options trading cockpit for NIFTY 50**")
-
-if not is_market_hours():
-    st.warning("⚠️ Outside market hours (9:15 AM–3:30 PM IST, Mon-Fri).")
 
 # === Tabs ===
 tab1, tab2, tab3, tab4 = st.tabs(
@@ -260,21 +228,16 @@ with tab1:
     if st.session_state.logged_in:
         data = fetch_real_time_market_data(st.session_state.client)
         st.session_state.real_time_market_data = data
-        if data:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("NIFTY Spot", f"{data.get('nifty_spot', 'N/A'):.2f}")
-            col2.metric("India VIX", f"{data.get('vix', 'N/A'):.2f}")
-            col3.metric("PCR", f"{data.get('pcr', 'N/A'):.2f}")
-            col4.metric("ATM Straddle", f"{data.get('straddle_price', 'N/A'):.2f}")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("NIFTY Spot", f"{data.get('nifty_spot', 'N/A'):.2f}")
+        col2.metric("India VIX", f"{data.get('vix', 'N/A'):.2f}")
+        col3.metric("PCR", f"{data.get('pcr', 'N/A'):.2f}")
+        col4.metric("ATM Straddle", f"{data.get('straddle_price', 'N/A'):.2f}")
 
-            st.subheader("Option Chain Preview")
-            df = data.get("option_chain")
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                st.dataframe(df[["Strike", "CE_LTP", "CE_OI", "PE_LTP", "PE_OI"]].head(10))
-            else:
-                st.info("No option chain data available.")
-        else:
-            st.error("❌ Failed to fetch market data.")
+        st.subheader("Option Chain Preview")
+        df = data.get("option_chain")
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            st.dataframe(df[["Strike", "CE_LTP", "CE_OI", "PE_LTP", "PE_OI"]].head(10))
     else:
         st.info("Please log in to Upstox.")
 
@@ -295,32 +258,19 @@ with tab2:
             st.markdown(f"**Reasoning**: {strategy['Reasoning']}")
 
             if st.button("Prepare Orders"):
-                if is_market_hours():
-                    orders = prepare_trade_orders(strategy)
-                    st.session_state.prepared_orders = orders
-                    if orders:
-                        st.success(f"✅ {len(orders)} orders prepared!")
-                        st.dataframe(pd.DataFrame(orders))
-                    else:
-                        st.warning("⚠️ No orders prepared.")
-                else:
-                    st.warning("⏰ Market is closed.")
+                orders = prepare_trade_orders(strategy)
+                st.session_state.prepared_orders = orders
+                if orders:
+                    st.dataframe(pd.DataFrame(orders))
 
-            if st.session_state.prepared_orders and is_market_hours():
+            if st.session_state.prepared_orders:
                 with st.form("execute_orders_form"):
-                    st.warning("🚨 This will place REAL orders!")
                     confirm = st.checkbox("Confirm live order placement")
                     if st.form_submit_button("Execute Orders") and confirm:
                         success, response = execute_trade_orders(st.session_state.client, st.session_state.prepared_orders)
                         if success:
-                            st.success("✅ Orders executed!")
                             st.session_state.trades.extend(st.session_state.prepared_orders)
                             st.session_state.prepared_orders = None
-                        else:
-                            st.error("❌ Order execution failed.")
-                            st.json(response)
-        else:
-            st.info("No strategy available.")
     else:
         st.info("Please log in and fetch market data.")
 
@@ -340,17 +290,11 @@ with tab3:
             display_cols = [col for col in ["instrument_token", "quantity", "average_price"] if col in df_positions.columns]
             if display_cols:
                 st.dataframe(df_positions[display_cols])
-            else:
-                st.info("No position data available in expected format.")
-        else:
-            st.info("No open positions.")
 
         st.subheader("Fund Summary")
         margin = st.session_state.api_portfolio_data.get("margin", {}).get("data", {})
         if margin:
             st.dataframe(pd.DataFrame([margin]))
-        else:
-            st.info("No fund data available.")
     else:
         st.info("Please log in to Upstox.")
 
@@ -359,12 +303,8 @@ with tab4:
     journal_file = Path("journal_log.csv")
     journal_df = pd.DataFrame(columns=["Date", "Strategy", "PnL", "Notes"])
     if journal_file.exists():
-        try:
-            journal_df = pd.read_csv(journal_file)
-            journal_df["Date"] = pd.to_datetime(journal_df["Date"], errors="coerce")
-        except Exception as e:
-            logger.error(f"Error reading journal file: {e}")
-            st.error("❌ Failed to load journal.")
+        journal_df = pd.read_csv(journal_file)
+        journal_df["Date"] = pd.to_datetime(journal_df["Date"], errors="coerce")
 
     with st.form("journal_form"):
         date_log = st.date_input("Trade Date", st.session_state.journal_date_input)
@@ -379,21 +319,14 @@ with tab4:
                 "Notes": [notes_log]
             })
             journal_df = pd.concat([journal_df, new_entry], ignore_index=True)
-            try:
-                journal_df.to_csv(journal_file, index=False)
-                st.success("✅ Trade logged!")
-                st.session_state.journal_strategy_input = ""
-                st.session_state.journal_pnl_input = 0.0
-                st.session_state.journal_notes_input = ""
-            except Exception as e:
-                logger.error(f"Error saving journal: {e}")
-                st.error("❌ Failed to save journal entry.")
+            journal_df.to_csv(journal_file, index=False)
+            st.session_state.journal_strategy_input = ""
+            st.session_state.journal_pnl_input = 0.0
+            st.session_state.journal_notes_input = ""
 
     st.subheader("Trade History")
     if not journal_df.empty:
         st.dataframe(journal_df.sort_values(by="Date", ascending=False))
-    else:
-        st.info("No trades logged.")
 
 # === Footer ===
 st.markdown(
@@ -405,4 +338,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-            )
+)
