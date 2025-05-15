@@ -7,8 +7,9 @@ import logging
 import json
 import math
 from datetime import datetime, date
-from upstox_client import Configuration, ApiClient
-from upstox_client import OrderApiV3, MarketQuoteApiV3
+import upstox_client
+from upstox_client import Configuration, ApiClient, OptionsApi, UserApi, PortfolioApi, OrderApi, OrderApiV3, PlaceOrderV3Request
+from upstox_client.rest import ApiException
 from arch import arch_model
 import xgboost as xgb
 import plotly.graph_objs as go
