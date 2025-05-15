@@ -28,6 +28,19 @@ xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro 2.0 - AI Trading Copilot", layout="wide")
+# === Event Loader (place this near the top of the file!) ===
+@st.cache_data(ttl=1800)
+def fetch_upcoming_events():
+    try:
+        url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/upcoming_events.csv"
+        df = pd.read_csv(url)
+        df["Datetime"] = pd.to_datetime(df["Date"] + " " + df["Time (IST)"], dayfirst=True, errors='coerce')
+        df = df.dropna(subset=["Datetime"])
+        df = df[df["Datetime"] >= datetime.now()]
+        return df.sort_values("Datetime")
+    except Exception as e:
+        st.error(f"Error fetching events: {e}")
+        return pd.DataFrame()
 
 # Custom CSS for Polished UI
 st.markdown("""
