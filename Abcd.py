@@ -1283,27 +1283,26 @@ with tab4:
                     df = pd.DataFrame(st.session_state.volguard_data.get('iv_skew_data', {}))
                     if df.empty:
                         st.error("Option chain data is empty. Please try again.")
-                        return
-
-                    order_results, trade_pnl, entry_price, max_loss = execute_strategy(
-                        access_token, option_chain, spot_price, selected_strategy, quantity, df
-                    )
-                    if order_results:
-                        st.session_state.deployed_capital += max_loss * 1.5
-                        st.session_state.daily_pnl += trade_pnl
-                        update_trade_metrics(trade_pnl)
-                        st.session_state.trade_log.append({
-                            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "strategy": selected_strategy.replace('_', ' '),
-                            "capital": max_loss * 1.5,
-                            "pnl": trade_pnl,
-                            "quantity": quantity * 75,
-                            "regime_score": regime_score,
-                            "entry_price": entry_price,
-                            "max_loss": max_loss
-                        })
-                        logger.info(f"Trade executed: {selected_strategy}, P&L: {trade_pnl}, Capital: {max_loss * 1.5}")
-                        st.markdown(f"<div class='alert-green'>Successfully executed {selected_strategy.replace('_', ' ')}! P&L: ₹{trade_pnl:,.2f}</div>", unsafe_allow_html=True)
+                    else:
+                        order_results, trade_pnl, entry_price, max_loss = execute_strategy(
+                            access_token, option_chain, spot_price, selected_strategy, quantity, df
+                        )
+                        if order_results:
+                            st.session_state.deployed_capital += max_loss * 1.5
+                            st.session_state.daily_pnl += trade_pnl
+                            update_trade_metrics(trade_pnl)
+                            st.session_state.trade_log.append({
+                                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "strategy": selected_strategy.replace('_', ' '),
+                                "capital": max_loss * 1.5,
+                                "pnl": trade_pnl,
+                                "quantity": quantity * 75,
+                                "regime_score": regime_score,
+                                "entry_price": entry_price,
+                                "max_loss": max_loss
+                            })
+                            logger.info(f"Trade executed: {selected_strategy}, P&L: {trade_pnl}, Capital: {max_loss * 1.5}")
+                            st.markdown(f"<div class='alert-green'>Successfully executed {selected_strategy.replace('_', ' ')}! P&L: ₹{trade_pnl:,.2f}</div>", unsafe_allow_html=True)
                 except Exception as e:
                     logger.error(f"Strategy execution error: {e}")
                     st.error(f"Error executing strategy: {e}. Please check your inputs and try again.")
