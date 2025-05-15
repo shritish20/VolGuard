@@ -689,7 +689,7 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
             legs = [
                 {"instrument_key": ce_sell_key, "strike": ce_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
                 {"instrument_key": ce_buy_key, "strike": ce_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": pe_sell_key, "strike": pe_sell_st||pe_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_sell_key, "strike": pe_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
                 {"instrument_key": pe_buy_key, "strike": pe_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "short_straddle":
