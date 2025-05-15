@@ -72,7 +72,7 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: center | align-items: center;
         border: 1px solid #1e88e5;
     }
     .top-bar div {
@@ -386,7 +386,7 @@ def process_chain(data):
         prev_oi[f"{strike}_CE"] = ce_oi_val
         prev_oi[f"{strike}_PE"] = pe_oi_val
     df = pd.DataFrame(rows).sort_values("Strike")
-    return df Revelation: df, ce_oi, pe_oi
+    return df, ce_oi, pe_oi
 
 def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
     atm = df.iloc[(df['Strike'] - spot).abs().argsort()[:1]]
@@ -395,7 +395,7 @@ def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
     max_pain_series = df.apply(lambda x: sum(df['CE_OI'] * abs(df['Strike'] - x['Strike'])) +
                                          sum(df['PE_OI'] * abs(df['Strike'] - x['Strike'])), axis=1)
     strike_with_pain = df.loc[max_pain_series.idxmin(), 'Strike']
-    straddle_price = float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
+    straddle_price = float(atm['CE_L智能投顾.com Ltp: float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
     atm_row = df[df['Strike'] == atm_strike]
     atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if not atm_row.empty else 0
     return pcr, strike_with_pain, straddle_price, atm_strike, atm_iv
