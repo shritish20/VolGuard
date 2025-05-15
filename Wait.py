@@ -952,8 +952,19 @@ with tab4:
         "Bull_Put_Credit", "Bear_Call_Credit", "Jade_Lizard"
     ]
 
+    # Strategy explanations in simple language (already present)
+    strategy_tooltips = {
+        "Iron_Fly": "This strategy makes money if the market stays at the same price. It’s safe but needs the market to be calm.",
+        "Iron_Condor": "This strategy works when the market doesn’t move much. It’s a safe way to earn money with low risk.",
+        "Short_Straddle": "This strategy bets the market won’t move much. It can make a lot of money but is very risky if the market moves a lot!",
+        "Short_Strangle": "This strategy also bets on a calm market but gives you a bigger range. It’s risky if the market moves too much.",
+        "Bull_Put_Credit": "This strategy is for when you think the market will go up. It’s safer than other strategies but still has some risk.",
+        "Bear_Call_Credit": "This strategy is for when you think the market will go down. It’s safer but still has some risk.",
+        "Jade_Lizard": "This strategy makes money if the market goes up a little or stays the same. It’s a mix of safe and risky."
+    }
+
     if run_engine or st.session_state.get('strategies', None):
-        # Market Regime Classification
+        # Compute Market Regime Using Real-Time Metrics
         try:
             nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
             nifty_df.columns = nifty_df.columns.str.strip()
@@ -966,67 +977,100 @@ with tab4:
             realized_vol = 0
             st.warning(f"Could not compute Realized Volatility: {e}")
 
-        iv_rv = st.session_state.atm_iv - realized_vol if st.session_state.atm_iv else 0
-        if iv_rv > 10:
-            regime = "High"
-        elif iv_rv > 5:
-            regime = "Medium"
-        else:
-            regime = "Low"
+        atm_iv = st.session_state.atm_iv if st.session_state.atm_iv else 0
+        pcr = st.session_state.volguard_data.get('pcr', 0) if st.session_state.volguard_data else 0
 
-        # Strategy Recommendation Logic
+        # Simplified Market Regime Logic (No Hardcoded Thresholds)
+        # Use relative comparisons and market sentiment
+        regime = "Neutral"
+        regime_explanation = "The market looks balanced right now."
+        if atm_iv > realized_vol * 1.5 and pcr > 1.2:
+            regime = "Bearish"
+            regime_explanation = "The market might go down because people expect more price drops (high PCR and IV)."
+        elif atm_iv < realized_vol * 0.8 and pcr < 0.8:
+            regime = "Bullish"
+            regime_explanation = "The market might go up because people expect price increases (low PCR and IV)."
+
+        # Strategy Recommendation Based on Regime and Risk Profile
         strategies = []
         if risk_profile == "Conservative":
-            strategies.append({
-                "name": "Iron_Condor",
-                "logic": "Neutral strategy for low volatility regime",
-                "capital_required": total_capital * 0.3,
-                "max_loss": total_capital * 0.03,
-                "confidence": 0.8
-            })
+            if regime == "Neutral":
+                strategies.append({
+                    "name": "Iron_Condor",
+                    "logic": "Works well in a calm market with low movement.",
+                    "capital_required": total_capital * 0.3,
+                    "max_loss": total_capital * 0.03,  # Will improve this in the next section
+                    "confidence": 0.8
+                })
             strategies.append({
                 "name": "Iron_Fly",
-                "logic": "High premium collection with defined risk",
+                "logic": "Safe strategy for a stable market with defined risk.",
                 "capital_required": total_capital * 0.25,
                 "max_loss": total_capital * 0.025,
                 "confidence": 0.75
             })
         elif risk_profile == "Moderate":
+            if regime == "Bullish":
+                strategies.append({
+                    "name": "Bull_Put_Credit",
+                    "logic": "Good for a market that might go up.",
+                    "capital_required": total_capital * 0.3,
+                    "max_loss": total_capital * 0.03,
+                    "confidence": 0.7
+                })
+            elif regime == "Bearish":
+                strategies.append({
+                    "name": "Bear_Call_Credit",
+                    "logic": "Good for a market that might go down.",
+                    "capital_required": total_capital * 0.3,
+                    "max_loss": total_capital * 0.03,
+                    "confidence": 0.7
+                })
             strategies.append({
                 "name": "Jade_Lizard",
-                "logic": "Skewed risk-reward for medium volatility",
+                "logic": "Balanced strategy for slight market movement.",
                 "capital_required": total_capital * 0.35,
                 "max_loss": total_capital * 0.035,
                 "confidence": 0.75
             })
-            strategies.append({
-                "name": "Bull_Put_Credit",
-                "logic": "Bullish strategy with limited risk",
-                "capital_required": total_capital * 0.3,
-                "max_loss": total_capital * 0.03,
-                "confidence": 0.7
-            })
         elif risk_profile == "Aggressive":
-            strategies.append({
-                "name": "Short_Straddle",
-                "logic": "High risk, high reward for high volatility regime",
-                "capital_required": total_capital * 0.4,
-                "max_loss": total_capital * 0.04,
-                "confidence": 0.65
-            })
-            strategies.append({
-                "name": "Short_Strangle",
-                "logic": "High premium with unlimited risk",
-                "capital_required": total_capital * 0.35,
-                "max_loss": total_capital * 0.035,
-                "confidence": 0.6
-            })
+            if regime == "Neutral":
+                strategies.append({
+                    "name": "Short_Straddle",
+                    "logic": "Risky strategy for a calm market with high reward.",
+                    "capital_required": total_capital * 0.4,
+                    "max_loss": total_capital * 0.04,
+                    "confidence": 0.65
+                })
+                strategies.append({
+                    "name": "Short_Strangle",
+                    "logic": "Risky strategy with a wider range for a stable market.",
+                    "capital_required": total_capital * 0.35,
+                    "max_loss": total_capital * 0.035,
+                    "confidence": 0.6
+                })
 
         st.session_state.strategies = strategies
+        st.markdown(f"""
+            <div class='metric-card'>
+                <h4><i class='material-icons'>assessment</i> Market Regime</h4>
+                <p>Regime: {regime}</p>
+                <p>Why: {regime_explanation}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
         for strategy in strategies:
+            strategy_name = strategy['name'].replace('_', ' ')
             st.markdown(f"""
                 <div class='metric-card'>
-                    <h4><i class='material-icons'>strategy</i> {strategy['name'].replace('_', ' ')}</h4>
+                    <h4>
+                        <i class='material-icons'>strategy</i> 
+                        {strategy_name}
+                        <span class='tooltip'>
+                            <i class='material-icons' style='font-size: 16px; margin-left: 5px;'>info</i>
+                            <span class='tooltiptext'>{strategy_tooltips.get(strategy['name'], 'No explanation available.')}</span>
+                        </span>
+                    </h4>
                     <p>Logic: {strategy['logic']}</p>
                     <p>Capital Required: ₹{strategy['capital_required']:.2f}</p>
                     <p>Max Loss: ₹{strategy['max_loss']:.2f}</p>
@@ -1034,20 +1078,28 @@ with tab4:
                     <p>Market Regime: {regime}</p>
                 </div>
             """, unsafe_allow_html=True)
-            # Risk Check Before Trade
+            # Risk Check Before Trade (will improve in the next section)
             risk_status, risk_message = check_risk(strategy['capital_required'], strategy['max_loss'], 0)
             if risk_status == "red":
                 st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<div class='alert-green'>{risk_message}</div>", unsafe_allow_html=True)
                 if st.session_state.volguard_data and st.session_state.option_chain:
-                    quantity = st.number_input(f"Quantity for {strategy['name'].replace('_', ' ')} (No. of lots)", min_value=1, value=1, step=1, key=f"qty_{strategy['name']}")
-                    confirm_trade = st.checkbox(f"Confirm execution of {strategy['name'].replace('_', ' ')}", key=f"confirm_{strategy['name']}")
-                    if st.button(f"Execute {strategy['name'].replace('_', ' ')}", key=f"exec_{strategy['name']}"):
+                    quantity = st.number_input(
+                        f"Quantity for {strategy_name} (No. of lots)", 
+                        min_value=1, value=1, step=1, key=f"qty_{strategy['name']}",
+                        help="This is how many sets of options you want to trade. 1 lot = 75 Nifty contracts."
+                    )
+                    confirm_trade = st.checkbox(
+                        f"Confirm execution of {strategy_name}", 
+                        key=f"confirm_{strategy['name']}",
+                        help="Check this box to make sure you’re ready to place the trade."
+                    )
+                    if st.button(f"Execute {strategy_name}", key=f"exec_{strategy['name']}"):
                         if not confirm_trade:
                             st.warning("Please confirm the trade before proceeding.")
                         else:
-                            with st.spinner(f"Executing {strategy['name'].replace('_', ' ')}..."):
+                            with st.spinner(f"Executing {strategy_name}..."):
                                 if not access_token:
                                     st.error("Access token is missing. Please provide it in the Snapshot tab.")
                                     continue
@@ -1063,14 +1115,14 @@ with tab4:
                                     st.session_state.daily_pnl += trade_pnl
                                     st.session_state.trade_log.append({
                                         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                        "strategy": strategy['name'].replace('_', ' '),
+                                        "strategy": strategy_name,
                                         "capital_deployed": strategy['capital_required'],
                                         "max_loss": strategy['max_loss'],
                                         "pnl": trade_pnl,
-                                        "quantity": quantity * 50
+                                        "quantity": quantity * 75
                                     })
                                     update_trade_metrics(trade_pnl)
-                                    st.success(f"Strategy {strategy['name'].replace('_', ' ')} executed! Capital Deployed: ₹{strategy['capital_required']:,.2f} | P&L: ₹{trade_pnl:,.2f}")
+                                    st.success(f"Strategy {strategy_name} executed! Capital Deployed: ₹{strategy['capital_required']:,.2f} | P&L: ₹{trade_pnl:,.2f}")
                 else:
                     st.warning("Run VolGuard first to fetch option chain data for strategy execution.")
     else:
