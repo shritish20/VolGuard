@@ -1283,7 +1283,7 @@ with tab4:
                     df = pd.DataFrame(st.session_state.volguard_data.get('iv_skew_data', {}))
                     if df.empty:
                         st.error("Option chain data is empty. Please try again.")
-          return
+                        return
 
                     order_results, trade_pnl, entry_price, max_loss = execute_strategy(
                         access_token, option_chain, spot_price, selected_strategy, quantity, df
