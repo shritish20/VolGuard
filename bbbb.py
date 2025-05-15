@@ -885,8 +885,8 @@ with tab1:
         else:
             st.info("No upcoming events.")
 
-    st.header("Market Snapshot")
-    access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
+            st.header("Market Snapshot")
+            access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
 
     if st.button("Run VolGuard"):
         if not access_token:
