@@ -28,19 +28,6 @@ xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
 st.set_page_config(page_title="VolGuard Pro 2.0 - AI Trading Copilot", layout="wide")
-# === Event Loader (place this near the top of the file!) ===
-@st.cache_data(ttl=1800)
-def fetch_upcoming_events():
-    try:
-        url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/upcoming_events.csv"
-        df = pd.read_csv(url)
-        df["Datetime"] = pd.to_datetime(df["Date"] + " " + df["Time (IST)"], dayfirst=True, errors='coerce')
-        df = df.dropna(subset=["Datetime"])
-        df = df[df["Datetime"] >= datetime.now()]
-        return df.sort_values("Datetime")
-    except Exception as e:
-        st.error(f"Error fetching events: {e}")
-        return pd.DataFrame()
 
 # Custom CSS for Polished UI
 st.markdown("""
@@ -298,7 +285,7 @@ prev_oi = {}
 
 # === Sidebar Controls ===
 st.sidebar.header("VolGuard Pro 2.0 - Trading Copilot")
-total_capital = st.sidebar.slider("Total Capital (â‚¹)", 100000, 5000000, 1000000, 10000, help="Your total trading capital.")
+total_capital = st.sidebar.slider("Total Capital (₹)", 100000, 5000000, 1000000, 10000, help="Your total trading capital.")
 risk_profile = st.sidebar.selectbox("Risk Profile", ["Conservative", "Moderate", "Aggressive"], help="Your risk tolerance for strategy recommendations.")
 st.sidebar.subheader("Risk Management Settings")
 max_exposure_pct = st.sidebar.slider("Max Exposure (%)", 10.0, 100.0, st.session_state.risk_settings['max_exposure_pct'], 1.0, help="Maximum capital to deploy at any time.")
@@ -323,7 +310,7 @@ exposure_pct = (st.session_state.deployed_capital / total_capital) * 100 if tota
 st.markdown(f"""
     <div class='top-bar'>
         <div><i class="material-icons">percent</i><p>Exposure: {exposure_pct:.1f}%</p></div>
-        <div><i class="material-icons">monetization_on</i><p>Daily P&L: â‚¹{st.session_state.daily_pnl:,.2f}</p></div>
+        <div><i class="material-icons">monetization_on</i><p>Daily P&L: ₹{st.session_state.daily_pnl:,.2f}</p></div>
         <div><i class="material-icons">warning</i><p>Risk Status: {st.session_state.risk_status.capitalize()}</p></div>
     </div>
 """, unsafe_allow_html=True)
@@ -348,11 +335,11 @@ def check_risk(capital_to_deploy, max_loss, daily_pnl, atm_iv, realized_vol):
         adjusted_exposure_pct = (new_deployed_capital / adjusted_max_exposure) * 100 if adjusted_max_exposure > 0 else 0
 
         if new_exposure_pct > max_exposure_pct or new_deployed_capital > adjusted_max_exposure:
-            return "red", f"Exposure exceeds {max_exposure_pct:.1f}% (adjusted: {adjusted_exposure_pct:.1f}%)! Cannot deploy â‚¹{capital_to_deploy:,.2f}."
+            return "red", f"Exposure exceeds {max_exposure_pct:.1f}% (adjusted: {adjusted_exposure_pct:.1f}%)! Cannot deploy ₹{capital_to_deploy:,.2f}."
         if max_loss > max_loss_per_trade:
-            return "red", f"Max loss per trade exceeds â‚¹{max_loss_per_trade:,.2f} ({max_loss_per_trade_pct}% of capital)!"
+            return "red", f"Max loss per trade exceeds ₹{max_loss_per_trade:,.2f} ({max_loss_per_trade_pct}% of capital)!"
         if new_daily_pnl < -daily_loss_limit:
-            return "red", f"Daily loss limit exceeded! Max loss allowed today: â‚¹{daily_loss_limit:,.2f}."
+            return "red", f"Daily loss limit exceeded! Max loss allowed today: ₹{daily_loss_limit:,.2f}."
         if new_exposure_pct > max_exposure_pct * 0.8:
             return "yellow", f"Exposure nearing {max_exposure_pct}% (current: {new_exposure_pct:.1f}%). Proceed with caution."
         return "green", "Safe to trade."
@@ -369,6 +356,20 @@ elif risk_status == "yellow":
     st.markdown(f"<div class='alert-yellow'>{risk_message}</div>", unsafe_allow_html=True)
 else:
     st.markdown(f"<div class='alert-red'>{risk_message}</div>", unsafe_allow_html=True)
+
+# === NEW: Event Fetcher ===
+@st.cache_data(ttl=1800)
+def fetch_upcoming_events():
+    try:
+        url = "https://raw.githubusercontent.com/shritish20/VolGuard/refs/heads/main/upcoming_events.csv"
+        df = pd.read_csv(url)
+        df["Datetime"] = pd.to_datetime(df["Date"] + " " + df["Time (IST)"], dayfirst=True, errors='coerce')
+        df = df.dropna(subset=["Datetime"])
+        df = df[df["Datetime"] >= datetime.now()]
+        return df.sort_values("Datetime")
+    except Exception as e:
+        logger.error(f"Event fetch error: {e}")
+        return pd.DataFrame()
 
 # === Helper Functions ===
 @st.cache_data(ttl=300)
@@ -663,56 +664,75 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
             for leg in option_chain:
                 if leg['strike_price'] == strike:
                     if opt_type == 'CE':
-                        return leg.get('call_options', {}).get('instrument_key')
+                        return leg.get('call_options', {}).get('instrument_key'), strike
                     elif opt_type == 'PE':
-                        return leg.get('put_options', {}).get('instrument_key')
-            return None
+                        return leg.get('put_options', {}).get('instrument_key'), strike
+            return None, None
 
         s = strategy_name.lower()
         if s == "iron_fly":
+            ce_key, ce_strike = get_key(atm_strike, "CE")
+            pe_key, pe_strike = get_key(atm_strike, "PE")
+            ce_otm_key, ce_otm_strike = get_key(atm_strike + otm_distance, "CE")
+            pe_otm_key, pe_otm_strike = get_key(atm_strike - otm_distance, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_key, "strike": ce_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_key, "strike": pe_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_otm_key, "strike": ce_otm_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_otm_key, "strike": pe_otm_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "iron_condor":
+            ce_sell_key, ce_sell_strike = get_key(atm_strike + otm_distance, "CE")
+            ce_buy_key, ce_buy_strike = get_key(atm_strike + 2 * otm_distance, "CE")
+            pe_sell_key, pe_sell_strike = get_key(atm_strike - otm_distance, "PE")
+            pe_buy_key, pe_buy_strike = get_key(atm_strike - 2 * otm_distance, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_sell_key, "strike": ce_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_buy_key, "strike": ce_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_sell_key, "strike": pe_sell_st||pe_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_buy_key, "strike": pe_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "short_straddle":
+            ce_key, ce_strike = get_key(atm_strike, "CE")
+            pe_key, pe_strike = get_key(atm_strike, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_key, "strike": ce_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_key, "strike": pe_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "short_strangle":
+            ce_key, ce_strike = get_key(atm_strike + otm_distance, "CE")
+            pe_key, pe_strike = get_key(atm_strike - otm_distance, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_key, "strike": ce_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_key, "strike": pe_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "bull_put_credit":
+            pe_sell_key, pe_sell_strike = get_key(atm_strike - otm_distance, "PE")
+            pe_buy_key, pe_buy_strike = get_key(atm_strike - 2 * otm_distance, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_sell_key, "strike": pe_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_buy_key, "strike": pe_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "bear_call_credit":
+            ce_sell_key, ce_sell_strike = get_key(atm_strike + otm_distance, "CE")
+            ce_buy_key, ce_buy_strike = get_key(atm_strike + 2 * otm_distance, "CE")
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_sell_key, "strike": ce_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_buy_key, "strike": ce_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "jade_lizard":
+            ce_key, ce_strike = get_key(atm_strike + otm_distance, "CE")
+            pe_sell_key, pe_sell_strike = get_key(atm_strike - otm_distance, "PE")
+            pe_buy_key, pe_buy_strike = get_key(atm_strike - 2 * otm_distance, "PE")
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": ce_key, "strike": ce_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_sell_key, "strike": pe_sell_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": pe_buy_key, "strike": pe_buy_strike, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         else:
             raise ValueError(f"Unsupported strategy: {strategy_name}")
 
-        legs = [leg for leg in legs if leg["instrument_key"]]
+        legs = [leg for leg in legs if leg["instrument_key"] and leg["strike"]]
         if not legs:
             raise ValueError("No valid legs generated.")
         return legs
@@ -786,7 +806,7 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         max_loss = 0
         entry_price = 0
         for leg in legs:
-            strike = float(leg.get('strike', 0))  # Fixed: No parsing from instrument_key if leg['instrument_key'] else 0
+            strike = float(leg.get("strike", 0))
             opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
             row = df[df['Strike'] == strike]
             if not row.empty:
@@ -887,24 +907,26 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Snapshot", "Forecast", "Predictio
 
 # === Tab 1: Snapshot ===
 with tab1:
-        # === Upcoming Events Display ===
-        st.subheader("Upcoming Macro Events")
-        events_df = fetch_upcoming_events()
-        if not events_df.empty:
-            for _, row in events_df.iterrows():
-                imp = "High" if row["Importance"] == 2 else "Moderate" if row["Importance"] == 1 else "Low"
-                st.markdown(f"**{row['Datetime'].strftime('%d %b %H:%M')}** â€” {row['Event']}  \\n"
-                            f"Importance: {imp} | Expected: {row['Expected']} | Previous: {row['Previous']}")
-        else:
-            st.info("No upcoming events.")
+    st.header("Market Snapshot")
+    access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
 
-        st.header("Market Snapshot")
-        access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
+    # NEW: Display Upcoming Events
+    st.subheader("Upcoming Macro Events")
+    events_df = fetch_upcoming_events()
+    if not events_df.empty:
+        for _, row in events_df.iterrows():
+            importance = "High" if row["Importance"] == 2 else "Moderate" if row["Importance"] == 1 else "Low"
+            st.markdown(
+                f"**{row['Datetime'].strftime('%d %b %H:%M')}** - {row['Event']}  "
+                f"_Importance: {importance}_  "
+                f"Expected: {row['Expected']} | Previous: {row['Previous']}"
+            )
+    else:
+        st.info("No upcoming events found.")
 
-        if st.button("Run VolGuard"):
-        
-          if not access_token:
-             st.error("Please enter a valid Upstox access token.")
+    if st.button("Run VolGuard"):
+        if not access_token:
+            st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data..."):
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
@@ -930,11 +952,11 @@ with tab1:
                             st.subheader("IV Skew Plot")
                             st.plotly_chart(iv_skew_fig, use_container_width=True)
 
-                    st.subheader("Key Strikes (ATM Â± 6)")
+                    st.subheader("Key Strikes (ATM ± 6)")
                     atm_idx = df[df['Strike'] == atm_strike].index[0]
                     key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
                         'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI',
-                        'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
+                        'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_L用途', 'PE_IV', 'PE_Delta',
                         'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume',
                         'Strike_PCR', 'OI_Skew', 'IV_Skew_Slope'
                     ]]
@@ -1010,7 +1032,6 @@ with tab2:
         st.error(f"Error loading GARCH data: {e}. Please check the CSV source.")
 
 # === Tab 3: Prediction ===
-# === Tab 3: Prediction ===
 with tab3:
     st.header("XGBoost: 7-Day Volatility Prediction")
     xgb_model_url = "https://drive.google.com/uc?export=download&id=1Gs86p1p8wsGe1lp498KC-OVn0e87Gv-R"
@@ -1053,12 +1074,12 @@ with tab3:
                     st.markdown("<h3>Training Metrics</h3>", unsafe_allow_html=True)
                     st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_train:.4f}%</p></div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_train:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RÂ²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_train:.4f}</p></div>", unsafe_allow_html=True)
                 with col2:
                     st.markdown("<h3>Test Metrics</h3>", unsafe_allow_html=True)
                     st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RMSE</h4><p>{rmse_test:.4f}%</p></div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> MAE</h4><p>{mae_test:.4f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> RÂ²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> R²</h4><p>{r2_test:.4f}</p></div>", unsafe_allow_html=True)
 
                 fig = go.Figure()
                 importances = xgb_model.feature_importances_
@@ -1087,7 +1108,7 @@ with tab3:
 
     st.subheader("Predict with New Data")
     st.info("Use VolGuard data or enter values manually.")
-    
+
     try:
         nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
         nifty_df.columns = nifty_df.columns.str.strip()
@@ -1105,20 +1126,18 @@ with tab3:
     atm_iv = st.session_state.volguard_data.get('atm_iv', 0) if st.session_state.volguard_data else 0
     pcr = st.session_state.volguard_data.get('pcr', 0) if st.session_state.volguard_data else 0
 
+    # NEW: Auto-fill Event Impact Score
+    today_events = events_df[events_df['Datetime'].dt.date == datetime.today().date()]
+    event_score = float(today_events['Importance'].max()) if not today_events.empty else 0
+
     col1, col2 = st.columns(2)
     with col1:
         atm_iv_input = st.number_input("ATM IV (%)", value=float(atm_iv), min_value=0.0, max_value=100.0, step=0.1)
         realized_vol_input = st.number_input("Realized Volatility (%)", value=float(realized_vol), min_value=0.0, max_value=100.0, step=0.1)
-        ivp_input = st.number_input("IV Percentile (0â€“100)", value=50.0, min_value=0.0, max_value=100.0, step=1.0)
+        ivp_input = st.number_input("IV Percentile (0–100)", value=50.0, min_value=0.0, max_value=100.0, step=1.0)
     with col2:
-        
-        # Auto-fill Event Impact Score
-        events_df = fetch_upcoming_events()
-        today_events = events_df[events_df['Datetime'].dt.date == datetime.today().date()]
-        event_score = int(today_events['Importance'].max()) if not today_events.empty else 0
-
-        event_score_input = st.number_input("Event Impact Score (0â€“2)", value=1.0, min_value=0.0, max_value=2.0, step=0.1)
-        fii_dii_input = st.number_input("FII/DII Net Long (â‚¹ Cr)", value=0.0, step=100.0)
+        event_score_input = st.number_input("Event Impact Score (0–2)", value=event_score, min_value=0.0, max_value=2.0, step=0.1)
+        fii_dii_input = st.number_input("FII/DII Net Long (₹ Cr)", value=0.0, step=100.0)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, max_value=5.0, step=0.01)
         vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, max_value=100.0, step=0.1)
 
@@ -1170,6 +1189,7 @@ with tab3:
             logger.error(f"Prediction error: {e}")
             st.error(f"Error predicting volatility: {e}. Please check the model source.")
 
+# === Tab 4: Strategies ==
 # === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
@@ -1290,8 +1310,8 @@ with tab4:
                         </span>
                     </h4>
                     <p>Logic: {strategy['logic']}</p>
-                    <p>Capital Required: â‚¹{strategy['capital_required']:,.2f}</p>
-                    <p>Max Loss: â‚¹{strategy['max_loss']:,.2f}</p>
+                    <p>Capital Required: ₹{strategy['capital_required']:,.2f}</p>
+                    <p>Max Loss: ₹{strategy['max_loss']:,.2f}</p>
                     <p>Confidence: {strategy['confidence']*100:.1f}%</p>
                     <p>Market Regime: {regime}</p>
                 </div>
@@ -1333,158 +1353,145 @@ with tab4:
                                 "max_loss": max_loss
                             })
                             logger.info(f"Trade executed: {selected_strategy}, P&L: {trade_pnl}, Capital: {max_loss * 1.5}")
-                            st.markdown(f"<div class='alert-green'>Successfully executed {selected_strategy.replace('_', ' ')}! P&L: â‚¹{trade_pnl:,.2f}</div>", unsafe_allow_html=True)
+                            st.markdown(f"""
+                                <div class='alert-green'>
+                                    Strategy executed successfully! P&L: ₹{trade_pnl:,.2f}, Entry Price: ₹{entry_price:,.2f}, Max Loss: ₹{max_loss:,.2f}
+                                </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.markdown("<div class='alert-red'>Strategy execution failed. Please check logs and try again.</div>", unsafe_allow_html=True)
                 except Exception as e:
                     logger.error(f"Strategy execution error: {e}")
-                    st.error(f"Error executing strategy: {e}. Please check your inputs and try again.")
-    else:
-        st.warning("Run the engine from the sidebar to generate strategies.")
+                    st.error(f"Error executing strategy: {e}")
 
 # === Tab 5: Dashboard ===
 with tab5:
     st.header("Trading Dashboard")
+    st.subheader("Portfolio Overview")
     if access_token:
         try:
-            user_details = get_user_details(access_token)
-            if 'error' in user_details:
-                st.error(f"Failed to fetch user details: {user_details['error']}")
-            else:
-                st.subheader("Account Details")
-                col1, col2 = st.columns(2)
-                with col1:
+            with st.spinner("Fetching user details..."):
+                user_details = get_user_details(access_token)
+                st.session_state.user_details = user_details
+                if 'error' not in user_details:
                     profile = user_details.get('profile', {}).get('data', {})
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>person</i> Name</h4><p>{profile.get('name', 'N/A')}</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>email</i> Email</h4><p>{profile.get('email', 'N/A')}</p></div>", unsafe_allow_html=True)
-                with col2:
                     funds = user_details.get('funds', {}).get('data', {})
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance_wallet</i> Equity Margin</h4><p>â‚¹{funds.get('equity', {}).get('available_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Used Margin</h4><p>â‚¹{funds.get('equity', {}).get('used_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>person</i> User</h4><p>{profile.get('user_name', 'N/A')}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>email</i> Email</h4><p>{profile.get('email', 'N/A')}</p></div>", unsafe_allow_html=True)
+                    with col2:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Available Margin</h4><p>₹{funds.get('equity', {}).get('available_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance</i> Used Margin</h4><p>₹{funds.get('equity', {}).get('used_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
 
-                st.subheader("Performance Metrics")
-                metrics = st.session_state.trade_metrics
-                win_rate = (metrics['winning_trades'] / metrics['total_trades'] * 100) if metrics['total_trades'] > 0 else 0
-                sharpe_ratio = (np.mean([x['pnl'] for x in metrics['pnl_history']]) / np.std([x['pnl'] for x in metrics['pnl_history']]) * np.sqrt(252)) if metrics['pnl_history'] and np.std([x['pnl'] for x in metrics['pnl_history']]) != 0 else 0
-                col3, col4 = st.columns(2)
-                with col3:
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> Total Trades</h4><p>{metrics['total_trades']}</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Win Rate</h4><p>{win_rate:.2f}%</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>show_chart</i> Sharpe Ratio</h4><p>{sharpe_ratio:.2f}</p></div>", unsafe_allow_html=True)
-                with col4:
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Total P&L</h4><p>â‚¹{metrics['total_pnl']:,.2f}</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>thumb_up</i> Winning Trades</h4><p>{metrics['winning_trades']}</p></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>thumb_down</i> Losing Trades</h4><p>{metrics['losing_trades']}</p></div>", unsafe_allow_html=True)
+                    st.subheader("Positions")
+                    positions = user_details.get('positions', {}).get('data', [])
+                    if positions:
+                        pos_df = pd.DataFrame(positions)
+                        st.dataframe(pos_df[['instrument_token', 'quantity', 'avg_price', 'last_price', 'pnl']], use_container_width=True)
+                    else:
+                        st.info("No open positions.")
 
-                # Risk Analysis
-                st.subheader("Risk Analysis")
-                try:
-                    pnl_series = pd.Series([x['pnl'] for x in metrics['pnl_history']])
-                    drawdown = (pnl_series.cumsum() - pnl_series.cumsum().cummax()).min() if not pnl_series.empty else 0
-                    var_95 = np.percentile(pnl_series, 5) if not pnl_series.empty else 0
-                    stress_loss = var_95 * 2  # Simulate 2x volatility spike
-                    col5, col6 = st.columns(2)
-                    with col5:
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Drawdown</h4><p>â‚¹{drawdown:,.2f}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> VaR (95%)</h4><p>â‚¹{var_95:,.2f}</p></div>", unsafe_allow_html=True)
-                    with col6:
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Stress Test Loss</h4><p>â‚¹{stress_loss:,.2f}</p></div>", unsafe_allow_html=True)
-                        risk_status = st.session_state.risk_status
-                        status_text = "Safe" if risk_status == "green" else "Warning" if risk_status == "yellow" else "Critical"
-                        status_class = "alert-green" if risk_status == "green" else "alert-yellow" if risk_status == "yellow" else "alert-red"
-                        st.markdown(f"<div class='{status_class}'><h4><i class='material-icons'>warning</i> Risk Status</h4><p>{status_text}</p></div>", unsafe_allow_html=True)
-                except Exception as e:
-                    logger.error(f"Risk analysis error: {e}")
-                    st.warning("Unable to compute risk metrics due to insufficient trade data.")
+                    st.subheader("Trade Metrics")
+                    metrics = st.session_state.trade_metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> Total Trades</h4><p>{metrics['total_trades']}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Winning Trades</h4><p>{metrics['winning_trades']}</p></div>", unsafe_allow_html=True)
+                    with col2:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_down</i> Losing Trades</h4><p>{metrics['losing_trades']}</p></div>", unsafe_allow_html=True)
+                        win_rate = (metrics['winning_trades'] / metrics['total_trades'] * 100) if metrics['total_trades'] > 0 else 0
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>percent</i> Win Rate</h4><p>{win_rate:.1f}%</p></div>", unsafe_allow_html=True)
+                    with col3:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Total P&L</h4><p>₹{metrics['total_pnl']:,.2f}</p></div>", unsafe_allow_html=True)
 
-                # P&L Plot
-                if metrics['pnl_history']:
-                    st.subheader("Cumulative P&L")
-                    pnl_df = pd.DataFrame(metrics['pnl_history'])
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=pnl_df['timestamp'],
-                        y=pnl_df['pnl'].cumsum(),
-                        mode='lines',
-                        name='Cumulative P&L',
-                        line=dict(color='#4CAF50')
-                    ))
-                    fig.update_layout(
-                        title="Cumulative P&L Over Time",
-                        xaxis_title="Date",
-                        yaxis_title="P&L (â‚¹)",
-                        template="plotly_dark",
-                        plot_bgcolor='#121212',
-                        paper_bgcolor='#121212',
-                        font=dict(color='#FAFAFA')
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    if metrics['pnl_history']:
+                        pnl_df = pd.DataFrame(metrics['pnl_history'])
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=pnl_df['timestamp'],
+                            y=pnl_df['pnl'].cumsum(),
+                            mode='lines+markers',
+                            line=dict(color='#4CAF50')
+                        ))
+                        fig.update_layout(
+                            title="Cumulative P&L",
+                            xaxis_title="Time",
+                            yaxis_title="P&L (₹)",
+                            template="plotly_dark",
+                            margin=dict(l=40, r=40, t=40, b=40),
+                            plot_bgcolor='#121212',
+                            paper_bgcolor='#121212',
+                            font=dict(color='#FAFAFA')
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error(f"Failed to fetch user details: {user_details['error']}")
         except Exception as e:
             logger.error(f"Dashboard error: {e}")
-            st.error(f"Error loading dashboard: {e}. Please check your access token.")
+            st.error(f"Error fetching user details: {e}")
     else:
-        st.warning("Enter your Upstox access token in the Snapshot tab to view account details.")
+        st.warning("Please enter your Upstox access token in the Snapshot tab to view portfolio details.")
+
+    st.subheader("Trade Log")
+    if st.session_state.trade_log:
+        trade_df = pd.DataFrame(st.session_state.trade_log)
+        st.dataframe(trade_df[['date', 'strategy', 'capital', 'pnl', 'quantity', 'regime_score', 'entry_price', 'max_loss']], use_container_width=True)
+    else:
+        st.info("No trades executed yet.")
 
 # === Tab 6: Journal ===
 with tab6:
     st.header("Trading Journal")
     st.subheader("Add Journal Entry")
-    journal_text = st.text_area("Journal Entry", height=100, help="Record your thoughts, strategy reflections, or market observations.")
-    journal_regime_score = st.number_input("Regime Score (Optional)", min_value=0, max_value=100, step=1, value=regime_score if 'regime_score' in locals() else 50)
-    if st.button("Save Journal Entry"):
-        if journal_text.strip():
-            entry = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "text": journal_text.strip(),
-                "regime_score": journal_regime_score
-            }
-            st.session_state.journal_entries.append(entry)
-            logger.info(f"Journal entry saved: {entry['timestamp']}")
-            st.markdown("<div class='alert-green'>Journal entry saved!</div>", unsafe_allow_html=True)
-        else:
-            st.warning("Please enter some text before saving.")
-
-    st.subheader("Trade Log")
-    if st.session_state.trade_log:
-        trade_df = pd.DataFrame(st.session_state.trade_log)
-        trade_df = trade_df[['date', 'strategy', 'capital', 'pnl', 'quantity', 'regime_score', 'entry_price', 'max_loss']]
-        trade_df.columns = ['Date', 'Strategy', 'Capital (â‚¹)', 'P&L (â‚¹)', 'Quantity', 'Regime Score', 'Entry Price (â‚¹)', 'Max Loss (â‚¹)']
-        trade_df = trade_df.sort_values('Date', ascending=False)
-        for idx, row in trade_df.iterrows():
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <h4><i class='material-icons'>history</i> {row['Date']}</h4>
-                    <p>Strategy: {row['Strategy']}</p>
-                    <p>Capital: â‚¹{row['Capital (â‚¹)']:,.2f}</p>
-                    <p>P&L: â‚¹{row['P&L (â‚¹)']:,.2f}</p>
-                    <p>Quantity: {row['Quantity']}</p>
-                    <p>Regime Score: {row['Regime Score']}</p>
-                    <p>Entry Price: â‚¹{row['Entry Price (â‚¹)']:,.2f}</p>
-                    <p>Max Loss: â‚¹{row['Max Loss (â‚¹)']:,.2f}</p>
-                </div
-            """, unsafe_allow_html=True)
-        if st.button("Export Trade Log to CSV"):
-            trade_df.to_csv("trade_log.csv", index=False)
-            st.markdown("<div class='alert-green'>Trade log exported to trade_log.csv!</div>", unsafe_allow_html=True)
-    else:
-        st.info("No trades logged yet. Execute a strategy to populate the trade log.")
+    with st.form("journal_form"):
+        journal_date = st.date_input("Date", value=datetime.now())
+        journal_strategy = st.selectbox("Strategy", strategy_options)
+        journal_notes = st.text_area("Notes", help="Record your observations, mistakes, or insights.")
+        journal_pnl = st.number_input("P&L (₹)", value=0.0, step=100.0)
+        journal_submitted = st.form_submit_button("Add Entry")
+        if journal_submitted:
+            st.session_state.journal_entries.append({
+                "date": journal_date,
+                "strategy": journal_strategy.replace('_', ' '),
+                "notes": journal_notes,
+                "pnl": journal_pnl
+            })
+            logger.info(f"Journal entry added: {journal_strategy}, P&L: {journal_pnl}")
+            st.success("Journal entry added!")
 
     st.subheader("Journal Entries")
     if st.session_state.journal_entries:
-        for idx, entry in enumerate(st.session_state.journal_entries):
+        journal_df = pd.DataFrame(st.session_state.journal_entries)
+        for idx, row in journal_df.iterrows():
             st.markdown(f"""
                 <div class='metric-card'>
-                    <h4><i class='material-icons'>event_note</i> {entry['timestamp']}</h4>
-                    <p>{entry['text']}</p>
-                    <p>Regime Score: {entry['regime_score']}</p>
+                    <h4><i class='material-icons'>event</i> {row['date'].strftime('%Y-%m-%d')}</h4>
+                    <p>Strategy: {row['strategy']}</p>
+                    <p>P&L: ₹{row['pnl']:,.2f}</p>
+                    <p>Notes: {row['notes']}</p>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button(f"Delete Entry {idx + 1}", key=f"delete_{idx}"):
-                st.session_state.journal_entries.pop(idx)
-                logger.info(f"Journal entry deleted: {entry['timestamp']}")
-                st.markdown("<div class='alert-green'>Journal entry deleted!</div>", unsafe_allow_html=True)
-                st.experimental_rerun()
     else:
-        st.info("No journal entries yet. Add one above.")
+        st.info("No journal entries yet.")
 
-# === Final Footer ===
-st.markdown("<hr>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #4CAF50;'>Built by Shritish Shukla and Salman Azimuddin </p>", unsafe_allow_html=True)
+# === Footer ===
+st.markdown("""
+    <div style='text-align: center; margin-top: 20px; color: #FAFAFA;'>
+        <p>VolGuard Pro 2.0 - | Built by Shritish Shukla & Salman Azim.</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# === Risk Status Update ===
+if st.session_state.daily_pnl < -daily_loss_limit:
+    st.session_state.risk_status = "red"
+    st.markdown("<div class='alert-red'>Daily loss limit exceeded! Trading halted.</div>", unsafe_allow_html=True)
+elif st.session_state.deployed_capital > max_deployed_capital:
+    st.session_state.risk_status = "red"
+    st.markdown("<div class='alert-red'>Exposure limit exceeded! Reduce positions.</div>", unsafe_allow_html=True)
+elif st.session_state.daily_pnl < -daily_loss_limit * 0.8:
+    st.session_state.risk_status = "yellow"
+    st.markdown("<div class='alert-yellow'>Approaching daily loss limit. Proceed with caution.</div>", unsafe_allow_html=True)
+elif st.session_state.deployed_capital > max_deployed_capital * 0.8:
+    st.session_state.risk_status = "yellow"
+    st.markdown("<div class='alert-yellow'>Approaching exposure limit. Monitor positions closely.</div>", unsafe_allow_html=True)
