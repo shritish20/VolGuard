@@ -27,9 +27,10 @@ import xgboost as xgb
 xgb.set_config(verbosity=0)
 
 # === Streamlit Configuration ===
-st.set_page_config(page_title="VolGuard - Your Trading Copilot", layout="wide")
+# === Streamlit Configuration ===
+st.set_page_config(page_title="VolGuard Pro - Your AI Trading Copilot", layout="wide")
 
-# Custom CSS for Professional UI
+# Updated CSS with New Color Scheme
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
@@ -37,22 +38,22 @@ st.markdown("""
         font-family: 'Roboto', sans-serif;
     }
     .stApp {
-        background: #0E1117;
+        background: #121212;  /* Updated background to a cleaner dark gray */
         color: #FAFAFA;
     }
     /* Sidebar */
     .css-1d391kg {
-        background: #1A1F2B;
+        background: #1E1E1E;  /* Updated sidebar background */
         padding: 20px;
-        border-right: 1px solid #2962FF;
+        border-right: 1px solid #4CAF50;  /* Updated border to muted green */
     }
     .css-1d391kg h1 {
-        color: #2962FF;
+        color: #4CAF50;  /* Updated sidebar header color */
         font-size: 1.6em;
         margin-bottom: 20px;
     }
     .css-1d391kg .stButton>button {
-        background: #2962FF;
+        background: #4CAF50;  /* Updated button background */
         color: #FAFAFA;
         border-radius: 8px;
         padding: 10px;
@@ -60,12 +61,12 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .css-1d391kg .stButton>button:hover {
-        background: #0039CB;
-        box-shadow: 0 0 15px rgba(41, 98, 255, 0.5);
+        background: #388E3C;  /* Darker green on hover */
+        box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
     }
     /* Top Bar */
     .top-bar {
-        background: #1A1F2B;
+        background: #1E1E1E;  /* Updated top bar background */
         padding: 15px 20px;
         border-radius: 8px;
         margin-bottom: 20px;
@@ -73,7 +74,7 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid #2962FF;
+        border: 1px solid #4CAF50;  /* Updated border */
     }
     .top-bar div {
         margin: 0 15px;
@@ -86,7 +87,7 @@ st.markdown("""
         color: #FAFAFA;
     }
     .top-bar i {
-        color: #2962FF;
+        color: #4CAF50;  /* Updated icon color */
     }
     /* Tabs */
     .stTabs [role="tab"] {
@@ -98,15 +99,15 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .stTabs [role="tab"][aria-selected="true"] {
-        border-bottom: 2px solid #2962FF;
-        color: #2962FF;
+        border-bottom: 2px solid #4CAF50;  /* Updated active tab border */
+        color: #4CAF50;
     }
     .stTabs [role="tab"]:hover {
-        color: #FF4081;
+        color: #FFA726;  /* Updated hover color to soft orange */
     }
     /* Buttons */
     .stButton>button {
-        background: #2962FF;
+        background: #4CAF50;  /* Updated button background */
         color: #FAFAFA;
         border: none;
         border-radius: 8px;
@@ -115,31 +116,31 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        background: #0039CB;
-        box-shadow: 0 0 15px rgba(41, 98, 255, 0.5);
+        background: #388E3C;  /* Darker green on hover */
+        box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
     }
     /* Cards */
     .metric-card {
-        background: #1A1F2B;
+        background: #1E1E1E;  /* Updated card background */
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-        border: 1px solid #2962FF;
+        border: 1px solid #4CAF50;  /* Updated card border */
         transition: transform 0.3s ease;
     }
     .metric-card:hover {
         transform: scale(1.02);
     }
     .metric-card h4 {
-        color: #2962FF;
+        color: #4CAF50;  /* Updated card header color */
         margin: 0;
         display: flex;
         align-items: center;
     }
     .metric-card h4 i {
         margin-right: 8px;
-        color: #FF4081;
+        color: #FFA726;  /* Updated icon color to soft orange */
     }
     .metric-card p {
         color: #FAFAFA;
@@ -147,12 +148,12 @@ st.markdown("""
         margin: 5px 0 0 0;
     }
     .highlight-card {
-        background: #2962FF;
+        background: #4CAF50;  /* Updated highlight card background */
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
-        box-shadow: 0 4px 10px rgba(41, 98, 255, 0.5);
-        border: 1px solid #0039CB;
+        box-shadow: 0 4px 10px rgba(76, 175, 80, 0.5);
+        border: 1px solid #388E3C;  /* Updated border */
     }
     .highlight-card h4 {
         color: #FAFAFA;
@@ -171,21 +172,21 @@ st.markdown("""
     }
     /* Alerts */
     .alert-green {
-        background-color: #388E3C;
+        background-color: #388E3C;  /* Updated green alert */
         color: #FAFAFA;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
     }
     .alert-yellow {
-        background-color: #FFB300;
-        color: #0E1117;
+        background-color: #FFA726;  /* Updated yellow alert */
+        color: #121212;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
     }
     .alert-red {
-        background-color: #D32F2F;
+        background-color: #EF5350;  /* Slightly muted red for professionalism */
         color: #FAFAFA;
         padding: 10px;
         border-radius: 5px;
@@ -193,7 +194,7 @@ st.markdown("""
     }
     /* Headings */
     h1, h2, h3, h4 {
-        color: #2962FF;
+        color: #4CAF50;  /* Updated heading color */
     }
     /* Animations */
     @keyframes fadeIn {
@@ -394,10 +395,10 @@ def plot_iv_skew(df, spot, atm_strike):
     if valid.empty:
         return None
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#2962FF')))
-    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#FF4081')))
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['CE_IV'], mode='lines+markers', name='Call IV', line=dict(color='#4CAF50')))  # Updated to muted green
+    fig.add_trace(go.Scatter(x=valid['Strike'], y=valid['PE_IV'], mode='lines+markers', name='Put IV', line=dict(color='#FFA726')))  # Updated to soft orange
     fig.add_vline(x=spot, line=dict(color='#FAFAFA', dash='dash'), name='Spot')
-    fig.add_vline(x=atm_strike, line=dict(color='#388E3C', dash='dot'), name='ATM')
+    fig.add_vline(x=atm_strike, line=dict(color='#388E3C', dash='dot'), name='ATM')  # Updated to darker green
     fig.update_layout(
         title="IV Skew",
         xaxis_title="Strike",
@@ -405,8 +406,8 @@ def plot_iv_skew(df, spot, atm_strike):
         template="plotly_dark",
         showlegend=True,
         margin=dict(l=40, r=40, t=40, b=40),
-        plot_bgcolor='#0E1117',
-        paper_bgcolor='#0E1117',
+        plot_bgcolor='#121212',  # Updated to match background
+        paper_bgcolor='#121212',
         font=dict(color='#FAFAFA')
     )
     return fig
@@ -1055,7 +1056,7 @@ with tab4:
                                     option_chain=st.session_state.option_chain,
                                     spot_price=st.session_state.volguard_data['nifty_spot'],
                                     strategy_name=strategy['name'],
-                                    quantity=quantity * 50
+                                    quantity=quantity * 75
                                 )
                                 if order_results:
                                     st.session_state.deployed_capital += strategy['capital_required']
@@ -1274,21 +1275,22 @@ with tab5:
         st.error(f"Error loading volatility insights: {e}. Please ensure the data source is accessible.")
 
     # Trade Log
-    st.subheader("Trade Log")
-    if st.session_state.trade_log:
-        trade_log_df = pd.DataFrame(st.session_state.trade_log)
-        trade_log_df = trade_log_df.sort_values(by="date", ascending=False)
-        for idx, row in trade_log_df.iterrows():
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <h4><i class='material-icons'>schedule</i> {row['date']}</h4>
-                    <p>Strategy: {row['strategy']}</p>
-                    <p>Capital Deployed: ₹{row['capital_deployed']:,.2f}</p>
-                    <p>Max Loss: ₹{row['max_loss']:,.2f}</p>
-                    <p>P&L: ₹{row['pnl']:,.2f}</p>
-                    <p>Quantity: {row['quantity']}</p>
-                </div>
-            """, unsafe_allow_html=True)
+    # Trade Log
+st.subheader("Trade Log")
+if st.session_state.trade_log:
+    trade_log_df = pd.DataFrame(st.session_state.trade_log)
+    trade_log_df = trade_log_df.sort_values(by="date", ascending=False)
+    for idx, row in trade_log_df.iterrows():
+        st.markdown(f"""
+            <div class='metric-card'>
+                <h4><i class='material-icons'>schedule</i> {row['date']}</h4>
+                <p>Strategy: {row['strategy']}</p>
+                <p>Capital Deployed: ₹{row['capital_deployed']:,.2f}</p>
+                <p>Max Loss: ₹{row['max_loss']:,.2f}</p>
+                <p>P&L: ₹{row['pnl']:,.2f}</p>
+                <p>Quantity: {row['quantity']} (Lots: {row['quantity'] // 75})</p>  <!-- Updated to reflect 75 per lot -->
+            </div>
+        """, unsafe_allow_html=True)
     else:
         st.info("No trades executed yet.")
 
