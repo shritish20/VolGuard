@@ -259,12 +259,11 @@ max_deployed_capital = total_capital * (MAX_EXPOSURE_PCT / 100)
 exposure_pct = (st.session_state.deployed_capital / total_capital) * 100 if total_capital > 0 else 0
 st.markdown(f"""
     <div class='top-bar'>
-        <div><i class="material-icons">account_balance_wallet</i><p>Total Capital: ₹{total_capital:,}</p></div>
-        <div><i class="material-icons">trending_up</i><p>Deployed Capital: ₹{st.session_state.deployed_capital:,}</p></div>
         <div><i class="material-icons">percent</i><p>Exposure: {exposure_pct:.1f}%</p></div>
         <div><i class="material-icons">monetization_on</i><p>Daily P&L: ₹{st.session_state.daily_pnl:,}</p></div>
     </div>
 """, unsafe_allow_html=True)
+
 
 # === Risk Manager ===
 def check_risk(capital_to_deploy, max_loss, daily_pnl):
