@@ -8,7 +8,7 @@ import json
 import math
 from datetime import datetime, date
 from upstox_client import Configuration, ApiClient
-from upstox_client.api import OrderApiV3, MarketQuoteApiV3
+from upstox_client import OrderApiV3, MarketQuoteApiV3
 from arch import arch_model
 import xgboost as xgb
 import plotly.graph_objs as go
