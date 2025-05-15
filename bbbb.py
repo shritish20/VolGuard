@@ -885,13 +885,13 @@ with tab1:
         else:
             st.info("No upcoming events.")
 
-            st.header("Market Snapshot")
-            access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
+        st.header("Market Snapshot")
+        access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
 
-    if st.button("Run VolGuard"):
+        if st.button("Run VolGuard"):
         
-     if not access_token:
-            st.error("Please enter a valid Upstox access token.")
+          if not access_token:
+             st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data..."):
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
