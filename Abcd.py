@@ -1,12 +1,3 @@
-# VolGuard Pro 2.0 - Production-Ready Trading Dashboard
-# Setup Instructions:
-# 1. Install Python 3.8+ and dependencies:
-#    pip install streamlit==1.24.0 pandas==2.0.0 numpy==1.24.0 requests==2.28.0 arch==5.3.0 plotly==5.14.0 upstox_client==2.0.0 retrying==1.3.4 xgboost==1.7.0
-# 2. Get an Upstox access token from the Upstox Developer Console.
-# 3. Run: streamlit run main.py
-# 4. Enter the Upstox token in the Snapshot tab and configure risk settings in the sidebar.
-# Dependencies: All data comes from Upstox API, GitHub CSVs, and Google Drive XGBoost model.
-
 import streamlit as st
 import pandas as pd
 import numpy as np
