@@ -888,8 +888,9 @@ with tab1:
             st.header("Market Snapshot")
             access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
 
-        if st.button("Run VolGuard"):
-        if not access_token:
+    if st.button("Run VolGuard"):
+        
+     if not access_token:
             st.error("Please enter a valid Upstox access token.")
         else:
             with st.spinner("Fetching options data..."):
