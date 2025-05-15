@@ -17,6 +17,5 @@ pandas
 matplotlib 
 requests 
 numpy 
-math
 arch
 retrying 
