@@ -293,10 +293,10 @@ else:
 
 # === Helper Functions ===
 @st.cache_data(ttl=300)
-def get_nearest_expiry(options_api, instrument_key):
+def get_nearest_expiry(_options_api, instrument_key):
     @retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
     def fetch_expiry():
-        response = options_api.get_option_contracts(instrument_key=instrument_key)
+        response = _options_api.get_option_contracts(instrument_key=instrument_key)
         return response.to_dict().get("data", [])
 
     try:
@@ -317,10 +317,10 @@ def get_nearest_expiry(options_api, instrument_key):
         return None
 
 @st.cache_data(ttl=300)
-def fetch_option_chain(options_api, instrument_key, expiry):
+def fetch_option_chain(_options_api, instrument_key, expiry):
     @retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
     def fetch_chain():
-        res = options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
+        res = _options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
         return res.to_dict().get('data', [])
 
     try:
@@ -645,6 +645,7 @@ def run_volguard(access_token):
             st.error("Unable to fetch the nearest expiry date. Please check your access token or try again later.")
             return None, None, None, None, None
         chain = fetch_option_chain(options_api, instrument_key, expiry)
+        # ... rest of the function ..
         if not chain:
             st.error("Unable to fetch option chain data. Please check your access token or try again later.")
             return None, None, None, None, None
