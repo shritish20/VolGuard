@@ -14,7 +14,6 @@ from upstox_client import Configuration, ApiClient, OptionsApi, UserApi, Portfol
 import logging
 import time
 import json
-from streamlit_aggrid import AgGrid, GridOptionsBuilder
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -235,7 +234,7 @@ max_loss_per_trade = total_capital * (MAX_LOSS_PER_TRADE_PCT / 100)
 daily_loss_limit = total_capital * (DAILY_LOSS_LIMIT_PCT / 100)
 max_deployed_capital = total_capital * (MAX_EXPOSURE_PCT / 100)
 
-# === Helper Functions (Reused from Original Code) ===
+# === Helper Functions ===
 def get_nearest_expiry(options_api, instrument_key):
     try:
         response = options_api.get_option_contracts(instrument_key=instrument_key)
@@ -645,13 +644,7 @@ with col1:
         if not positions_df.empty:
             positions_df = positions_df[['tradingsymbol', 'quantity', 'pnl', 'buy_avg_price', 'sell_avg_price', 'last_price']]
             positions_df['pnl'] = positions_df['pnl'].apply(lambda x: f"₹{x:,.2f}")
-            gb = GridOptionsBuilder.from_dataframe(positions_df)
-            gb.configure_default_column(editable=False, filter=True, sortable=True)
-            gb.configure_column("tradingsymbol", headerName="Symbol", width=150)
-            gb.configure_column("quantity", headerName="Qty", width=100)
-            gb.configure_column("pnl", headerName="P&L", width=120)
-            grid_options = gb.build()
-            AgGrid(positions_df, gridOptions=grid_options, height=200, theme='balham-dark')
+            st.dataframe(positions_df, use_container_width=True, height=200)
         else:
             st.info("No open positions.")
     else:
@@ -805,10 +798,7 @@ if st.session_state.trade_log:
     trade_df['pnl'] = trade_df['pnl'].apply(lambda x: f"₹{x:,.2f}")
     trade_df['capital_deployed'] = trade_df['capital_deployed'].apply(lambda x: f"₹{x:,.2f}")
     trade_df['max_loss'] = trade_df['max_loss'].apply(lambda x: f"₹{x:,.2f}")
-    gb = GridOptionsBuilder.from_dataframe(trade_df)
-    gb.configure_default_column(editable=False, filter=True, sortable=True)
-    grid_options = gb.build()
-    AgGrid(trade_df, gridOptions=grid_options, height=200, theme='balham-dark')
+    st.dataframe(trade_df, use_container_width=True, height=200)
 else:
     st.info("No trades executed yet.")
 
