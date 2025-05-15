@@ -395,7 +395,7 @@ def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
     max_pain_series = df.apply(lambda x: sum(df['CE_OI'] * abs(df['Strike'] - x['Strike'])) +
                                          sum(df['PE_OI'] * abs(df['Strike'] - x['Strike'])), axis=1)
     strike_with_pain = df.loc[max_pain_series.idxmin(), 'Strike']
-    straddle_price = float(atm['CE_LTP: float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
+    straddle_price = float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0])
     atm_row = df[df['Strike'] == atm_strike]
     atm_iv = (atm_row['CE_IV'].values[0] + atm_row['PE_IV'].values[0]) / 2 if not atm_row.empty else 0
     return pcr, strike_with_pain, straddle_price, atm_strike, atm_iv
