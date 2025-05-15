@@ -941,19 +941,3 @@ st.markdown("""
         <p>VolGuard Pro 2.0 - | Built by Shritish & Salman.</p>
     </div>
 """, unsafe_allow_html=True)
-
-# === Risk Status Update ===
-max_deployed_capital = st.session_state.risk_settings['max_deployed_capital']
-daily_loss_limit = st.session_state.risk_settings['daily_loss_limit']
-if st.session_state.daily_pnl < -daily_loss_limit:
-    st.session_state.risk_status = "red"
-    st.markdown("<div class='alert-red'>Daily loss limit exceeded! Trading halted.</div>", unsafe_allow_html=True)
-elif st.session_state.deployed_capital > max_deployed_capital:
-    st.session_state.risk_status = "red"
-    st.markdown("<div class='alert-red'>Exposure limit exceeded! Reduce positions.</div>", unsafe_allow_html=True)
-elif st.session_state.daily_pnl < -daily_loss_limit * 0.8:
-    st.session_state.risk_status = "yellow"
-    st.markdown("<div class='alert-yellow'>Approaching daily loss limit. Proceed with caution.</div>", unsafe_allow_html=True)
-elif st.session_state.deployed_capital > max_deployed_capital * 0.8:
-    st.session_state.risk_status = "yellow"
-    st.markdown("<div class='alert-yellow'>Approaching exposure limit. Monitor positions closely.</div>", unsafe_allow_html=True)
