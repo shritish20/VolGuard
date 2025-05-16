@@ -769,8 +769,9 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         for leg in legs:
             st.write(f"- {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
 
-try:
+
     # Calculate max loss and entry price
+try:
     max_loss = 0
     entry_price = 0
 
@@ -788,6 +789,11 @@ try:
                 entry_price -= ltp * leg['quantity']
 
     max_loss = abs(max_loss)
+
+except Exception as e:
+    logger.error(f"Error calculating max loss and entry price: {e}")
+    st.error("Failed to calculate max loss or entry price.")
+    return None, 0, 0, 0
 
 except Exception as e:
     logger.error(f"Error calculating max loss and entry price: {e}")
