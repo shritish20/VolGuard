@@ -972,6 +972,38 @@ def run_volguard(access_token):
         logger.error(f"Volguard run error: {e}")
         st.error("Failed to fetch options data. Please check your Upstox access token.")
         return None, None, None, None, None
+def calculate_discipline_score(trade_log, regime_score_threshold=60, max_trades_per_day=3):
+    violations = []
+    score = 100
+
+    if not trade_log:
+        return 100, violations
+
+    trades_df = pd.DataFrame(trade_log)
+    trades_df['date_only'] = pd.to_datetime(trades_df['date']).dt.date
+
+    # Rule 1: Avoid trading in Risk-Red Regimes (Regime Score < threshold)
+    risk_trades = trades_df[trades_df['regime_score'] < regime_score_threshold]
+    if not risk_trades.empty:
+        violations.append(f"{len(risk_trades)} trade(s) executed during Risk-Red regime.")
+        score -= len(risk_trades) * 10
+
+    # Rule 2: Avoid Overtrading (more than 3 trades per day)
+    trade_counts = trades_df.groupby('date_only').size()
+    over_trades = trade_counts[trade_counts > max_trades_per_day]
+    if not over_trades.empty:
+        violations.append(f"{len(over_trades)} day(s) with overtrading.")
+        score -= len(over_trades) * 10
+
+    # Rule 3: Risk-Reward Violation (Max Loss too high)
+    high_risk = trades_df[trades_df['max_loss'] > 0.05 * 1000000]  # e.g. > 5% capital
+    if not high_risk.empty:
+        violations.append(f"{len(high_risk)} high-risk trade(s) exceeding 5% capital loss.")
+        score -= len(high_risk) * 5
+
+    score = max(score, 0)
+    return score, violations
+
 
 # === Streamlit Tabs ===
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -1424,6 +1456,19 @@ with tab4:
 # === Tab 5: Dashboard ===
 with tab5:
     st.header("Trading Dashboard")
+    st.subheader("Behavioral Discipline Score")
+
+trade_log = st.session_state.get("trade_log", [])
+discipline_score, violations = calculate_discipline_score(trade_log)
+
+st.metric(label="Discipline Score", value=f"{discipline_score}/100", help="Scores your trading discipline based on risk, overtrading, and rules adherence.")
+
+if violations:
+    st.error("Discipline Violations Detected:")
+    for v in violations:
+        st.markdown(f"- {v}")
+else:
+    st.success("No violations detected. You're following the system well!")
     if access_token:
         try:
             user_details = get_user_details(access_token)
