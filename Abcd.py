@@ -642,7 +642,7 @@ def find_atm_strike(spot_price, strikes):
 
 def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_distance=50):
     try:
-        # Ensure quantity is integer (fix for "can't multiply sequence by float" bug)
+        # Ensure quantity is an integer
         quantity = int(float(quantity))
 
         strikes = [leg['strike_price'] for leg in option_chain]
@@ -702,9 +702,11 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
         else:
             raise ValueError(f"Unsupported strategy: {strategy_name}")
 
+        # Filter out legs with missing instrument keys
         legs = [leg for leg in legs if leg["instrument_key"]]
         if not legs:
-            raise ValueError("No valid legs generated.")
+            raise ValueError("No valid legs generated due to missing instrument keys.")
+
         return legs
 
     except Exception as e:
@@ -764,14 +766,20 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         client = ApiClient(configuration)
         order_api = OrderApiV3(client)
 
+        # Convert quantity to integer (fix for float issue)
+        quantity = int(float(quantity))
+
+        # Build strategy legs
         legs = build_strategy_legs(option_chain, spot_price, strategy_name, quantity)
         if not legs:
             st.error(f"Failed to build legs for {strategy_name}.")
+            logger.error(f"No valid legs generated for {strategy_name}")
             return None, 0, 0, 0
 
+        # Display strategy legs
         st.write("**Strategy Legs:**")
         for leg in legs:
-            st.write(f"- {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
+            st.write(f"- {leg['action']} {leg['instrument_key']} (Strike: {leg.get('strike', 'N/A')}, Qty: {leg['quantity']})")
 
         # Calculate max loss and entry price
         max_loss = 0
@@ -780,40 +788,38 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         for leg in legs:
             try:
                 strike = leg.get('strike', 0)
-                qty = int(float(leg['quantity']))  # <- FIXED
-                opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
+                qty = leg['quantity']  # Already an integer from build_strategy_legs
+                opt_type = 'CE' if 'CALL' in leg['instrument_key'].upper() else 'PE'
                 row = df[df['Strike'] == strike]
                 if not row.empty:
                     ltp = float(row[f'{opt_type}_LTP'].iloc[0])
                     if leg['action'] == 'SELL':
                         max_loss += ltp * qty
                         entry_price += ltp * qty
-                    else:
+                    else:  # BUY
                         max_loss -= ltp * qty
                         entry_price -= ltp * qty
+                else:
+                    st.warning(f"No data found for strike {strike} ({opt_type}).")
+                    logger.warning(f"No data for strike {strike} ({opt_type})")
             except Exception as e:
-                logger.error(f"Error in leg calc: {e}")
-                st.error("Could not calculate max loss for a leg.")
+                logger.error(f"Error calculating leg metrics for {leg['instrument_key']}: {e}")
+                st.error(f"Could not calculate metrics for a leg: {e}")
                 return None, 0, 0, 0
 
         max_loss = abs(max_loss)
 
-        # Strategy executed successfully
-        return order_api, max_loss, entry_price, legs
-
-    except Exception as e:
-        logger.error(f"Strategy execution error: {e}")
-        st.error("Something went wrong while executing the strategy.")
-        return None, 0, 0, 0
-    
-
         # Risk check
-        capital_to_deploy = max_loss * 1.5
+        capital_to_deploy = max_loss * 1.5  # Conservative buffer
         risk_status, risk_message = check_risk(capital_to_deploy, max_loss, 0, st.session_state.atm_iv, st.session_state.realized_vol)
         if risk_status == "red":
             st.error(risk_message)
+            logger.error(f"Risk check failed: {risk_message}")
             return None, 0, 0, 0
+        elif risk_status == "yellow":
+            st.warning(risk_message)
 
+        # Place orders
         st.write("\n**Placing Orders...**")
         order_results = []
         total_pnl = 0
@@ -823,17 +829,39 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
                 order_results.append(result)
                 order_id = result.get('data', {}).get('order_id')
                 if order_id:
-                    time.sleep(2)
+                    time.sleep(2)  # Prevent API rate limiting
                     pnl = fetch_trade_pnl(order_api, order_id)
                     total_pnl += pnl
                 st.success(f"Order placed: {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
+                logger.info(f"Order placed: {leg['action']} {leg['instrument_key']} qty={leg['quantity']}")
             else:
                 st.error(f"Order failed for {leg['instrument_key']}")
+                logger.error(f"Order failed for {leg['instrument_key']}")
                 return None, 0, 0, 0
+
+        # Update session state
+        st.session_state.deployed_capital += capital_to_deploy
+        st.session_state.daily_pnl += total_pnl
+        update_trade_metrics(total_pnl)
+        st.session_state.trade_log.append({
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "strategy": strategy_name.replace('_', ' '),
+            "capital": capital_to_deploy,
+            "pnl": total_pnl,
+            "quantity": quantity * 75,  # Assuming 1 lot = 75 contracts for Nifty
+            "regime_score": regime_score if 'regime_score' in globals() else 0,
+            "entry_price": entry_price,
+            "max_loss": max_loss
+        })
+
+        logger.info(f"Strategy executed: {strategy_name}, P&L: {total_pnl}, Capital: {capital_to_deploy}")
+        st.markdown(f"<div class='alert-green'>Successfully executed {strategy_name.replace('_', ' ')}! P&L: ₹{total_pnl:,.2f}</div>", unsafe_allow_html=True)
+
         return order_results, total_pnl, entry_price, max_loss
+
     except Exception as e:
         logger.error(f"Strategy execution error: {e}")
-        st.error(f"Error executing strategy: {e}")
+        st.error(f"Error executing strategy: {e}. Please check your inputs and try again.")
         return None, 0, 0, 0
 
 def run_volguard(access_token):
