@@ -974,7 +974,9 @@ def run_volguard(access_token):
         return None, None, None, None, None
 
 # === Streamlit Tabs ===
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Snapshot", "Forecast", "Prediction", "Strategies", "Dashboard", "Journal"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Snapshot", "Forecast", "Prediction", "Strategies", "Dashboard", "Journal", "Backtest"
+])
 
 # === Tab 1: Snapshot ===
 with tab1:
@@ -1563,6 +1565,68 @@ with tab6:
                 st.experimental_rerun()
     else:
         st.info("No journal entries yet. Add one above.")
+
+#tab 7 Backtest
+with tab7:
+    st.header("Strategy Backtest Simulator (Beta)")
+
+    try:
+        nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
+        nifty_df.columns = nifty_df.columns.str.strip()
+        nifty_df["Date"] = pd.to_datetime(nifty_df["Date"], format="%d-%b-%Y", errors="coerce")
+        nifty_df = nifty_df.dropna(subset=["Date"]).set_index("Date")
+        nifty_df = nifty_df.rename(columns={"Close": "NIFTY_Close"})
+        nifty_df = nifty_df[["NIFTY_Close"]].dropna().sort_index()
+
+        st.success(f"Nifty history loaded: {nifty_df.index.min().date()} to {nifty_df.index.max().date()}")
+    except Exception as e:
+        st.error(f"Failed to load Nifty data: {e}")
+        st.stop()
+
+    strategy_choice = st.selectbox("Select Backtest Strategy", [
+        "Iron_Fly", "Iron_Condor", "Bull_Put_Credit", "Bear_Call_Credit"
+    ])
+    threshold_vol = st.slider("Volatility Threshold (%)", 10.0, 30.0, 18.0, 0.5)
+
+    st.markdown("Backtest assumes entry if GARCH 7D Vol > threshold.")
+
+    if st.button("Run Backtest"):
+        try:
+            log_returns = np.log(nifty_df["NIFTY_Close"].pct_change() + 1).dropna() * 100
+            model = arch_model(log_returns, vol="Garch", p=1, q=1)
+            model_fit = model.fit(disp="off")
+            forecast = model_fit.forecast(horizon=1, start=252)
+            dates = forecast.variance.index
+            vol_series = np.sqrt(forecast.variance.values.flatten()) * np.sqrt(252)
+            vol_series = pd.Series(vol_series, index=dates)
+            vol_series = vol_series[~vol_series.isna()]
+            pnl = []
+            equity = 0
+            capital = 1000000  # virtual
+            for date, vol in vol_series.iteritems():
+                if vol > threshold_vol:
+                    # Simulate strategy payoff range (simplified)
+                    ret = np.random.normal(loc=0.002, scale=0.01)  # avg 0.2% return/day
+                    pl = capital * ret
+                else:
+                    pl = 0
+                equity += pl
+                pnl.append({"Date": date, "Vol": vol, "P&L": pl, "Equity": equity})
+
+            pnl_df = pd.DataFrame(pnl).set_index("Date")
+
+            st.subheader("Backtest Results")
+            st.line_chart(pnl_df["Equity"])
+
+            total_trades = (pnl_df["P&L"] != 0).sum()
+            wins = (pnl_df["P&L"] > 0).sum()
+            losses = (pnl_df["P&L"] < 0).sum()
+
+            st.markdown(f"- Total Trades: {total_trades}")
+            st.markdown(f"- Win Rate: {wins / total_trades * 100:.2f}%")
+            st.markdown(f"- Net P&L: ₹{pnl_df['P&L'].sum():,.2f}")
+        except Exception as e:
+            st.error(f"Backtest failed: {e}")
 
 # === Final Footer ===
 st.markdown("<hr>", unsafe_allow_html=True)
