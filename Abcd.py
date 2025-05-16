@@ -642,6 +642,9 @@ def find_atm_strike(spot_price, strikes):
 
 def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_distance=50):
     try:
+        # Ensure quantity is integer (fix for "can't multiply sequence by float" bug)
+        quantity = int(float(quantity))
+
         strikes = [leg['strike_price'] for leg in option_chain]
         atm_strike = find_atm_strike(spot_price, strikes)
         legs = []
@@ -703,6 +706,7 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
         if not legs:
             raise ValueError("No valid legs generated.")
         return legs
+
     except Exception as e:
         logger.error(f"Strategy legs error: {e}")
         return []
