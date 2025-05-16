@@ -1430,7 +1430,7 @@ if run_engine or st.session_state.strategies:
                        st.stop()
 
                 # Guard 2: IV too high
-                   if st.session_state.atm_iv > max_iv_allowed:
+                   if st.session_state.atm_iv > max_iv_allowed,
                       st.error(f"Trade blocked: ATM IV ({st.session_state.atm_iv}%) exceeds allowed max ({max_iv_allowed}%).")
                       st.stop()
 
