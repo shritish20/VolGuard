@@ -777,7 +777,7 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         max_loss = 0
         entry_price = 0
 
-        for leg in legs:
+    for leg in legs:
     try:
         strike = leg.get('strike', 0)
         qty = int(float(leg['quantity']))  # <<< BC yahin karna hai
