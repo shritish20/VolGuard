@@ -1388,9 +1388,10 @@ with tab4:
                     if df.empty:
                         st.error("Option chain data is empty. Please try again.")
                     else:
-                        order_results, trade_pnl, entry_price, max_loss = execute_strategy(
-                            access_token, option_chain, spot_price, selected_strategy, quantity, df
+                        order_results, trade_pnl, entry_price, max_loss, legs = execute_strategy(
+                        access_token, option_chain, spot_price, selected_strategy, quantity, df
                         )
+
                         # Show Payout Chart
                         fig = generate_payout_chart(df, legs, spot_price)
                         if fig:
