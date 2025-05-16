@@ -716,11 +716,12 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
 def place_order_for_leg(order_api, leg):
     try:
         price_val = 0 if leg["order_type"] == "MARKET" else leg.get("price", 0)
+
         body = PlaceOrderV3Request(
             instrument_token=leg["instrument_key"],
             transaction_type=leg["action"],
             order_type=leg["order_type"],
-            product="I",
+            product="I",  # Use "D" if "I" fails
             quantity=leg["quantity"],
             validity="DAY",
             disclosed_quantity=0,
@@ -730,16 +731,27 @@ def place_order_for_leg(order_api, leg):
             slice=False,
             price=price_val
         )
+
+        logger.info(f"Placing order: {body.to_dict()}")
         response = order_api.place_order(body)
-        logger.info(f"Order placed: {leg['action']} {leg['instrument_key']} qty={leg['quantity']}")
+
+        st.success(f"✅ Order placed: {leg['action']} {leg['instrument_key']} qty={leg['quantity']}")
         return response.to_dict()
-    
+
     except ApiException as e:
-        logger.error(f"Order failed for {leg['instrument_key']}: {e}")
+        error_msg = str(e)
+
+        # Try extracting exact reason from error body
         try:
-            logger.error(f"Payload used: {body.to_dict()}")
-        except Exception as payload_err:
-            logger.error(f"Could not log payload: {payload_err}")
+            error_json = json.loads(e.body)
+            reason = error_json.get("error", {}).get("message", "Unknown API error")
+        except:
+            reason = error_msg
+
+        logger.error(f"❌ Order failed for {leg['instrument_key']}: {reason}")
+        logger.error(f"Payload used: {body.to_dict()}")
+
+        st.error(f"❌ Order failed for {leg['instrument_key']}.\n\n**Reason:** {reason}")
         return None
 
 def fetch_trade_pnl(order_api, order_id):
