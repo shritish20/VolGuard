@@ -769,15 +769,12 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         for leg in legs:
             st.write(f"- {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
 
-
-    # Calculate max loss and entry price
-
 # Calculate max loss and entry price
-max_loss = 0
-entry_price = 0
+try:
+    max_loss = 0
+    entry_price = 0
 
-for leg in legs:
-    try:
+    for leg in legs:
         strike = leg.get('strike', 0)
         opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
         row = df[df['Strike'] == strike]
@@ -789,21 +786,14 @@ for leg in legs:
             else:
                 max_loss -= ltp * leg['quantity']
                 entry_price -= ltp * leg['quantity']
-    except Exception as e:
-        logger.error(f"Error in leg calc: {e}")
-        st.error("Could not calculate max loss for a leg.")
-        return None, 0, 0, 0
 
-max_loss = abs(max_loss)
-except Exception as e:
-    logger.error(f"Error calculating max loss and entry price: {e}")
-    st.error("Failed to calculate max loss or entry price.")
-    return None, 0, 0, 0
+    max_loss = abs(max_loss)
 
 except Exception as e:
     logger.error(f"Error calculating max loss and entry price: {e}")
     st.error("Could not calculate max loss. Please check option data.")
     return None, 0, 0, 0
+    
 
         # Risk check
         capital_to_deploy = max_loss * 1.5
