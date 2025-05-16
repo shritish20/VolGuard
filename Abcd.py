@@ -385,7 +385,7 @@ def get_nearest_expiry(_options_api, instrument_key):
         logger.error(f"Expiry fetch error: {e}")
         return None
 
-@st.cache_data(ttl=300)
+
 def fetch_option_chain(_options_api, instrument_key, expiry):
     @retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
     def fetch_chain():
