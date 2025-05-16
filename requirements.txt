@@ -19,5 +19,5 @@ requests
 numpy 
 arch
 retrying 
-autorefresh
-pip install streamlit streamlit-autorefresh pandas numpy requests plotly upstox_client retrying arch xgboost base64
+streamlit-autorefresh
+base64
