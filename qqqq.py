@@ -1366,7 +1366,7 @@ with tab4:
     max_iv_allowed = st.slider("Max IV Allowed (%)", 10.0, 35.0, 22.0, step=0.5)
     min_regime_score = st.slider("Minimum Regime Score", 0, 100, 50, step=5, help="Minimum regime score to allow trading.")
     max_trades_per_day = st.slider("Max Trades per Day", 1, 10, 3, step=1, help="Maximum number of trades allowed per day.")
-    if run_engine:
+if run_engine:
     with st.spinner("Generating strategy recommendations..."):
         try:
             if st.session_state.volguard_data is None:
