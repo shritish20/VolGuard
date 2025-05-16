@@ -18,6 +18,68 @@ import json
 import retrying
 import math
 
+st.markdown("""
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+}
+.metric-card {
+    padding: 8px;
+    margin-bottom: 12px;
+    background-color: #1e1e1e;
+    border-radius: 10px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4);
+}
+.metric-card h4 {
+    font-size: 16px;
+}
+.tooltiptext {
+    font-size: 12px;
+}
+.stButton>button {
+    width: 100% !important;
+    font-size: 16px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+}
+.metric-card, .highlight-card {
+    padding: 10px;
+    margin-bottom: 10px;
+    background-color: #1e1e1e;
+    border-radius: 12px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.3);
+    color: #f1f1f1;
+}
+.metric-card h4, .highlight-card h4 {
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+.metric-card p, .highlight-card p {
+    font-size: 14px;
+    margin: 0;
+}
+@media screen and (max-width: 600px) {
+    .metric-card, .highlight-card {
+        font-size: 13px;
+        padding: 8px;
+    }
+    .metric-card h4, .highlight-card h4 {
+        font-size: 14px;
+    }
+}
+.stButton>button {
+    width: 100% !important;
+    font-size: 16px !important;
+    margin-top: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 # Configure Logging
 logging.basicConfig(filename='volguard.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -814,6 +876,28 @@ def generate_payout_chart(df, legs, spot):
     except Exception as e:
         st.error(f"Failed to generate payout chart: {e}")
         return None
+
+def monte_carlo_expiry_simulation(legs, spot_price, num_simulations=1000, days_to_expiry=5, volatility=0.2):
+    try:
+        results = []
+        for _ in range(num_simulations):
+            daily_returns = np.random.normal(loc=0, scale=volatility / np.sqrt(252), size=days_to_expiry)
+            simulated_spot = spot_price * np.prod(1 + daily_returns)
+            total_pnl = 0
+            for leg in legs:
+                strike = leg['strike']
+                qty = int(leg.get('quantity', 0)) * 75
+                opt_type = 'CE' if 'CE' in leg['instrument_key'] else 'PE'
+                action = leg['action']
+
+                intrinsic = max(0, simulated_spot - strike) if opt_type == "CE" else max(0, strike - simulated_spot)
+                payoff = -intrinsic if action == "SELL" else intrinsic
+                total_pnl += payoff * qty
+            results.append(total_pnl)
+        return results
+        except Exception as e:
+        st.error(f"Monte Carlo simulation failed: {e}")
+        return []       
 def execute_strategy(access_token, option_chain, spot_price, strategy_name, quantity, df):
     try:
         configuration = Configuration()
@@ -1449,6 +1533,23 @@ if run_engine or st.session_state.strategies:
                         if fig:
                             st.subheader("Payout Simulation")
                             st.plotly_chart(fig, use_container_width=True)
+                            st.subheader("Monte Carlo Risk Simulation")
+                            sim_days = st.slider("Days to Expiry", 1, 10, 5)
+                            sim_vol = st.slider("Assumed IV (%)", 10.0, 40.0, float(st.session_state.atm_iv), step=0.5)
+                            sim_button = st.button("Run Monte Carlo Simulation")
+
+                        if sim_button:
+                        with st.spinner("Simulating expiry outcomes..."):
+                             simulated_pnl = monte_carlo_expiry_simulation(legs, spot_price, 1000, sim_days, sim_vol / 100)
+                             pnl_df = pd.DataFrame(simulated_pnl, columns=["P&L"])
+
+                             col1, col2, col3 = st.columns(3)
+                             col1.metric("Median P&L", f"₹{np.median(simulated_pnl):,.0f}")
+                             col2.metric("Win %", f"{(pnl_df['P&L'] > 0).mean()*100:.1f}%")
+                             col3.metric("Risk of Loss", f"{(pnl_df['P&L'] < 0).mean()*100:.1f}%")
+
+                             st.subheader("Simulated Expiry P&L Distribution")
+                             st.bar_chart(pnl_df["P&L"].value_counts().sort_index())
                         if order_results:
                             st.session_state.deployed_capital += max_loss * 1.5
                             st.session_state.daily_pnl += trade_pnl
