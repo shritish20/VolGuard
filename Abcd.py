@@ -895,7 +895,7 @@ def monte_carlo_expiry_simulation(legs, spot_price, num_simulations=1000, days_t
                 total_pnl += payoff * qty
             results.append(total_pnl)
         return results
-        except Exception as e:
+        
         st.error(f"Monte Carlo simulation failed: {e}")
         return []       
 def execute_strategy(access_token, option_chain, spot_price, strategy_name, quantity, df):
