@@ -407,7 +407,7 @@ prev_oi = {}
 # Check market hours (9:15 AM to 3:30 PM IST)
 now = datetime.now()
 market_open = now.time() >= datetime.strptime("09:15", "%H:%M").time() and now.time() <= datetime.strptime("15:30", "%H:%M").time0
-refresh_counter = st_autorefresh(interval=5000, key="data-refresh")  # Refresh every 5 seconds
+#refresh_counter = st_autorefresh(interval=5000, key="data-refresh")  # Refresh every 5 seconds
 
 # === Top Navigation Bar ===
 st.markdown(f"""
