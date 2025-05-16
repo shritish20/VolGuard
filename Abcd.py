@@ -778,22 +778,32 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         entry_price = 0
 
         for leg in legs:
-    try:
-        strike = leg.get('strike', 0)
-        qty = int(leg.get('quantity', 0))  # <-- this is the fix
-        opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
-        row = df[df['Strike'] == strike]
-        if not row.empty:
-            ltp = row[f'{opt_type}_LTP'].iloc[0]
-            if leg['action'] == 'SELL':
-                max_loss += ltp * qty
-                entry_price += ltp * qty
-            else:
-                max_loss -= ltp * qty
-                entry_price -= ltp * qty
+            try:
+                strike = leg.get('strike', 0)
+                qty = int(float(leg.get('quantity', 0)))  # Ensure it's numeric
+                opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
+                row = df[df['Strike'] == strike]
+                if not row.empty:
+                    ltp = row[f'{opt_type}_LTP'].iloc[0]
+                    if leg['action'] == 'SELL':
+                        max_loss += ltp * qty
+                        entry_price += ltp * qty
+                    else:
+                        max_loss -= ltp * qty
+                        entry_price -= ltp * qty
+            except Exception as e:
+                logger.error(f"Error in leg calculation: {e}")
+                st.error("Could not calculate max loss for a leg.")
+                return None, 0, 0, 0
+
+        max_loss = abs(max_loss)
+
+        # You can proceed to place orders here or return the calculated values
+        return order_api, max_loss, entry_price, legs
+
     except Exception as e:
-        logger.error(f"Error in leg calc: {e}")
-        st.error("Could not calculate max loss for a leg.")
+        logger.error(f"Strategy execution error: {e}")
+        st.error("Something went wrong while executing the strategy.")
         return None, 0, 0, 0
 
         max_loss = abs(max_loss)
