@@ -776,6 +776,44 @@ def update_trade_metrics(pnl):
     except Exception as e:
         logger.error(f"Trade metrics update error: {e}")
 
+
+def generate_payout_chart(df, legs, spot):
+    try:
+        import plotly.graph_objects as go
+        strikes = df["Strike"].tolist()
+        spot_range = np.linspace(spot * 0.95, spot * 1.05, 100)
+        pnl = []
+
+        for s in spot_range:
+            total = 0
+            for leg in legs:
+                strike = leg.get('strike')
+                qty = int(leg.get('quantity', 0)) * 75  # 75 contracts per Nifty lot
+                opt_type = 'CE' if 'CE' in leg['instrument_key'] else 'PE'
+                action = leg['action']
+
+                intrinsic = max(0, s - strike) if opt_type == "CE" else max(0, strike - s)
+                payoff = -intrinsic if action == "SELL" else intrinsic
+                total += payoff * qty
+            pnl.append(total)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=spot_range, y=pnl, mode="lines", name="P/L", line=dict(color="#4CAF50")))
+        fig.add_vline(x=spot, line=dict(color="white", dash="dash"))
+        fig.update_layout(
+            title="Strategy Payout at Expiry",
+            xaxis_title="Spot Price at Expiry",
+            yaxis_title="Net P&L (₹)",
+            template="plotly_dark",
+            plot_bgcolor="#121212",
+            paper_bgcolor="#121212",
+            font=dict(color="#FAFAFA"),
+            height=400
+        )
+        return fig
+    except Exception as e:
+        st.error(f"Failed to generate payout chart: {e}")
+        return None
 def execute_strategy(access_token, option_chain, spot_price, strategy_name, quantity, df):
     try:
         configuration = Configuration()
@@ -1353,6 +1391,11 @@ with tab4:
                         order_results, trade_pnl, entry_price, max_loss = execute_strategy(
                             access_token, option_chain, spot_price, selected_strategy, quantity, df
                         )
+                        # Show Payout Chart
+                        fig = generate_payout_chart(df, legs, spot_price)
+                        if fig:
+                            st.subheader("Payout Simulation")
+                            st.plotly_chart(fig, use_container_width=True)
                         if order_results:
                             st.session_state.deployed_capital += max_loss * 1.5
                             st.session_state.daily_pnl += trade_pnl
