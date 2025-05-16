@@ -233,8 +233,7 @@ def process_chain(data):
             ce = r.get('call_options', {})
             pe = r.get('put_options', {})
             ce_md, pe_md = ce.get('market_data', {}), pe.get('market_data', {})
-            ce_gk, pe_gk = ce.get('option_greeks', {}), pe.get('option_gree#pragma once
-ks', {})
+            ce_gk, pe_gk = ce.get('option_greeks', {}), pe.get('option_greeks', {})
             strike = r.get('strike_price', 0)
             ce_oi_val = ce_md.get("oi", 0) or 0
             pe_oi_val = pe_md.get("oi", 0) or 0
