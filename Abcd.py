@@ -898,7 +898,7 @@ def monte_carlo_expiry_simulation(legs, spot_price, num_simulations=1000, days_t
         
         st.error(f"Monte Carlo simulation failed: {e}")
         return []       
-def execute_strategy(access_token, option_chain, spot_price, strategy_name, quantity, df):
+ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quantity, df):
     try:
         configuration = Configuration()
         configuration.access_token = access_token
