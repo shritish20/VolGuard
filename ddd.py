@@ -555,7 +555,6 @@ def process_chain(data):
                 "PE_Volume": pe_md.get("volume", 0) or 0,
                 "Strike_PCR": strike_pcr,
                 "CE_Token": ce.get("instrument_key", ""),
-                "PE_Token10
                 "PE_Token": pe.get("instrument_key", "")
             }
             ce_oi += ce_oi_val
