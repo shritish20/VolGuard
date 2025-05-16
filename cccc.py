@@ -771,7 +771,7 @@ with tab1:
                         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>balance</i> PCR</h4><p>{result['pcr']:.2f}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Pain</h4><p>{result['max_pain']:.2f}</p></div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> CE Depth</h4><p>Bid: {result['ce_depth'].get('bid_volume', 0)}, Ask: {result['ce_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> PE Depth</h4><p>Bid: {result['pe_depth'].get('bid_volume', 0)}, Ask: {result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True  unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>shopping_cart</i> PE Depth</h4><p>Bid: {result['pe_depth'].get('bid_volume', 0)}, Ask: {result['pe_depth'].get('ask_volume', 0)}</p></div>", unsafe_allow_html=True,  unsafe_allow_html=True)
                     with col2:
                         if iv_skew_fig:
                             st.subheader("IV Skew Plot")
