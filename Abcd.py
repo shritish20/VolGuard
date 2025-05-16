@@ -1280,6 +1280,10 @@ with tab3:
 # === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
+    st.subheader("Risk Guard Settings")
+max_iv_allowed = st.slider("Max IV Allowed (%)", 10.0, 35.0, 22.0, step=0.5)
+min_regime_score = st.slider("Minimum Regime Score", 0, 100, 60, step=5)
+max_loss_pct = st.slider("Max Loss per Trade (%)", 1.0, 10.0, 5.0, step=0.5)
     strategy_options = [
         "Iron_Fly", "Iron_Condor", "Short_Straddle", "Short_Strangle",
         "Bull_Put_Credit", "Bear_Call_Credit", "Jade_Lizard"
@@ -1421,6 +1425,21 @@ with tab4:
                     df = pd.DataFrame(st.session_state.volguard_data.get('iv_skew_data', {}))
                     if df.empty:
                         st.error("Option chain data is empty. Please try again.")
+                        # Guard 1: Regime score too low
+                    if regime_score < min_regime_score:
+                       st.error(f"Trade blocked: Regime Score {regime_score} is below safe threshold ({min_regime_score}).")
+                       st.stop()
+
+                # Guard 2: IV too high
+                   if st.session_state.atm_iv > max_iv_allowed:
+                      st.error(f"Trade blocked: ATM IV ({st.session_state.atm_iv}%) exceeds allowed max ({max_iv_allowed}%).")
+                      st.stop()
+
+                # Guard 3: Max loss check
+               estimated_loss = total_capital * (max_loss_pct / 100)
+                  if selected_strategy and any(s for s in strategies if s['name'] == selected_strategy and s['max_loss'] > estimated_loss):
+                     st.error(f"Trade blocked: Max loss exceeds {max_loss_pct}% of capital.")
+                     st.stop()
                     else:
                         order_results, trade_pnl, entry_price, max_loss, legs = execute_strategy(
                         access_token, option_chain, spot_price, selected_strategy, quantity, df
