@@ -1364,7 +1364,6 @@ with tab3:
             st.error(f"Error predicting volatility: {e}. Please check the model source.")
 
 # === Tab 4: Strategies ===
-# === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
     st.subheader("Risk Guard Settings")
@@ -1417,6 +1416,11 @@ with tab4:
                 st.error(f"Error generating strategies: {e}")
 
     st.subheader("Execute Strategy")
+    # Check if strategies are available before showing the dropdown
+    if not st.session_state.strategies:
+        st.warning("No strategies available. Please generate strategy recommendations first by running the engine.")
+        st.stop()
+
     selected_strategy = st.selectbox("Select Strategy", [s['name'] for s in st.session_state.strategies], help="Choose a strategy to execute.")
     quantity = st.number_input("Quantity (Lots)", min_value=1, max_value=100, value=1, step=1, help="Number of lots (1 lot = 75 contracts for Nifty).")
     otm_distance = st.slider("OTM Distance (₹)", 50, 500, 50, step=50, help="Distance for OTM strikes in strategies.")
@@ -1490,7 +1494,7 @@ with tab4:
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Median P&L", f"₹{np.median(simulated_pnl):,.0f}")
                     col2.metric("Win %", f"{(pnl_df['P&L'] > 0).mean()*100:.1f}%")
-                    col3.metric("Risk of Loss", f"{(pnl-df['P&L'] < 0).mean()*100:.1f}%")
+                    col3.metric("Risk of Loss", f"{(pnl_df['P&L'] < 0).mean()*100:.1f}%")
                     st.subheader("Simulated Expiry P&L Distribution")
                     st.bar_chart(pnl_df["P&L"].value_counts().sort_index())
 
