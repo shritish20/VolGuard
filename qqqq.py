@@ -1680,7 +1680,7 @@ with tab7:
 # === Footer ===
 st.markdown("""
     <div style='text-align: center; margin-top: 20px;'>
-        <p style='color: #FAFAFA;'>VolGuard Pro 2.0 - Built with ❤️ by Shritish Kulshrestha</p>
+        <p style='color: #FAFAFA;'>VolGuard Pro 2.0 - Built with ❤️ by Shritish Shukla & Salman Azim</p>
         <p style='color: #FAFAFA;'>For support, contact: shritish@example.com</p>
     </div>
 """, unsafe_allow_html=True)
