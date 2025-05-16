@@ -1289,7 +1289,7 @@ strategy_options = [
         "Bull_Put_Credit", "Bear_Call_Credit", "Jade_Lizard"
     ]
 
- strategy_tooltips = {
+strategy_tooltips = {
         "Iron_Fly": "Profits if market stays at the same price. Defined risk, suitable for calm markets. Max loss is wings' cost minus premium.",
         "Iron_Condor": "Profits in a range-bound market. Defined risk, ideal for low volatility. Max loss is strike difference minus premium.",
         "Short_Straddle": "High reward for minimal movement, but unlimited risk. Use in low volatility with caution.",
