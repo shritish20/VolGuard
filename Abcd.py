@@ -769,7 +769,7 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         for leg in legs:
             st.write(f"- {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
 
-        # Calculate max loss and entry price
+# Calculate max loss and entry price
 max_loss = 0
 entry_price = 0
 
@@ -785,6 +785,8 @@ for leg in legs:
         else:
             max_loss -= ltp * leg['quantity']
             entry_price -= ltp * leg['quantity']
+
+max_loss = abs(max_loss)
 
 max_loss = abs(max_loss)
 
