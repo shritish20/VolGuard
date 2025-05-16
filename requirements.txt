@@ -20,4 +20,3 @@ numpy
 arch
 retrying 
 streamlit-autorefresh
-base64
