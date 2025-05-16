@@ -912,7 +912,7 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         logger.info(f"Strategy executed: {strategy_name}, P&L: {total_pnl}, Capital: {capital_to_deploy}")
         st.markdown(f"<div class='alert-green'>Successfully executed {strategy_name.replace('_', ' ')}! P&L: ₹{total_pnl:,.2f}</div>", unsafe_allow_html=True)
 
-        return order_results, total_pnl, entry_price, max_loss
+        return order_results, trade_pnl, entry_price, max_loss, legs
 
     except Exception as e:
         logger.error(f"Strategy execution error: {e}")
