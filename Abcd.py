@@ -734,8 +734,12 @@ def place_order_for_leg(order_api, leg):
         logger.info(f"Order placed: {leg['action']} {leg['instrument_key']} qty={leg['quantity']}")
         return response.to_dict()
     except ApiException as e:
-        logger.error(f"Order failed for {leg['instrument_key']}: {e}")
-        return None
+    logger.error(f"Order failed for {leg['instrument_key']}: {e}")
+    try:
+        logger.error(f"Payload used: {body.to_dict()}")
+    except Exception as payload_err:
+        logger.error(f"Could not log payload: {payload_err}")
+    return None
 
 def fetch_trade_pnl(order_api, order_id):
     try:
