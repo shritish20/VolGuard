@@ -1093,9 +1093,12 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 # === Tab 1: Snapshot ===
+# === Tab 1: Snapshot ===
 with tab1:
     st.header("Market Snapshot")
     access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
+    # Store the access token in session state for reuse across tabs
+    st.session_state.access_token = access_token
 
     if st.button("Run VolGuard"):
         if not access_token:
@@ -1149,6 +1152,7 @@ with tab1:
                                     <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
                                 </div>
                             """, unsafe_allow_html=True)
+                         
 
 # === Tab 2: Forecast ===
 with tab2:
@@ -1360,133 +1364,135 @@ with tab3:
             st.error(f"Error predicting volatility: {e}. Please check the model source.")
 
 # === Tab 4: Strategies ===
+# === Tab 4: Strategies ===
 with tab4:
     st.header("Strategy Recommendations")
     st.subheader("Risk Guard Settings")
     max_iv_allowed = st.slider("Max IV Allowed (%)", 10.0, 35.0, 22.0, step=0.5)
     min_regime_score = st.slider("Minimum Regime Score", 0, 100, 50, step=5, help="Minimum regime score to allow trading.")
     max_trades_per_day = st.slider("Max Trades per Day", 1, 10, 3, step=1, help="Maximum number of trades allowed per day.")
-if run_engine:
-    with st.spinner("Generating strategy recommendations..."):
-        try:
-            if st.session_state.volguard_data is None:
-                st.error("No market data available. Please run VolGuard in the Snapshot tab first.")
-                st.stop()
 
-            spot_price = st.session_state.volguard_data.get('nifty_spot', 0)
-            atm_iv = st.session_state.volguard_data.get('atm_iv', 0)
-            pcr = st.session_state.volguard_data.get('pcr', 0)
-            regime_score, regime, explanation = calculate_regime_score(
-                atm_iv, st.session_state.realized_vol, pcr, vix=15.0,
-                iv_skew_slope=st.session_state.volguard_data.get('iv_skew_data', {}).get('IV_Skew_Slope', 0)
+    if run_engine:
+        with st.spinner("Generating strategy recommendations..."):
+            try:
+                if st.session_state.volguard_data is None:
+                    st.error("No market data available. Please run VolGuard in the Snapshot tab first.")
+                    st.stop()
+
+                spot_price = st.session_state.volguard_data.get('nifty_spot', 0)
+                atm_iv = st.session_state.volguard_data.get('atm_iv', 0)
+                pcr = st.session_state.volguard_data.get('pcr', 0)
+                regime_score, regime, explanation = calculate_regime_score(
+                    atm_iv, st.session_state.realized_vol, pcr, vix=15.0,
+                    iv_skew_slope=st.session_state.volguard_data.get('iv_skew_data', {}).get('IV_Skew_Slope', 0)
+                )
+
+                strategies = [
+                    {"name": "Iron_Fly", "max_loss": 0.03 * total_capital, "confidence": 0.85, "suitable_regime": "High Vol Trend"},
+                    {"name": "Iron_Condor", "max_loss": 0.02 * total_capital, "confidence": 0.90, "suitable_regime": "Elevated Volatility"},
+                    {"name": "Short_Straddle", "max_loss": 0.05 * total_capital, "confidence": 0.75, "suitable_regime": "Low Volatility"},
+                    {"name": "Short_Strangle", "max_loss": 0.04 * total_capital, "confidence": 0.80, "suitable_regime": "Low Volatility"},
+                    {"name": "Bull_Put_Credit", "max_loss": 0.02 * total_capital, "confidence": 0.88, "suitable_regime": "Neutral Volatility"},
+                    {"name": "Bear_Call_Credit", "max_loss": 0.02 * total_capital, "confidence": 0.88, "suitable_regime": "Neutral Volatility"},
+                    {"name": "Jade_Lizard", "max_loss": 0.025 * total_capital, "confidence": 0.87, "suitable_regime": "Neutral Volatility"}
+                ]
+
+                st.session_state.strategies = strategies
+                st.subheader("Strategy Recommendations")
+                st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>insights</i> Regime: {regime}</h4><p>{explanation}</p></div>", unsafe_allow_html=True)
+
+                for strat in strategies:
+                    confidence = strat['confidence'] * 100
+                    suitability = "✅ Suitable" if strat['suitable_regime'] == regime else "⚠️ Less Suitable"
+                    st.markdown(f"""
+                        <div class='metric-card'>
+                            <h4><i class='material-icons'>strategy</i> {strat['name'].replace('_', ' ')}</h4>
+                            <p>Max Loss: ₹{strat['max_loss']:,.2f} | Confidence: {confidence:.1f}%</p>
+                            <p>{suitability}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+            except Exception as e:
+                logger.error(f"Strategy recommendation error: {e}")
+                st.error(f"Error generating strategies: {e}")
+
+    st.subheader("Execute Strategy")
+    selected_strategy = st.selectbox("Select Strategy", [s['name'] for s in st.session_state.strategies], help="Choose a strategy to execute.")
+    quantity = st.number_input("Quantity (Lots)", min_value=1, max_value=100, value=1, step=1, help="Number of lots (1 lot = 75 contracts for Nifty).")
+    otm_distance = st.slider("OTM Distance (₹)", 50, 500, 50, step=50, help="Distance for OTM strikes in strategies.")
+
+    if st.button("Execute Strategy"):
+        # Check if access token exists in session state
+        if 'access_token' not in st.session_state or not st.session_state.access_token:
+            st.error("Please enter your Upstox access token in the Snapshot tab first.")
+            st.stop()
+        if not selected_strategy:
+            st.error("Please select a strategy.")
+            st.stop()
+        if not st.session_state.option_chain:
+            st.error("No option chain data available. Please run VolGuard in the Snapshot tab first.")
+            st.stop()
+        if not st.session_state.volguard_data:
+            st.error("No market data available. Please run VolGuard in the Snapshot tab first.")
+            st.stop()
+
+        spot_price = st.session_state.volguard_data.get('nifty_spot', 0)
+        df = pd.DataFrame(st.session_state.volguard_data.get('iv_skew_data', {}))
+        if df.empty:
+            st.error("Option chain data is empty.")
+            st.stop()
+
+        # Guard 1: IV Check
+        if st.session_state.atm_iv > max_iv_allowed:
+            st.error(f"Trade blocked: ATM IV ({st.session_state.atm_iv}%) exceeds allowed max ({max_iv_allowed}%).")
+            st.stop()
+
+        # Guard 2: Regime Score
+        regime_score, _, _ = calculate_regime_score(
+            st.session_state.atm_iv, st.session_state.realized_vol,
+            st.session_state.volguard_data.get('pcr', 0), vix=15.0
+        )
+        if regime_score < min_regime_score:
+            st.error(f"Trade blocked: Regime score ({regime_score}) below minimum ({min_regime_score}).")
+            st.stop()
+
+        # Guard 3: Max Loss Check
+        estimated_loss = total_capital * (max_loss_per_trade_pct / 100)
+        if selected_strategy and any(s for s in st.session_state.strategies if s['name'] == selected_strategy and s['max_loss'] > estimated_loss):
+            st.error(f"Trade blocked: Max loss exceeds {max_loss_per_trade_pct}% of capital.")
+            st.stop()
+
+        # Guard 4: Max Trades per Day
+        trades_today = len([t for t in st.session_state.trade_log if pd.to_datetime(t['date']).date() == datetime.now().date()])
+        if trades_today >= max_trades_per_day:
+            st.error(f"Trade blocked: Max trades per day ({max_trades_per_day}) reached.")
+            st.stop()
+
+        with st.spinner("Executing strategy..."):
+            order_results, trade_pnl, entry_price, max_loss, legs = execute_strategy(
+                st.session_state.access_token, st.session_state.option_chain, spot_price, selected_strategy, quantity, df
             )
 
-            strategies = [
-                {"name": "Iron_Fly", "max_loss": 0.03 * total_capital, "confidence": 0.85, "suitable_regime": "High Vol Trend"},
-                {"name": "Iron_Condor", "max_loss": 0.02 * total_capital, "confidence": 0.90, "suitable_regime": "Elevated Volatility"},
-                {"name": "Short_Straddle", "max_loss": 0.05 * total_capital, "confidence": 0.75, "suitable_regime": "Low Volatility"},
-                {"name": "Short_Strangle", "max_loss": 0.04 * total_capital, "confidence": 0.80, "suitable_regime": "Low Volatility"},
-                {"name": "Bull_Put_Credit", "max_loss": 0.02 * total_capital, "confidence": 0.88, "suitable_regime": "Neutral Volatility"},
-                {"name": "Bear_Call_Credit", "max_loss": 0.02 * total_capital, "confidence": 0.88, "suitable_regime": "Neutral Volatility"},
-                {"name": "Jade_Lizard", "max_loss": 0.025 * total_capital, "confidence": 0.87, "suitable_regime": "Neutral Volatility"}
-            ]
+        # Show Payout Chart
+        fig = generate_payout_chart(df, legs, spot_price)
+        if fig:
+            st.subheader("Payout Simulation")
+            st.plotly_chart(fig, use_container_width=True)
+            st.subheader("Monte Carlo Risk Simulation")
+            sim_days = st.slider("Days to Expiry", 1, 10, 5)
+            sim_vol = st.slider("Assumed IV (%)", 10.0, 40.0, float(st.session_state.atm_iv), step=0.5)
+            sim_button = st.button("Run Monte Carlo Simulation")
 
-            st.session_state.strategies = strategies
-            st.subheader("Strategy Recommendations")
-            st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>insights</i> Regime: {regime}</h4><p>{explanation}</p></div>", unsafe_allow_html=True)
-
-            for strat in strategies:
-                confidence = strat['confidence'] * 100
-                suitability = "✅ Suitable" if strat['suitable_regime'] == regime else "⚠️ Less Suitable"
-                st.markdown(f"""
-                    <div class='metric-card'>
-                        <h4><i class='material-icons'>strategy</i> {strat['name'].replace('_', ' ')}</h4>
-                        <p>Max Loss: ₹{strat['max_loss']:,.2f} | Confidence: {confidence:.1f}%</p>
-                        <p>{suitability}</p>
-                    </div>
-                """, unsafe_allow_html=True)
-
-        except Exception as e:
-            logger.error(f"Strategy recommendation error: {e}")
-            st.error(f"Error generating strategies: {e}")
-
-st.subheader("Execute Strategy")
-access_token = st.text_input("Upstox Access Token (Strategy)", type="password", key="strategy_token", help="Enter your Upstox access token to execute strategies.")
-selected_strategy = st.selectbox("Select Strategy", [s['name'] for s in st.session_state.strategies], help="Choose a strategy to execute.")
-quantity = st.number_input("Quantity (Lots)", min_value=1, max_value=100, value=1, step=1, help="Number of lots (1 lot = 75 contracts for Nifty).")
-otm_distance = st.slider("OTM Distance (₹)", 50, 500, 50, step=50, help="Distance for OTM strikes in strategies.")
-
-if st.button("Execute Strategy"):
-    if not access_token:
-        st.error("Please enter a valid Upstox access token.")
-        st.stop()
-    if not selected_strategy:
-        st.error("Please select a strategy.")
-        st.stop()
-    if not st.session_state.option_chain:
-        st.error("No option chain data available. Please run VolGuard in the Snapshot tab first.")
-        st.stop()
-    if not st.session_state.volguard_data:
-        st.error("No market data available. Please run VolGuard in the Snapshot tab first.")
-        st.stop()
-
-    spot_price = st.session_state.volguard_data.get('nifty_spot', 0)
-    df = pd.DataFrame(st.session_state.volguard_data.get('iv_skew_data', {}))
-    if df.empty:
-        st.error("Option chain data is empty.")
-        st.stop()
-
-    # Guard 1: IV Check
-    if st.session_state.atm_iv > max_iv_allowed:
-        st.error(f"Trade blocked: ATM IV ({st.session_state.atm_iv}%) exceeds allowed max ({max_iv_allowed}%).")
-        st.stop()
-
-    # Guard 2: Regime Score
-    regime_score, _, _ = calculate_regime_score(
-        st.session_state.atm_iv, st.session_state.realized_vol,
-        st.session_state.volguard_data.get('pcr', 0), vix=15.0
-    )
-    if regime_score < min_regime_score:
-        st.error(f"Trade blocked: Regime score ({regime_score}) below minimum ({min_regime_score}).")
-        st.stop()
-
-    # Guard 3: Max Loss Check
-    estimated_loss = total_capital * (max_loss_per_trade_pct / 100)
-    if selected_strategy and any(s for s in st.session_state.strategies if s['name'] == selected_strategy and s['max_loss'] > estimated_loss):
-        st.error(f"Trade blocked: Max loss exceeds {max_loss_per_trade_pct}% of capital.")
-        st.stop()
-
-    # Guard 4: Max Trades per Day
-    trades_today = len([t for t in st.session_state.trade_log if pd.to_datetime(t['date']).date() == datetime.now().date()])
-    if trades_today >= max_trades_per_day:
-        st.error(f"Trade blocked: Max trades per day ({max_trades_per_day}) reached.")
-        st.stop()
-
-    with st.spinner("Executing strategy..."):
-        order_results, trade_pnl, entry_price, max_loss, legs = execute_strategy(
-            access_token, st.session_state.option_chain, spot_price, selected_strategy, quantity, df
-        )
-
-    # Show Payout Chart
-    fig = generate_payout_chart(df, legs, spot_price)
-    if fig:
-        st.subheader("Payout Simulation")
-        st.plotly_chart(fig, use_container_width=True)
-        st.subheader("Monte Carlo Risk Simulation")
-        sim_days = st.slider("Days to Expiry", 1, 10, 5)
-        sim_vol = st.slider("Assumed IV (%)", 10.0, 40.0, float(st.session_state.atm_iv), step=0.5)
-        sim_button = st.button("Run Monte Carlo Simulation")
-
-        if sim_button:
-            with st.spinner("Simulating expiry outcomes..."):
-                simulated_pnl = monte_carlo_expiry_simulation(legs, spot_price, 1000, sim_days, sim_vol / 100)
-                pnl_df = pd.DataFrame(simulated_pnl, columns=["P&L"])
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Median P&L", f"₹{np.median(simulated_pnl):,.0f}")
-                col2.metric("Win %", f"{(pnl_df['P&L'] > 0).mean()*100:.1f}%")
-                col3.metric("Risk of Loss", f"{(pnl_df['P&L'] < 0).mean()*100:.1f}%")
-                st.subheader("Simulated Expiry P&L Distribution")
-                st.bar_chart(pnl_df["P&L"].value_counts().sort_index())
+            if sim_button:
+                with st.spinner("Simulating expiry outcomes..."):
+                    simulated_pnl = monte_carlo_expiry_simulation(legs, spot_price, 1000, sim_days, sim_vol / 100)
+                    pnl_df = pd.DataFrame(simulated_pnl, columns=["P&L"])
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Median P&L", f"₹{np.median(simulated_pnl):,.0f}")
+                    col2.metric("Win %", f"{(pnl_df['P&L'] > 0).mean()*100:.1f}%")
+                    col3.metric("Risk of Loss", f"{(pnl-df['P&L'] < 0).mean()*100:.1f}%")
+                    st.subheader("Simulated Expiry P&L Distribution")
+                    st.bar_chart(pnl_df["P&L"].value_counts().sort_index())
 
 # === Tab 5: Dashboard ===
 with tab5:
