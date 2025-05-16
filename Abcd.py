@@ -1298,8 +1298,7 @@ strategy_tooltips = {
         "Bear_Call_Credit": "Profits if market falls. Limited reward, safer than directional bets. Max loss is strike difference minus premium.",
         "Jade_Lizard": "Profits if market rises slightly or stays flat. No upside risk, but downside risk exists."
     }
-
-        if run_engine or st.session_state.strategies:
+if run_engine or st.session_state.strategies:
         try:
             nifty_df = pd.read_csv("https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv")
             nifty_df.columns = nifty_df.columns.str.strip()
