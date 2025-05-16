@@ -19,3 +19,4 @@ requests
 numpy 
 arch
 retrying 
+autorefresh
