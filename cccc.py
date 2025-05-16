@@ -1135,5 +1135,154 @@ with tab4:
                     logger.error(f"Strategy execution error: {e}")
                     st.error(f"Error executing strategy: {e}")
     else:
-        st.warning("Run the engine from the sidebar to generate strategies.")
+         st.warning("Run the engine from the sidebar to generate strategies.")
+
+
+with tab5:
+    st.header("Trading Dashboard")
+    if access_token:
+        try:
+            user_details = get_user_details(access_token)
+            if 'error' in user_details:
+                st.error(f"Failed to fetch user details: {user_details['error']}")
+            else:
+                st.subheader("Account Details")
+                col1, col2 = st.columns(2)
+                with col1:
+                    profile = user_details.get('profile', {}).get('data', {})
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>person</i> Name</h4><p>{profile.get('name', 'N/A')}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>email</i> Email</h4><p>{profile.get('email', 'N/A')}</p></div>", unsafe_allow_html=True)
+                with col2:
+                    funds = user_details.get('funds', {}).get('data', {})
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>account_balance_wallet</i> Equity Margin</h4><p>₹{funds.get('equity', {}).get('available_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Used Margin</h4><p>₹{funds.get('equity', {}).get('used_margin', 0):,.2f}</p></div>", unsafe_allow_html=True)
+
+                st.subheader("Performance Metrics")
+                metrics = st.session_state.trade_metrics
+                win_rate = (metrics['winning_trades'] / metrics['total_trades'] * 100) if metrics['total_trades'] > 0 else 0
+                sharpe_ratio = (np.mean([x['pnl'] for x in metrics['pnl_history']]) / np.std([x['pnl'] for x in metrics['pnl_history']]) * np.sqrt(252)) if metrics['pnl_history'] and np.std([x['pnl'] for x in metrics['pnl_history']]) != 0 else 0
+                col3, col4 = st.columns(2)
+                with col3:
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>bar_chart</i> Total Trades</h4><p>{metrics['total_trades']}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>trending_up</i> Win Rate</h4><p>{win_rate:.2f}%</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>show_chart</i> Sharpe Ratio</h4><p>{sharpe_ratio:.2f}</p></div>", unsafe_allow_html=True)
+                with col4:
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>monetization_on</i> Total P&L</h4><p>₹{metrics['total_pnl']:,.2f}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>thumb_up</i> Winning Trades</h4><p>{metrics['winning_trades']}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>thumb_down</i> Losing Trades</h4><p>{metrics['losing_trades']}</p></div>", unsafe_allow_html=True)
+
+                # Risk Analysis
+                st.subheader("Risk Analysis")
+                try:
+                    pnl_series = pd.Series([x['pnl'] for x in metrics['pnl_history']])
+                    drawdown = (pnl_series.cumsum() - pnl_series.cumsum().cummax()).min() if not pnl_series.empty else 0
+                    var_95 = np.percentile(pnl_series, 5) if not pnl_series.empty else 0
+                    stress_loss = var_95 * 2  # Simulate 2x volatility spike
+                    col5, col6 = st.columns(2)
+                    with col5:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Max Drawdown</h4><p>₹{drawdown:,.2f}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> VaR (95%)</h4><p>₹{var_95:,.2f}</p></div>", unsafe_allow_html=True)
+                    with col6:
+                        st.markdown(f"<div class='metric-card'><h4><i class='material-icons'>warning</i> Stress Test Loss</h4><p>₹{stress_loss:,.2f}</p></div>", unsafe_allow_html=True)
+                        risk_status = st.session_state.risk_status
+                        status_text = "Safe" if risk_status == "green" else "Warning" if risk_status == "yellow" else "Critical"
+                        status_class = "alert-green" if risk_status == "green" else "alert-yellow" if risk_status == "yellow" else "alert-red"
+                        st.markdown(f"<div class='{status_class}'><h4><i class='material-icons'>warning</i> Risk Status</h4><p>{status_text}</p></div>", unsafe_allow_html=True)
+                except Exception as e:
+                    logger.error(f"Risk analysis error: {e}")
+                    st.warning("Unable to compute risk metrics due to insufficient trade data.")
+
+                # P&L Plot
+                if metrics['pnl_history']:
+                    st.subheader("Cumulative P&L")
+                    pnl_df = pd.DataFrame(metrics['pnl_history'])
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=pnl_df['timestamp'],
+                        y=pnl_df['pnl'].cumsum(),
+                        mode='lines',
+                        name='Cumulative P&L',
+                        line=dict(color='#4CAF50')
+                    ))
+                    fig.update_layout(
+                        title="Cumulative P&L Over Time",
+                        xaxis_title="Date",
+                        yaxis_title="P&L (₹)",
+                        template="plotly_dark",
+                        plot_bgcolor='#121212',
+                        paper_bgcolor='#121212',
+                        font=dict(color='#FAFAFA')
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            logger.error(f"Dashboard error: {e}")
+            st.error(f"Error loading dashboard: {e}. Please check your access token.")
+    else:
+        st.warning("Enter your Upstox access token in the Snapshot tab to view account details.")
+
+#=== Tab 6: Journal ===
+with tab6:
+    st.header("Trading Journal")
+    st.subheader("Add Journal Entry")
+    journal_text = st.text_area("Journal Entry", height=100, help="Record your thoughts, strategy reflections, or market observations.")
+    journal_regime_score = st.number_input("Regime Score (Optional)", min_value=0, max_value=100, step=1, value=regime_score if 'regime_score' in locals() else 50)
+    if st.button("Save Journal Entry"):
+        if journal_text.strip():
+            entry = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "text": journal_text.strip(),
+                "regime_score": journal_regime_score
+            }
+            st.session_state.journal_entries.append(entry)
+            logger.info(f"Journal entry saved: {entry['timestamp']}")
+            st.markdown("<div class='alert-green'>Journal entry saved!</div>", unsafe_allow_html=True)
+        else:
+            st.warning("Please enter some text before saving.")
+
+    st.subheader("Trade Log")
+    if st.session_state.trade_log:
+        trade_df = pd.DataFrame(st.session_state.trade_log)
+        trade_df = trade_df[['date', 'strategy', 'capital', 'pnl', 'quantity', 'regime_score', 'entry_price', 'max_loss']]
+        trade_df.columns = ['Date', 'Strategy', 'Capital (₹)', 'P&L (₹)', 'Quantity', 'Regime Score', 'Entry Price (₹)', 'Max Loss (₹)']
+        trade_df = trade_df.sort_values('Date', ascending=False)
+        for idx, row in trade_df.iterrows():
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4><i class='material-icons'>history</i> {row['Date']}</h4>
+                    <p>Strategy: {row['Strategy']}</p>
+                    <p>Capital: ₹{row['Capital (₹)']:,.2f}</p>
+                    <p>P&L: ₹{row['P&L (₹)']:,.2f}</p>
+                    <p>Quantity: {row['Quantity']}</p>
+                    <p>Regime Score: {row['Regime Score']}</p>
+                    <p>Entry Price: ₹{row['Entry Price (₹)']:,.2f}</p>
+                    <p>Max Loss: ₹{row['Max Loss (₹)']:,.2f}</p>
+                </div
+            """, unsafe_allow_html=True)
+        if st.button("Export Trade Log to CSV"):
+            trade_df.to_csv("trade_log.csv", index=False)
+            st.markdown("<div class='alert-green'>Trade log exported to trade_log.csv!</div>", unsafe_allow_html=True)
+    else:
+        st.info("No trades logged yet. Execute a strategy to populate the trade log.")
+
+    st.subheader("Journal Entries")
+    if st.session_state.journal_entries:
+        for idx, entry in enumerate(st.session_state.journal_entries):
+            st.markdown(f"""
+                <div class='metric-card'>
+                    <h4><i class='material-icons'>event_note</i> {entry['timestamp']}</h4>
+                    <p>{entry['text']}</p>
+                    <p>Regime Score: {entry['regime_score']}</p>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button(f"Delete Entry {idx + 1}", key=f"delete_{idx}"):
+                st.session_state.journal_entries.pop(idx)
+                logger.info(f"Journal entry deleted: {entry['timestamp']}")
+                st.markdown("<div class='alert-green'>Journal entry deleted!</div>", unsafe_allow_html=True)
+                st.experimental_rerun()
+    else:
+        st.info("No journal entries yet. Add one above.")
+
+# === Final Footer ===
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #4CAF50;'>Built by Shritish Shukla and Salman Azimuddin </p>", unsafe_allow_html=True)
 
