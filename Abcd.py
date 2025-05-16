@@ -769,29 +769,38 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         for leg in legs:
             st.write(f"- {leg['action']} {leg['instrument_key']} (Qty: {leg['quantity']})")
 
-       # Calculate max loss and entry price
-max_loss = 0
-entry_price = 0
+        # Calculate max loss and entry price
+        max_loss = 0
+        entry_price = 0
 
-for leg in legs:
-    try:
-        strike = leg.get('strike', 0)
-        opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
-        row = df[df['Strike'] == strike]
-        if not row.empty:
-            ltp = row[f'{opt_type}_LTP'].iloc[0]
-            if leg['action'] == 'SELL':
-                max_loss += ltp * leg['quantity']
-                entry_price += ltp * leg['quantity']
-            else:
-                max_loss -= ltp * leg['quantity']
-                entry_price -= ltp * leg['quantity']
+        for leg in legs:
+            try:
+                strike = leg.get('strike', 0)
+                opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
+                row = df[df['Strike'] == strike]
+                if not row.empty:
+                    ltp = row[f'{opt_type}_LTP'].iloc[0]
+                    if leg['action'] == 'SELL':
+                        max_loss += ltp * leg['quantity']
+                        entry_price += ltp * leg['quantity']
+                    else:
+                        max_loss -= ltp * leg['quantity']
+                        entry_price -= ltp * leg['quantity']
+            except Exception as e:
+                logger.error(f"Error in leg calculation: {e}")
+                st.error("Could not calculate max loss for one leg.")
+                return None, 0, 0, 0
+
+        max_loss = abs(max_loss)
+
+        # You can now proceed to place orders, monitor, etc.
+        # return final values at the end
+        return order_api, max_loss, entry_price, legs
+
     except Exception as e:
-        logger.error(f"Error in leg calculation: {e}")
-        st.error("Could not calculate max loss for one leg.")
+        logger.error(f"Strategy execution error: {e}")
+        st.error("Something went wrong while executing the strategy.")
         return None, 0, 0, 0
-
-max_loss = abs(max_loss)
     
 
         # Risk check
