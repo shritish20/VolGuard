@@ -1284,7 +1284,7 @@ with tab4:
 max_iv_allowed = st.slider("Max IV Allowed (%)", 10.0, 35.0, 22.0, step=0.5)
 min_regime_score = st.slider("Minimum Regime Score", 0, 100, 60, step=5)
 max_loss_pct = st.slider("Max Loss per Trade (%)", 1.0, 10.0, 5.0, step=0.5)
-    strategy_options = [
+strategy_options = [
         "Iron_Fly", "Iron_Condor", "Short_Straddle", "Short_Strangle",
         "Bull_Put_Credit", "Bear_Call_Credit", "Jade_Lizard"
     ]
