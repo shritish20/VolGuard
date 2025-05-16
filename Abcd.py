@@ -913,7 +913,7 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         if not legs:
             st.error(f"Failed to build legs for {strategy_name}.")
             logger.error(f"No valid legs generated for {strategy_name}")
-            return None, 0, 0, 0
+            return None, 0, 0, 0, []
 
         # Display strategy legs
         st.write("**Strategy Legs:**")
@@ -1127,29 +1127,30 @@ with tab1:
                             st.subheader("IV Skew Plot")
                             st.plotly_chart(iv_skew_fig, use_container_width=True)
 
-                    st.subheader("Key Strikes (ATM ± 6)")
-                    atm_idx = df[df['Strike'] == atm_strike].index[0]
-                    key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
-                        'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI',
-                        'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
-                        'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume',
-                        'Strike_PCR', 'OI_Skew', 'IV_Skew_Slope'
-                    ]]
-                    key_strikes['CE_OI_Change'] = key_strikes['CE_OI_Change'].apply(
-                        lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
-                    )
-                    key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
-                        lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
-                    )
-                    for idx, row in key_strikes.iterrows():
-                        st.markdown(f"""
-                            <div class='metric-card'>
-                                <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']:.2f}</h4>
-                                <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f}% | CE OI: {row['CE_OI']:.0f} | OI Change: {row['CE_OI_Change']}</p>
-                                <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f}% | PE OI: {row['PE_OI']:.0f} | OI Change: {row['PE_OI_Change']}</p>
-                                <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
+                    # Wrapped in expander for mobile-friendliness
+                    with st.expander("Key Strikes (ATM ± 6)"):
+                        atm_idx = df[df['Strike'] == atm_strike].index[0]
+                        key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
+                            'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI',
+                            'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
+                            'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume',
+                            'Strike_PCR', 'OI_Skew', 'IV_Skew_Slope'
+                        ]]
+                        key_strikes['CE_OI_Change'] = key_strikes['CE_OI_Change'].apply(
+                            lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                        )
+                        key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
+                            lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                        )
+                        for idx, row in key_strikes.iterrows():
+                            st.markdown(f"""
+                                <div class='metric-card'>
+                                    <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']:.2f}</h4>
+                                    <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f}% | CE OI: {row['CE_OI']:.0f} | OI Change: {row['CE_OI_Change']}</p>
+                                    <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f}% | PE OI: {row['PE_OI']:.0f} | OI Change: {row['PE_OI_Change']}</p>
+                                    <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
 
 # === Tab 2: Forecast ===
 with tab2:
