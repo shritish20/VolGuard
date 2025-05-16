@@ -658,43 +658,43 @@ def build_strategy_legs(option_chain, spot_price, strategy_name, quantity, otm_d
         s = strategy_name.lower()
         if s == "iron_fly":
             legs = [
-                {"instrument_key": get_key(atm_strike, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike, "CE"), "strike": atm_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike, "PE"), "strike": atm_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "strike": atm_strike + otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "strike": atm_strike - otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "iron_condor":
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "strike": atm_strike + otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "strike": atm_strike + 2 * otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "strike": atm_strike - otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "strike": atm_strike - 2 * otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "short_straddle":
             legs = [
-                {"instrument_key": get_key(atm_strike, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike, "CE"), "strike": atm_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike, "PE"), "strike": atm_strike, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "short_strangle":
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "strike": atm_strike + otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "strike": atm_strike - otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "bull_put_credit":
             legs = [
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "strike": atm_strike - otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "strike": atm_strike - 2 * otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "bear_call_credit":
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "strike": atm_strike + otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + 2 * otm_distance, "CE"), "strike": atm_strike + 2 * otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         elif s == "jade_lizard":
             legs = [
-                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
-                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike + otm_distance, "CE"), "strike": atm_strike + otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - otm_distance, "PE"), "strike": atm_strike - otm_distance, "action": "SELL", "quantity": quantity, "order_type": "MARKET"},
+                {"instrument_key": get_key(atm_strike - 2 * otm_distance, "PE"), "strike": atm_strike - 2 * otm_distance, "action": "BUY", "quantity": quantity, "order_type": "MARKET"},
             ]
         else:
             raise ValueError(f"Unsupported strategy: {strategy_name}")
@@ -773,17 +773,17 @@ def execute_strategy(access_token, option_chain, spot_price, strategy_name, quan
         max_loss = 0
         entry_price = 0
         for leg in legs:
-            strike = float(leg['instrument_key'].split('_')[-1]) if leg['instrument_key'] else 0
-            opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
-            row = df[df['Strike'] == strike]
-            if not row.empty:
-                ltp = row[f'{opt_type}_LTP'].iloc[0]
-                if leg['action'] == 'SELL':
-                    max_loss += ltp * leg['quantity']
-                    entry_price += ltp * leg['quantity']
-                else:
-                    max_loss -= ltp * leg['quantity']
-                    entry_price -= ltp * leg['quantity']
+    strike = leg.get('strike', 0)
+    opt_type = 'CE' if 'CALL' in leg['instrument_key'] else 'PE'
+    row = df[df['Strike'] == strike]
+    if not row.empty:
+        ltp = row[f'{opt_type}_LTP'].iloc[0]
+        if leg['action'] == 'SELL':
+            max_loss += ltp * leg['quantity']
+            entry_price += ltp * leg['quantity']
+        else:
+            max_loss -= ltp * leg['quantity']
+            entry_price -= ltp * leg['quantity']
         max_loss = abs(max_loss)
 
         # Risk check
