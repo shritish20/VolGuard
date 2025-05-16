@@ -518,7 +518,6 @@ def fetch_option_chain(_options_api, instrument_key, expiry):
         return []
 
 def process_chain(data):
-    global prev }}"
     try:
         rows, ce_oi, pe_oi = [], 0, 0
         for r in data:
