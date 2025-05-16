@@ -18,6 +18,10 @@ import json
 import retrying
 import math
 
+# === Streamlit Configuration ===
+st.set_page_config(page_title="VolGuard Pro 2.0 - AI Trading Copilot", layout="wide")
+
+# Custom CSS for Polished UI
 st.markdown("""
 <style>
 body {
@@ -81,18 +85,6 @@ body {
 </style>
 """, unsafe_allow_html=True)
 
-# Configure Logging
-logging.basicConfig(filename='volguard.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Suppress XGBoost warnings
-import xgboost as xgb
-xgb.set_config(verbosity=0)
-
-# === Streamlit Configuration ===
-st.set_page_config(page_title="VolGuard Pro 2.0 - AI Trading Copilot", layout="wide")
-
-# Custom CSS for Polished UI
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
@@ -302,6 +294,14 @@ st.markdown("""
     </style>
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 """, unsafe_allow_html=True)
+
+# Configure Logging
+logging.basicConfig(filename='volguard.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Suppress XGBoost warnings
+import xgboost as xgb
+xgb.set_config(verbosity=0)
 
 # === Session State Initialization ===
 if 'volguard_data' not in st.session_state:
@@ -1364,10 +1364,9 @@ with tab4:
     st.header("Strategy Recommendations")
     st.subheader("Risk Guard Settings")
     max_iv_allowed = st.slider("Max IV Allowed (%)", 10.0, 35.0, 22.0, step=0.5)
-    min_regime_score = st.slider("Minimum Regime Score", 0, 100,50, step=5, help="Minimum regime score to allow trading.")
-max_trades_per_day = st.slider("Max Trades per Day", 1, 10, 3, step=1, help="Maximum number of trades allowed per day.")
-
-if run_engine:
+    min_regime_score = st.slider("Minimum Regime Score", 0, 100, 50, step=5, help="Minimum regime score to allow trading.")
+    max_trades_per_day = st.slider("Max Trades per Day", 1, 10, 3, step=1, help="Maximum number of trades allowed per day.")
+    if run_engine:
     with st.spinner("Generating strategy recommendations..."):
         try:
             if st.session_state.volguard_data is None:
@@ -1675,5 +1674,3 @@ st.markdown("""
         <p style='color: #FAFAFA;'>For support, contact: shritish@example.com</p>
     </div>
 """, unsafe_allow_html=True)
-
-  
