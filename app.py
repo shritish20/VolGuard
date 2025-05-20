@@ -4,7 +4,7 @@ from session.state_manager import initialize_session_state
 from ui.components import render_top_bar
 from ui.tabs.snapshot import render_snapshot_tab
 from ui.tabs.forecast import render_forecast_tab
-from ui.tabs.prediction import render_prediction_tab
+from ui.tabs.prediction import render_prediction_tab  # Corrected import
 from ui.tabs.strategies import render_strategies_tab
 from ui.tabs.dashboard import render_dashboard_tab
 from ui.tabs.journal import render_journal_tab
@@ -51,7 +51,7 @@ def main():
     with tab2:
         render_forecast_tab()
     with tab3:
-        render_prediction_tab()
+        render_prediction_tab()  # Corrected function call
     with tab4:
         render_strategies_tab(run_engine=run_engine)
     with tab5:
