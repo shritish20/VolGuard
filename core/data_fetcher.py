@@ -188,7 +188,16 @@ def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
 
 def run_volguard(access_token):
     """Run VolGuard data fetching pipeline."""
+    logger = setup_logger()
+    logger.info("Starting VolGuard data fetch")
+
+    if not access_token:
+        logger.error("No access token provided")
+        st.error("Please provide a valid Upstox access token.")
+        return None, None, None, None, None
+
     try:
+        logger.info("Initializing Upstox API client")
         configuration = Configuration()
         configuration.access_token = access_token
         client = ApiClient(configuration)
@@ -196,27 +205,51 @@ def run_volguard(access_token):
         instrument_key = INSTRUMENT_KEY
         base_url = UPSTOX_BASE_URL
 
+        logger.info(f"Fetching nearest expiry for {instrument_key}")
         expiry = get_nearest_expiry(options_api, instrument_key)
         if not expiry:
+            logger.error("Failed to fetch expiry date")
+            st.error("Could not fetch expiry date. Check your access token or API connectivity.")
             return None, None, None, None, None
+        logger.info(f"Nearest expiry: {expiry}")
 
+        logger.info(f"Fetching option chain for expiry {expiry}")
         chain = fetch_option_chain(options_api, instrument_key, expiry)
         if not chain:
+            logger.error("Option chain fetch returned empty data")
+            st.error("Failed to fetch option chain data. Possible API issue or invalid token.")
             return None, None, None, None, None
+        logger.info(f"Option chain fetched with {len(chain)} entries")
 
         spot = chain[0].get("underlying_spot_price") or 0
         if not spot:
+            logger.error("Spot price not found in option chain")
+            st.error("Spot price not available in option chain data.")
             return None, None, None, None, None
+        logger.info(f"Spot price: {spot}")
 
+        logger.info("Processing option chain data")
         df, ce_oi, pe_oi = process_chain(chain)
         if df.empty:
+            logger.error("Processed option chain DataFrame is empty")
+            st.error("Failed to process option chain data.")
             return None, None, None, None, None
+        logger.info(f"Option chain processed with {len(df)} rows")
 
+        logger.info("Calculating market metrics")
         pcr, max_pain, straddle_price, atm_strike, atm_iv = calculate_metrics(df, ce_oi, pe_oi, spot)
+        logger.info(f"Metrics: PCR={pcr}, Max Pain={max_pain}, ATM Strike={atm_strike}, ATM IV={atm_iv}")
+
+        logger.info("Fetching market depth for ATM options")
         ce_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['CE_Token'].values[0])
         pe_depth = get_market_depth(access_token, base_url, df[df['Strike'] == atm_strike]['PE_Token'].values[0])
+        logger.info(f"CE Depth: {ce_depth}, PE Depth: {pe_depth}")
+
+        logger.info("Generating IV skew plot")
         from utils.helpers import plot_iv_skew
         iv_skew_fig = plot_iv_skew(df, spot, atm_strike)
+        if not iv_skew_fig:
+            logger.warning("IV skew plot could not be generated")
 
         result = {
             "nifty_spot": spot,
@@ -232,7 +265,10 @@ def run_volguard(access_token):
             "atm_iv": atm_iv
         }
         st.session_state.option_chain = chain
+        logger.info("VolGuard data fetch completed successfully")
         return result, df, iv_skew_fig, atm_strike, atm_iv
+
     except Exception as e:
-        logger.error(f"Volguard run error: {e}")
+        logger.error(f"Volguard run error: {str(e)}")
+        st.error(f"Error fetching data: {str(e)}. Check logs for details.")
         return None, None, None, None, None
