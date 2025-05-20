@@ -9,6 +9,11 @@ logger = setup_logger()
 def render_snapshot_tab():
     """Render the Snapshot tab."""
     st.header("Market Snapshot")
+    logger.info("Rendering Snapshot tab")
+    
+    # Debug message to confirm tab renders
+    st.markdown("Snapshot tab loaded successfully. Enter your access token below.")
+    
     access_token = st.text_input("Enter Upstox Access Token", type="password", help="Enter your Upstox access token to fetch live market data.")
     st.session_state.access_token = access_token
 
@@ -22,6 +27,8 @@ def render_snapshot_tab():
                     st.session_state.volguard_data = result
                     st.session_state.atm_iv = atm_iv
                     st.success("Data fetched successfully!")
+                    logger.info("Snapshot tab: Data fetched successfully")
+                    
                     risk_status, risk_message = check_risk(
                         0, 0, 0, st.session_state.atm_iv, st.session_state.realized_vol,
                         st.session_state.risk_settings['total_capital'], st.session_state.risk_settings
@@ -46,29 +53,41 @@ def render_snapshot_tab():
                         if iv_skew_fig:
                             st.subheader("IV Skew Plot")
                             st.plotly_chart(iv_skew_fig, use_container_width=True)
+                        else:
+                            st.warning("IV Skew Plot not available.")
 
                     with st.expander("Key Strikes (ATM ± 6)"):
-                        atm_idx = df[df['Strike'] == atm_strike].index[0]
-                        key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
-                            'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI',
-                            'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
-                            'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume',
-                            'Strike_PCR', 'OI_Skew', 'IV_Skew_Slope'
-                        ]]
-                        key_strikes['CE_OI_Change'] = key_strikes['CE_OI_Change'].apply(
-                            lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
-                        )
-                        key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
-                            lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
-                        )
-                        for idx, row in key_strikes.iterrows():
-                            st.markdown(f"""
-                                <div class='metric-card'>
-                                    <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']:.2f}</h4>
-                                    <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f}% | CE OI: {row['CE_OI']:.0f} | OI Change: {row['CE_OI_Change']}</p>
-                                    <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f}% | PE OI: {row['PE_OI']:.0f} | OI Change: {row['PE_OI_Change']}</p>
-                                    <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
-                                </div>
-                            """, unsafe_allow_html=True)
+                        try:
+                            atm_idx = df[df['Strike'] == atm_strike].index[0]
+                            key_strikes = df.iloc[max(0, atm_idx-6):atm_idx+7][[
+                                'Strike', 'CE_LTP', 'CE_IV', 'CE_Delta', 'CE_Theta', 'CE_Vega', 'CE_OI',
+                                'CE_OI_Change', 'CE_OI_Change_Pct', 'CE_Volume', 'PE_LTP', 'PE_IV', 'PE_Delta',
+                                'PE_Theta', 'PE_Vega', 'PE_OI', 'PE_OI_Change', 'PE_OI_Change_Pct', 'PE_Volume',
+                                'Strike_PCR', 'OI_Skew', 'IV_Skew_Slope'
+                            ]]
+                            key_strikes['CE_OI_Change'] = key_strikes['CE_OI_Change'].apply(
+                                lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                            )
+                            key_strikes['PE_OI_Change'] = key_strikes['PE_OI_Change'].apply(
+                                lambda x: f"{x:.1f}*" if x > 500000 else f"{x:.1f}"
+                            )
+                            for idx, row in key_strikes.iterrows():
+                                st.markdown(f"""
+                                    <div class='metric-card'>
+                                        <h4><i class='material-icons'>attach_money</i> Strike: {row['Strike']:.2f}</h4>
+                                        <p>CE LTP: {row['CE_LTP']:.2f} | CE IV: {row['CE_IV']:.2f}% | CE OI: {row['CE_OI']:.0f} | OI Change: {row['CE_OI_Change']}</p>
+                                        <p>PE LTP: {row['PE_LTP']:.2f} | PE IV: {row['PE_IV']:.2f}% | PE OI: {row['PE_OI']:.0f} | OI Change: {row['PE_OI_Change']}</p>
+                                        <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"Error rendering key strikes: {str(e)}")
+                            logger.error(f"Error rendering key strikes: {str(e)}")
                 else:
                     st.error("Failed to fetch market data. Check the access token or review logs at volguard.log.")
+                    logger.error("Snapshot tab: Failed to fetch market data")
+                    # Debug: Check run_volguard success flag
+                    if 'run_volguard_success' in st.session_state:
+                        st.write(f"run_volguard success flag: {st.session_state.run_volguard_success}")
+                    else:
+                        st.write("run_volguard success flag not set.")
