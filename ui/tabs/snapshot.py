@@ -18,7 +18,7 @@ def render_snapshot_tab():
         else:
             with st.spinner("Fetching options data..."):
                 result, df, iv_skew_fig, atm_strike, atm_iv = run_volguard(access_token)
-                if result:
+                if result and not df.empty:
                     st.session_state.volguard_data = result
                     st.session_state.atm_iv = atm_iv
                     st.success("Data fetched successfully!")
@@ -70,3 +70,5 @@ def render_snapshot_tab():
                                     <p>Strike PCR: {row['Strike_PCR']:.2f} | OI Skew: {row['OI_Skew']:.2f} | IV Skew Slope: {row['IV_Skew_Slope']:.2f}</p>
                                 </div>
                             """, unsafe_allow_html=True)
+                else:
+                    st.error("Failed to fetch market data. Check the access token or review logs at volguard.log.")
