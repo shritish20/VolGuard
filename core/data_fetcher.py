@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
+import requests
 from datetime import datetime
-from upstox_client import Configuration, ApiClient, OptionsApi, ApiException
+from upstox_client import Configuration, ApiClient, OptionsApi
+from upstox_client.rest import ApiException
 from retrying import retry
 from utils.logger import setup_logger
 from config.settings import INSTRUMENT_KEY, UPSTOX_BASE_URL
@@ -38,7 +40,7 @@ def fetch_option_chain(_options_api, instrument_key, expiry):
     try:
         res = _options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
         data = res.to_dict().get('data', [])
-        logger.info(f"Option chain response: {data[:2]}")  # Log first two entries
+        logger.info(f"Option chain response: {data[:2]}")
         return data
     except ApiException as e:
         logger.error(f"Option chain fetch failed: {str(e)}")
@@ -53,7 +55,6 @@ def process_chain(chain):
             logger.error("Option chain data is empty")
             return df, 0, 0
         
-        # Extract relevant fields
         df['Strike'] = df['strike_price']
         df['CE_LTP'] = df['call_option'].apply(lambda x: x.get('last_price', 0))
         df['CE_IV'] = df['call_option'].apply(lambda x: x.get('implied_volatility', 0))
@@ -77,7 +78,6 @@ def process_chain(chain):
         df['PE_Volume'] = df['put_option'].apply(lambda x: x.get('volume', 0))
         df['PE_Token'] = df['put_option'].apply(lambda x: x.get('instrument_key', ''))
 
-        # Calculate additional metrics
         df['Strike_PCR'] = df['PE_OI'] / (df['CE_OI'] + 1e-10)
         df['OI_Skew'] = df['CE_OI'] - df['PE_OI']
         df['IV_Skew_Slope'] = df['CE_IV'] - df['PE_IV']
@@ -123,8 +123,11 @@ def get_market_depth(access_token, base_url, instrument_key):
         data = response.json().get('data', {})
         logger.info(f"Market depth: {data}")
         return data
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching market depth: {str(e)}")
+        return {}
+    except Exception as e:
+        logger.error(f"Unexpected error in get_market_depth: {str(e)}")
         return {}
 
 def run_volguard(access_token):
@@ -206,9 +209,11 @@ def run_volguard(access_token):
         }
         st.session_state.option_chain = chain
         logger.info("VolGuard data fetch completed successfully")
+        st.session_state.run_volguard_success = True  # Debug flag
         return result, df, iv_skew_fig, atm_strike, atm_iv
 
     except Exception as e:
         logger.error(f"Volguard run error: {str(e)}")
         st.error(f"Error fetching data: {str(e)}. Check logs for details.")
+        st.session_state.run_volguard_success = False  # Debug flag
         return None, None, None, None, None
