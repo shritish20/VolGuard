@@ -1338,7 +1338,6 @@ with tab3:
     with col2:
         vix_input = st.number_input("VIX (%)", value=15.0, min_value=0.0, max_value=100.0, step=0.1)
         five_day_rv_input = st.number_input("5-Day Historical RV (%)", value=float(five_day_rv), min_value=0.0, max_value=100.0, step=0.1)
-        iv_skew_input = st.number_input("IV Skew", value=float(iv_skew), step=0.01)
         pcr_input = st.number_input("Put-Call Ratio", value=float(pcr), min_value=0.0, max_value=5.0, step=0.01)
         fii_derivative_input = st.number_input("FII Derivative Positioning (₹ Cr)", value=0.0, step=100.0)
 
