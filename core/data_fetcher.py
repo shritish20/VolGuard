@@ -1,194 +1,134 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from upstox_client import Configuration, ApiClient, OptionsApi, UserApi, PortfolioApi, OrderApi
-from upstox_client.rest import ApiException
+from upstox_client import Configuration, ApiClient, OptionsApi, ApiException
 from retrying import retry
-import requests
-from config.settings import UPSTOX_BASE_URL, INSTRUMENT_KEY
 from utils.logger import setup_logger
+from config.settings import INSTRUMENT_KEY, UPSTOX_BASE_URL
 
 logger = setup_logger()
 
-@st.cache_data(ttl=300)
-def get_nearest_expiry(options_api, instrument_key):
-    """Fetch nearest expiry date for the given instrument."""
-    @retry(stop_max_attempt_number=3, wait_fixed=2000)
-    def fetch_expiry():
-        try:
-            response = options_api.get_option_contracts(instrument_key=instrument_key)
-            return response.to_dict().get("data", [])
-        except ApiException as e:
-            logger.error(f"Expiry fetch failed: {e}")
-            raise
-
+@st.cache_data
+def get_nearest_expiry(_options_api, instrument_key):
+    """Fetch the nearest valid expiry date for the given instrument."""
+    logger.info(f"Fetching expiry dates for instrument: {instrument_key}")
     try:
-        contracts = fetch_expiry()
-        expiry_dates = set()
-        for contract in contracts:
-            exp = contract.get("expiry")
-            if isinstance(exp, str):
-                exp = datetime.strptime(exp, "%Y-%m-%d")
-            expiry_dates.add(exp)
-        expiry_list = sorted(expiry_dates)
-        today = datetime.now()
-        valid_expiries = [e.strftime("%Y-%m-%d") for e in expiry_list if e >= today]
-        return valid_expiries[0] if valid_expiries else None
+        res = _options_api.get_option_contracts(instrument_key=instrument_key)
+        expiries = res.to_dict().get('data', [])
+        if not expiries:
+            logger.error("No expiry dates returned from API")
+            return None
+        expiry_dates = [e['expiry_date'] for e in expiries]
+        today = datetime.now().date()
+        valid_expiries = [datetime.strptime(date, '%Y-%m-%d').date() for date in expiry_dates if datetime.strptime(date, '%Y-%m-%d').date() >= today]
+        if not valid_expiries:
+            logger.error("No valid future expiry dates found")
+            return None
+        nearest_expiry = min(valid_expiries).strftime('%Y-%m-%d')
+        logger.info(f"Nearest expiry: {nearest_expiry}")
+        return nearest_expiry
     except Exception as e:
-        logger.error(f"Expiry fetch error: {e}")
+        logger.error(f"Error fetching expiry: {str(e)}")
         return None
 
-def fetch_option_chain(options_api, instrument_key, expiry):
-    """Fetch option chain data."""
-    @retry(stop_max_attempt_number=3, wait_fixed=2000)
-    def fetch_chain():
-        try:
-            res = options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
-            return res.to_dict().get('data', [])
-        except ApiException as e:
-            logger.error(f"Option chain fetch failed: {e}")
-            raise
-
+@st.cache_data
+def fetch_option_chain(_options_api, instrument_key, expiry):
+    """Fetch option chain data for the given instrument and expiry."""
+    logger.info(f"Fetching option chain for {instrument_key}, expiry {expiry}")
     try:
-        return fetch_chain()
-    except Exception as e:
-        logger.error(f"Option chain fetch error: {e}")
+        res = _options_api.get_put_call_option_chain(instrument_key=instrument_key, expiry_date=expiry)
+        data = res.to_dict().get('data', [])
+        logger.info(f"Option chain response: {data[:2]}")  # Log first two entries
+        return data
+    except ApiException as e:
+        logger.error(f"Option chain fetch failed: {str(e)}")
         return []
 
-@st.cache_data(ttl=300)
-def get_user_details(access_token):
-    """Fetch user details from Upstox API."""
+def process_chain(chain):
+    """Process option chain data into a structured DataFrame."""
+    logger.info("Processing option chain data")
     try:
-        configuration = Configuration()
-        configuration.access_token = access_token
-        client = ApiClient(configuration)
-        user_api = UserApi(client)
-        portfolio_api = PortfolioApi(client)
-        order_api = OrderApi(client)
-        details = {}
-        details['profile'] = user_api.get_profile(api_version="v2").to_dict()
-        details['funds'] = user_api.get_user_fund_margin(api_version="v2").to_dict()
-        details['holdings'] = portfolio_api.get_holdings(api_version="v2").to_dict()
-        details['positions'] = portfolio_api.get_positions(api_version="v2").to_dict()
-        details['orders'] = order_api.get_order_book(api_version="v2").to_dict()
-        details['trades'] = order_api.get_trade_history(api_version="v2").to_dict()
-        return details
-    except Exception as e:
-        logger.error(f"User details fetch error: {e}")
-        return {'error': str(e)}
+        df = pd.DataFrame(chain)
+        if df.empty:
+            logger.error("Option chain data is empty")
+            return df, 0, 0
+        
+        # Extract relevant fields
+        df['Strike'] = df['strike_price']
+        df['CE_LTP'] = df['call_option'].apply(lambda x: x.get('last_price', 0))
+        df['CE_IV'] = df['call_option'].apply(lambda x: x.get('implied_volatility', 0))
+        df['CE_Delta'] = df['call_option'].apply(lambda x: x.get('delta', 0))
+        df['CE_Theta'] = df['call_option'].apply(lambda x: x.get('theta', 0))
+        df['CE_Vega'] = df['call_option'].apply(lambda x: x.get('vega', 0))
+        df['CE_OI'] = df['call_option'].apply(lambda x: x.get('open_interest', 0))
+        df['CE_OI_Change'] = df['call_option'].apply(lambda x: x.get('oi_change', 0))
+        df['CE_OI_Change_Pct'] = df['call_option'].apply(lambda x: x.get('oi_change_pct', 0))
+        df['CE_Volume'] = df['call_option'].apply(lambda x: x.get('volume', 0))
+        df['CE_Token'] = df['call_option'].apply(lambda x: x.get('instrument_key', ''))
 
-@st.cache_data(ttl=300)
-def get_market_depth(access_token, base_url, token):
-    """Fetch market depth for a given instrument."""
-    try:
-        @retry(stop_max_attempt_number=3, wait_fixed=2000)
-        def fetch_depth():
-            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-            url = f"{base_url}/market-quote/depth"
-            res = requests.get(url, headers=headers, params={"instrument_key": token})
-            res.raise_for_status()
-            return res.json().get('data', {}).get(token, {}).get('depth', {})
+        df['PE_LTP'] = df['put_option'].apply(lambda x: x.get('last_price', 0))
+        df['PE_IV'] = df['put_option'].apply(lambda x: x.get('implied_volatility', 0))
+        df['PE_Delta'] = df['put_option'].apply(lambda x: x.get('delta', 0))
+        df['PE_Theta'] = df['put_option'].apply(lambda x: x.get('theta', 0))
+        df['PE_Vega'] = df['put_option'].apply(lambda x: x.get('vega', 0))
+        df['PE_OI'] = df['put_option'].apply(lambda x: x.get('open_interest', 0))
+        df['PE_OI_Change'] = df['put_option'].apply(lambda x: x.get('oi_change', 0))
+        df['PE_OI_Change_Pct'] = df['put_option'].apply(lambda x: x.get('oi_change_pct', 0))
+        df['PE_Volume'] = df['put_option'].apply(lambda x: x.get('volume', 0))
+        df['PE_Token'] = df['put_option'].apply(lambda x: x.get('instrument_key', ''))
 
-        depth = fetch_depth()
-        bid_volume = sum(item.get('quantity', 0) for item in depth.get('buy', []))
-        ask_volume = sum(item.get('quantity', 0) for item in depth.get('sell', []))
-        return {"bid_volume": bid_volume, "ask_volume": ask_volume}
-    except Exception as e:
-        logger.error(f"Depth fetch error for {token}: {e}")
-        return {"bid_volume": 0, "ask_volume": 0}
+        # Calculate additional metrics
+        df['Strike_PCR'] = df['PE_OI'] / (df['CE_OI'] + 1e-10)
+        df['OI_Skew'] = df['CE_OI'] - df['PE_OI']
+        df['IV_Skew_Slope'] = df['CE_IV'] - df['PE_IV']
 
-def process_chain(data):
-    """Process option chain data."""
-    try:
-        rows, ce_oi, pe_oi = [], 0, 0
-        prev_oi = st.session_state.get('prev_oi', {})
-        for r in data:
-            ce = r.get('call_options', {})
-            pe = r.get('put_options', {})
-            ce_md, pe_md = ce.get('market_data', {}), pe.get('market_data', {})
-            ce_gk, pe_gk = ce.get('option_greeks', {}), pe.get('option_greeks', {})
-            strike = r.get('strike_price', 0)
-            ce_oi_val = ce_md.get("oi", 0) or 0
-            pe_oi_val = pe_md.get("oi", 0) or 0
-            ce_oi_change = ce_oi_val - prev_oi.get(f"{strike}_CE", 0)
-            pe_oi_change = pe_oi_val - prev_oi.get(f"{strike}_PE", 0)
-            ce_oi_change_pct = (ce_oi_change / prev_oi.get(f"{strike}_CE", 1) * 100) if prev_oi.get(f"{strike}_CE", 0) else 0
-            pe_oi_change_pct = (pe_oi_change / prev_oi.get(f"{strike}_PE", 1) * 100) if prev_oi.get(f"{strike}_PE", 0) else 0
-            strike_pcr = pe_oi_val / (ce_oi_val or 1)
-            row = {
-                "Strike": strike,
-                "CE_LTP": ce_md.get("ltp", 0) or 0,
-                "CE_IV": ce_gk.get("iv", 0) or 0,
-                "CE_Delta": ce_gk.get("delta", 0) or 0,
-                "CE_Theta": ce_gk.get("theta", 0) or 0,
-                "CE_Vega": ce_gk.get("vega", 0) or 0,
-                "CE_OI": ce_oi_val,
-                "CE_OI_Change": ce_oi_change,
-                "CE_OI_Change_Pct": ce_oi_change_pct,
-                "CE_Volume": ce_md.get("volume", 0) or 0,
-                "PE_LTP": pe_md.get("ltp", 0) or 0,
-                "PE_IV": pe_gk.get("iv", 0) or 0,
-                "PE_Delta": pe_gk.get("delta", 0) or 0,
-                "PE_Theta": pe_gk.get("theta", 0) or 0,
-                "PE_Vega": pe_gk.get("vega", 0) or 0,
-                "PE_OI": pe_oi_val,
-                "PE_OI_Change": pe_oi_change,
-                "PE_OI_Change_Pct": pe_oi_change_pct,
-                "PE_Volume": pe_md.get("volume", 0) or 0,
-                "Strike_PCR": strike_pcr,
-                "CE_Token": ce.get("instrument_key", ""),
-                "PE_Token": pe.get("instrument_key", "")
-            }
-            ce_oi += ce_oi_val
-            pe_oi += pe_oi_val
-            rows.append(row)
-            prev_oi[f"{strike}_CE"] = ce_oi_val
-            prev_oi[f"{strike}_PE"] = pe_oi_val
-        st.session_state.prev_oi = prev_oi
-        df = pd.DataFrame(rows).sort_values("Strike")
-        if not df.empty:
-            df['OI_Skew'] = (df['PE_OI'] - df['CE_OI']) / (df['PE_OI'] + df['CE_OI'] + 1)
-            valid_iv = df[(df['CE_IV'] > 0) & (df['PE_IV'] > 0)]
-            if len(valid_iv) > 2:
-                iv_diff = (valid_iv['PE_IV'] - valid_iv['CE_IV']).abs()
-                df['IV_Skew_Slope'] = iv_diff.rolling(window=3).mean().reindex(df.index, fill_value=0)
-            else:
-                df['IV_Skew_Slope'] = 0
+        ce_oi = df['CE_OI'].sum()
+        pe_oi = df['PE_OI'].sum()
+        logger.info(f"Processed option chain with {len(df)} rows, CE OI: {ce_oi}, PE OI: {pe_oi}")
         return df, ce_oi, pe_oi
     except Exception as e:
-        logger.error(f"Option chain processing error: {e}")
+        logger.error(f"Error processing chain: {str(e)}")
         return pd.DataFrame(), 0, 0
 
-def calculate_metrics(df, ce_oi_total, pe_oi_total, spot):
-    """Calculate market metrics."""
+def calculate_metrics(df, ce_oi, pe_oi, spot):
+    """Calculate key market metrics from option chain data."""
+    logger.info("Calculating market metrics")
     try:
-        if df.empty:
-            return 0, 0, 0, 0, 0
-        atm = df.iloc[(df['Strike'] - spot).abs().argsort()[:1]]
-        atm_strike = atm['Strike'].values[0] if not atm.empty else spot
-        pcr = pe_oi_total / (ce_oi_total or 1)
-        min_pain = float('inf')
-        max_pain = spot
-        for strike in df['Strike']:
-            pain = 0
-            for s in df['Strike']:
-                if s <= strike:
-                    pain += df[df['Strike'] == s]['CE_OI'].iloc[0] * max(0, strike - s)
-                if s >= strike:
-                    pain += df[df['Strike'] == s]['PE_OI'].iloc[0] * max(0, s - strike)
-            if pain < min_pain:
-                min_pain = pain
-                max_pain = strike
-        straddle_price = float(atm['CE_LTP'].values[0] + atm['PE_LTP'].values[0]) if not atm.empty else 0
-        atm_iv = (atm['CE_IV'].values[0] + atm['PE_IV'].values[0]) / 2 if not atm.empty else 0
+        pcr = pe_oi / (ce_oi + 1e-10)
+        max_pain = df.groupby('Strike').apply(
+            lambda x: sum(max(0, x['Strike'].iloc[0] - s) * df[df['Strike'] == s]['CE_OI'].sum() +
+                          max(0, s - x['Strike'].iloc[0]) * df[df['Strike'] == s]['PE_OI'].sum()
+                          for s in df['Strike'].unique())
+        ).idxmin()
+        
+        atm_strike = df['Strike'].iloc[(df['Strike'] - spot).abs().argmin()]
+        straddle_price = (df[df['Strike'] == atm_strike]['CE_LTP'].iloc[0] +
+                         df[df['Strike'] == atm_strike]['PE_LTP'].iloc[0])
+        atm_iv = df[df['Strike'] == atm_strike]['CE_IV'].iloc[0]
+        
+        logger.info(f"Metrics: PCR={pcr}, Max Pain={max_pain}, ATM Strike={atm_strike}, ATM IV={atm_iv}")
         return pcr, max_pain, straddle_price, atm_strike, atm_iv
     except Exception as e:
-        logger.error(f"Metrics calculation error: {e}")
+        logger.error(f"Error calculating metrics: {str(e)}")
         return 0, 0, 0, 0, 0
+
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
+def get_market_depth(access_token, base_url, instrument_key):
+    """Fetch market depth for a given instrument."""
+    logger.info(f"Fetching market depth for {instrument_key}")
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        response = requests.get(f"{base_url}/market-depth/{instrument_key}", headers=headers)
+        response.raise_for_status()
+        data = response.json().get('data', {})
+        logger.info(f"Market depth: {data}")
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching market depth: {str(e)}")
+        return {}
 
 def run_volguard(access_token):
     """Run VolGuard data fetching pipeline."""
-    logger = setup_logger()
     logger.info("Starting VolGuard data fetch")
 
     if not access_token:
