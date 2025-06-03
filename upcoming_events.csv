@@ -1,9 +1,16 @@
 Date,Time,Event,Classification,Forecast,Prior
-30-May,17:30,GDP Growth Rate YoY Q1,High,1.2%,1.6%
-31-May,17:45,NBS Manufacturing PMI MAY,MEDIUM,49.5,50.8
-05-Jun,19:45,ECB Interest Rate Decision,MEDIUM,,0.00%
-05-Jun,20:30,Initial Jobless Claims 31/MAY,MEDIUM,215K,217K
-06-Jun,20:30,Non-Farm Payrolls MAY,MEDIUM,180K,141K
-06-Jun,20:30,Average Hourly Earnings YoY MAY,MEDIUM,3.3%,3.5%
-06-Jun,20:30,Unemployment Rate MAY,MEDIUM,4.0%,4.0%
-11-Jun,18:30,Inflation Rate YoY MAY,MEDIUM,3.3%,3.4%
+05-Jun,17:45,ECB Interest Rate Decision,MEDIUM,2.15%,2.40%
+05-Jun,18:00,Initial Jobless Claims MAY/31,MEDIUM,235K,240K
+06-Jun,09:00,RBI Interest Rate Decision,HIGH,5.75%,6%
+06-Jun,18:00,Non Farm Payrolls MAY,MEDIUM,130K,177K
+11-Jun,18:00,Inflation Rate YoY MAY,MEDIUM,-,2.30%
+12-Jun,15:00,Inflation Rate YoY MAY,MEDIUM,-,3.16%
+12-Jun,18:00,Initial Jobless Claims JUN/07,MEDIUM,-,-
+16-Jun,07:30,Industrial Production YoY MAY,MEDIUM,-,6.10%
+16-Jun,12:00,WPI Inflation YoY MAY,MEDIUM,-,0.85%
+17-Jun,08:30,BoJ Interest Rate Decision,MEDIUM,-,0.50%
+17-Jun,18:00,Retail Sales YoY MAY,MEDIUM,-,5.20%
+17-Jun,18:45,Industrial Production YoY MAY,LOW,-,1.50%
+18-Jun,18:00,Housing Starts MAY,MEDIUM,-,1.361M
+18-Jun,23:30,Fed Interest Rate Decision,HIGH,-,-
+19-Jun,18:00,Initial Jobless Claims JUN/14,MEDIUM,-,-
