@@ -1,16 +1,15 @@
 Date,Time,Event,Classification,Forecast,Prior
-05-Jun,17:45,ECB Interest Rate Decision,MEDIUM,2.15%,2.40%
-05-Jun,18:00,Initial Jobless Claims MAY/31,MEDIUM,235K,240K
-06-Jun,09:00,RBI Interest Rate Decision,HIGH,5.75%,6%
-06-Jun,18:00,Non Farm Payrolls MAY,MEDIUM,130K,177K
-11-Jun,18:00,Inflation Rate YoY MAY,MEDIUM,-,2.30%
-12-Jun,15:00,Inflation Rate YoY MAY,MEDIUM,-,3.16%
-12-Jun,18:00,Initial Jobless Claims JUN/07,MEDIUM,-,-
-16-Jun,07:30,Industrial Production YoY MAY,MEDIUM,-,6.10%
-16-Jun,12:00,WPI Inflation YoY MAY,MEDIUM,-,0.85%
-17-Jun,08:30,BoJ Interest Rate Decision,MEDIUM,-,0.50%
-17-Jun,18:00,Retail Sales YoY MAY,MEDIUM,-,5.20%
-17-Jun,18:45,Industrial Production YoY MAY,LOW,-,1.50%
-18-Jun,18:00,Housing Starts MAY,MEDIUM,-,1.361M
-18-Jun,23:30,Fed Interest Rate Decision,HIGH,-,-
-19-Jun,18:00,Initial Jobless Claims JUN/14,MEDIUM,-,-
+30-Jun,07:00,NBS Manufacturing PMI JUN,LOW,49.7,49.5
+30-Jun,16:00,Industrial Production YoY MAY,MEDIUM,2.40%,2.70%
+03-Jul,18:00,Non Farm Payrolls JUN,MEDIUM,129K,-
+03-Jul,18:00,Initial Jobless Claims JUN/28,MEDIUM,239K,-
+09-Jul,23:30,FOMC Minutes,HIGH,-,-
+10-Jul,18:00,Initial Jobless Claims JUL/05,MEDIUM,-,-
+14-Jul,12:00,WPI Inflation YoY JUN,MEDIUM,-,0.39%
+14-Jul,16:00,Inflation Rate YoY JUN,MEDIUM,-,2.82%
+15-Jul,07:30,GDP Growth Rate YoY Q2,MEDIUM,-,5.40%
+15-Jul,07:30,Industrial Production YoY JUN,MEDIUM,-,5.80%
+15-Jul,18:00,Inflation Rate YoY JUN,MEDIUM,-,2.40%
+16-Jul,18:45,Industrial Production YoY JUN,LOW,-,0.60%
+17-Jul,18:00,Retail Sales YoY JUN,MEDIUM,-,3.30%
+17-Jul,18:00,Initial Jobless Claims JUL/12,MEDIUM,-,-
